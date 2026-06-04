@@ -21,18 +21,24 @@ type StripeInstance = InstanceType<typeof Stripe>;
 @Controller('webhooks/stripe')
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);
-  private readonly stripe: StripeInstance;
-  private readonly webhookSecret: string;
+  private readonly stripe: StripeInstance | null = null;
+  private readonly webhookSecret: string | null = null;
 
   constructor(
     private readonly configService: ConfigService,
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {
-    const secretKey = this.configService.getOrThrow<string>('STRIPE_SECRET_KEY');
-    this.webhookSecret = this.configService.getOrThrow<string>('STRIPE_WEBHOOK_SECRET');
-    this.stripe = new Stripe(secretKey, {
-      apiVersion: '2026-05-27.dahlia',
-    });
+    const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');
+    const webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET');
+
+    if (secretKey && webhookSecret) {
+      this.webhookSecret = webhookSecret;
+      this.stripe = new Stripe(secretKey, {
+        apiVersion: '2026-05-27.dahlia',
+      });
+    } else {
+      this.logger.warn('[Stripe Webhook] Stripe not configured — webhook endpoint disabled');
+    }
   }
 
   @Post()
@@ -41,6 +47,10 @@ export class StripeWebhookController {
     @Headers('stripe-signature') signature: string,
     @Req() req: RawBodyRequest<Request>,
   ): Promise<{ received: boolean }> {
+    if (!this.stripe || !this.webhookSecret) {
+      throw new BadRequestException('Stripe is not configured');
+    }
+
     if (!req.rawBody) {
       throw new BadRequestException('Missing raw body');
     }
@@ -57,18 +67,18 @@ export class StripeWebhookController {
     this.logger.log(`[Stripe Webhook] Event: ${event.type} — id: ${event.id}`);
 
     switch (event.type) {
-  case 'payment_intent.payment_failed':
-    await this.handlePaymentFailed(event.data.object as unknown as Record<string, unknown>);
-    break;
-  case 'payment_intent.succeeded':
-    await this.handlePaymentSucceeded(event.data.object as unknown as Record<string, unknown>);
-    break;
-  case 'customer.subscription.deleted':
-    await this.handleSubscriptionDeleted(event.data.object as unknown as Record<string, unknown>);
-    break;
-  default:
-    this.logger.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
-}
+      case 'payment_intent.payment_failed':
+        await this.handlePaymentFailed(event.data.object as unknown as Record<string, unknown>);
+        break;
+      case 'payment_intent.succeeded':
+        await this.handlePaymentSucceeded(event.data.object as unknown as Record<string, unknown>);
+        break;
+      case 'customer.subscription.deleted':
+        await this.handleSubscriptionDeleted(event.data.object as unknown as Record<string, unknown>);
+        break;
+      default:
+        this.logger.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+    }
 
     return { received: true };
   }
