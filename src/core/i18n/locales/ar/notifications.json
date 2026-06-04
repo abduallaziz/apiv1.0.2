@@ -1,0 +1,51 @@
+{
+  "login_new_device": {
+    "title": "تسجيل دخول من جهاز جديد",
+    "body": "تم تسجيل الدخول من جهاز: {{device_name}} — إذا لم تكن أنت، يرجى إلغاء الجلسة فوراً."
+  },
+  "session_revoked": {
+    "title": "تم إلغاء جلستك",
+    "body": "تم إلغاء جلستك من قِبل المسؤول. يرجى تسجيل الدخول مجدداً."
+  },
+  "trial_ending": {
+    "title": "تنبيه: انتهاء الفترة التجريبية",
+    "body": "تنتهي فترتك التجريبية خلال {{days_remaining}} أيام. يرجى ترقية اشتراكك للاستمرار."
+  },
+  "subscription_expired": {
+    "title": "انتهى اشتراكك",
+    "body": "انتهى اشتراكك. يرجى تجديده لاستمرار الوصول إلى الخدمة."
+  },
+  "payment_failed": {
+    "title": "فشل الدفع",
+    "body": "فشلت عملية الدفع بمبلغ {{amount}} {{currency}}. يرجى مراجعة طريقة الدفع."
+  },
+  "payment_success": {
+    "title": "تم الدفع بنجاح",
+    "body": "تمت عملية الدفع بمبلغ {{amount}} {{currency}} بنجاح."
+  },
+  "expense_requested": {
+    "title": "طلب مصروف جديد",
+    "body": "طلب {{cashier_name}} مصروفاً بمبلغ {{amount}} ريال — بانتظار موافقتك."
+  },
+  "expense_approved": {
+    "title": "تمت الموافقة على طلبك",
+    "body": "تمت الموافقة على طلب المصروف بمبلغ {{amount}} ريال."
+  },
+  "expense_rejected": {
+    "title": "تم رفض طلبك",
+    "body": "تم رفض طلب المصروف. السبب: {{reason}}."
+  },
+  "shift_opened": {
+    "title": "تم فتح وردية",
+    "body": "تم فتح وردية جديدة بواسطة {{cashier_name}} في فرع {{branch_name}}."
+  },
+  "shift_closed": {
+    "title": "تم إغلاق الوردية",
+    "body": "تم إغلاق الوردية بواسطة {{cashier_name}}. الإجمالي: {{total}} ريال."
+  },
+  "new_notification": {
+    "title": "إشعار جديد",
+    "body": "لديك إشعار جديد."
+  },
+  "expense_default_title": "مصروف"
+}

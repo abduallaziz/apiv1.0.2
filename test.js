@@ -1,0 +1,7 @@
+const jwt = require('jsonwebtoken');
+const t = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2ZTEyOGFkOC0wZmEwLTQ3MzQtYWRjZC1kNjY5ZTQ2NzhhMTUiLCJlbWFpbCI6ImFkbWluQHNlZmF5LmNvbSIsInJvbGUiOiJzdXBlcmFkbWluIiwidGVuYW50X2lkIjoiZDRkMmE4ZDMtZWFiNy00MmZlLWE4NzEtMzMxYmEyYzI3NzJjIiwic2Vzc2lvbl9pZCI6IjkxYTM4ZTMxLTNjYjMtNDgxYy1hNDdmLTRlNzQwMjEwMmFiOSIsImlhdCI6MTc3OTkwMjQzMiwiZXhwIjoxNzgwNTA3MjMyfQ.pcesDZh9k1g6kNMxybRmfG2ru1LhdkMwEUOFSNaFbQE';
+try {
+  console.log(jwt.verify(t, 'sefay_super_secret_enterprise_key_2024_v102'));
+} catch(e) {
+  console.log(e.message);
+}

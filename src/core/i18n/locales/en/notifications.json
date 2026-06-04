@@ -1,0 +1,51 @@
+{
+  "login_new_device": {
+    "title": "New device login",
+    "body": "A login was made from device: {{device_name}} — If this wasn't you, please revoke the session immediately."
+  },
+  "session_revoked": {
+    "title": "Your session was revoked",
+    "body": "Your session has been revoked by an administrator. Please log in again."
+  },
+  "trial_ending": {
+    "title": "Trial ending soon",
+    "body": "Your trial ends in {{days_remaining}} days. Please upgrade your subscription to continue."
+  },
+  "subscription_expired": {
+    "title": "Subscription expired",
+    "body": "Your subscription has expired. Please renew it to regain access."
+  },
+  "payment_failed": {
+    "title": "Payment failed",
+    "body": "A payment of {{amount}} {{currency}} failed. Please review your payment method."
+  },
+  "payment_success": {
+    "title": "Payment successful",
+    "body": "A payment of {{amount}} {{currency}} was completed successfully."
+  },
+  "expense_requested": {
+    "title": "New expense request",
+    "body": "{{cashier_name}} requested an expense of {{amount}} SAR — awaiting your approval."
+  },
+  "expense_approved": {
+    "title": "Expense request approved",
+    "body": "Your expense request of {{amount}} SAR has been approved."
+  },
+  "expense_rejected": {
+    "title": "Expense request rejected",
+    "body": "Your expense request was rejected. Reason: {{reason}}."
+  },
+  "shift_opened": {
+    "title": "Shift opened",
+    "body": "A new shift was opened by {{cashier_name}} at branch {{branch_name}}."
+  },
+  "shift_closed": {
+    "title": "Shift closed",
+    "body": "The shift was closed by {{cashier_name}}. Total: {{amount}} SAR."
+  },
+  "new_notification": {
+    "title": "New notification",
+    "body": "You have a new notification."
+  },
+  "expense_default_title": "Expense"
+}

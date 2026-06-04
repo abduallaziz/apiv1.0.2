@@ -1,0 +1,14 @@
+C:\Fp\api\src\core\notification
+C:\Fp\api\src\core\notification\notification.constants.ts
+C:\Fp\api\src\core\notification\notification.module.ts
+C:\Fp\api\src\core\notification\notification.service.ts
+C:\Fp\api\src\core\notification\channels\notification-channel.interface.ts
+C:\Fp\api\src\core\notification\dto\notification-query.dto.ts
+C:\Fp\api\src\core\notification\dto\send-notification.dto.ts
+C:\Fp\api\src\core\notification\processors\notification.processor.ts
+C:\Fp\api\src\core\notification\repositories\notifications.repository.ts
+C:\Fp\api\src\core\notification\templates\notification-templates.ts
+C:\Fp\api\src\modules\notifications
+C:\Fp\api\src\modules\notifications\notifications.controller.ts
+C:\Fp\api\src\modules\notifications\notifications.module.ts
+C:\Fp\api\src\core\notification\channels\email.channel.ts

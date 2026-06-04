@@ -1,0 +1,85 @@
+C:\Fp\api\src\core\auth\jwt-auth.guard.ts:35:      throw new UnauthorizedException('Invalid or missing token');
+C:\Fp\api\src\core\auth\jwt-auth.guard.ts:48:      throw new UnauthorizedException('Invalid or missing token');
+C:\Fp\api\src\core\auth\jwt.strategy.ts:22:      throw new UnauthorizedException('Invalid token payload');
+C:\Fp\api\src\core\billing\billing.service.ts:111:      throw new ForbiddenException(
+C:\Fp\api\src\core\billing\billing.service.ts:130:      throw new ForbiddenException(
+C:\Fp\api\src\core\billing\stripe-webhook.controller.ts:45:      throw new BadRequestException('Missing raw body');
+C:\Fp\api\src\core\billing\stripe-webhook.controller.ts:54:      throw new BadRequestException(`Webhook Error: ${message}`);
+C:\Fp\api\src\core\feature-flags\feature.guard.ts:36:      throw new ForbiddenException('Tenant context missing');
+C:\Fp\api\src\core\feature-flags\feature.guard.ts:42:      throw new ForbiddenException(`Feature '${featureKey}' is not available for your plan`);
+C:\Fp\api\src\core\permissions\permission.guard.ts:30:    if (!user) throw new ForbiddenException('No authenticated user');
+C:\Fp\api\src\core\permissions\permission.guard.ts:41:      throw new ForbiddenException(
+C:\Fp\api\src\core\queue\pipes\queue-exists.pipe.ts:10:      throw new BadRequestException(
+C:\Fp\api\src\core\queue\queue.service.ts:45:      throw new BadRequestException(`Queue "${name}" not found`);
+C:\Fp\api\src\core\queue\queue.service.ts:111:      throw new BadRequestException(`Job "${jobId}" not found in queue "${queueName}"`);
+C:\Fp\api\src\core\queue\queue.service.ts:141:      throw new BadRequestException(`Job "${jobId}" not found`);
+C:\Fp\api\src\core\queue\queue.service.ts:145:      throw new BadRequestException(
+C:\Fp\api\src\core\queue\queue.service.ts:158:      throw new BadRequestException(
+C:\Fp\api\src\core\security\branch-validator.service.ts:23:      throw new ForbiddenException('Branch not found or does not belong to tenant');
+C:\Fp\api\src\core\tenant\tenant.guard.ts:35:      throw new ForbiddenException('Tenant context missing');
+C:\Fp\api\src\engines\approval-engine\approval.engine.ts:24:      throw new BadRequestException('Rejection reason is required');
+C:\Fp\api\src\engines\payment-engine\payment.engine.ts:13:      throw new BadRequestException('Insufficient cash tendered');
+C:\Fp\api\src\engines\payment-engine\payment.engine.ts:24:      throw new BadRequestException('Invalid payment amount');
+C:\Fp\api\src\engines\payment-engine\payment.engine.ts:36:      throw new BadRequestException('Split payment does not cover total');
+C:\Fp\api\src\engines\shift-engine\shift.engine.ts:25:      throw new BadRequestException('A shift is already open for this cashier');
+C:\Fp\api\src\modules\auth\auth.service.ts:85:      throw new UnauthorizedException('Invalid credentials');
+C:\Fp\api\src\modules\auth\auth.service.ts:89:      throw new ForbiddenException('Account is inactive');
+C:\Fp\api\src\modules\auth\auth.service.ts:104:      throw new UnauthorizedException('Invalid credentials');
+C:\Fp\api\src\modules\auth\auth.service.ts:193:      throw new UnauthorizedException('Invalid refresh token');
+C:\Fp\api\src\modules\auth\auth.service.ts:213:      throw new UnauthorizedException('Token reuse detected. Session revoked.');
+C:\Fp\api\src\modules\auth\auth.service.ts:217:      throw new UnauthorizedException('Refresh token expired');
+C:\Fp\api\src\modules\auth\auth.service.ts:227:      throw new UnauthorizedException('Session revoked');
+C:\Fp\api\src\modules\auth\auth.service.ts:238:      throw new UnauthorizedException('User not found');
+C:\Fp\api\src\modules\auth\auth.service.ts:322:      throw new UnauthorizedException('User not found');
+C:\Fp\api\src\modules\auth\auth.service.ts:358:      throw new UnauthorizedException('Session not found');
+C:\Fp\api\src\modules\auth\auth.service.ts:362:      throw new ForbiddenException('Cannot revoke another user session');
+C:\Fp\api\src\modules\branches\branches.service.ts:26:    if (!branch) throw new NotFoundException('Branch not found');
+C:\Fp\api\src\modules\branches\branches.service.ts:37:    if (!branch) throw new NotFoundException('Branch not found');
+C:\Fp\api\src\modules\branches\branches.service.ts:43:    if (!branch) throw new NotFoundException('Branch not found');
+C:\Fp\api\src\modules\branches\branches.service.ts:47:      throw new BadRequestException('Cannot delete the last active branch.');
+C:\Fp\api\src\modules\customers\customers.service.ts:22:    if (!customer) throw new NotFoundException('Customer not found');
+C:\Fp\api\src\modules\customers\customers.service.ts:28:    if (existing) throw new BadRequestException('Phone already registered for this tenant');
+C:\Fp\api\src\modules\customers\customers.service.ts:38:        throw new BadRequestException('Phone already registered for this tenant');
+C:\Fp\api\src\modules\expenses\expense-templates.service.ts:35:    if (error || !data) throw new NotFoundException('Expense template not found');
+C:\Fp\api\src\modules\expenses\expenses.service.ts:92:    if (error || !data) throw new NotFoundException('Expense not found');
+C:\Fp\api\src\modules\expenses\expenses.service.ts:112:          throw new BadRequestException('This expense template requires a photo');
+C:\Fp\api\src\modules\expenses\expenses.service.ts:143:      throw new BadRequestException(`Cannot approve expense with status: ${expense.status}`);
+C:\Fp\api\src\modules\expenses\expenses.service.ts:153:      throw new BadRequestException('Expense has expired and cannot be approved');
+C:\Fp\api\src\modules\expenses\expenses.service.ts:178:      throw new BadRequestException(`Cannot reject expense with status: ${expense.status}`);
+C:\Fp\api\src\modules\invoices\invoices.service.ts:41:        throw new BadRequestException('cash_tendered required for cash payment');
+C:\Fp\api\src\modules\invoices\invoices.service.ts:46:        throw new BadRequestException(
+C:\Fp\api\src\modules\invoices\invoices.service.ts:105:    if (!invoice) throw new NotFoundException('Invoice not found');
+C:\Fp\api\src\modules\invoices\invoices.service.ts:121:      throw new BadRequestException('Invoice already cancelled');
+C:\Fp\api\src\modules\invoices\invoices.service.ts:127:      throw new BadRequestException('Cannot cancel this invoice');
+C:\Fp\api\src\modules\items\categories.service.ts:16:    if (!category) throw new NotFoundException('Category not found');
+C:\Fp\api\src\modules\items\items.service.ts:18:    if (!item) throw new NotFoundException('Item not found');
+C:\Fp\api\src\modules\payments\payments.service.ts:64:    if (!invoice) throw new NotFoundException('Invoice not found');
+C:\Fp\api\src\modules\payments\payments.service.ts:70:    if (!invoice) throw new NotFoundException('Invoice not found');
+C:\Fp\api\src\modules\plans\plans.service.ts:29:    if (error || !data) throw new NotFoundException('Plan not found');
+C:\Fp\api\src\modules\shared\tenant-management\services\lifecycle.service.ts:34:    if (!tenant) throw new NotFoundException(`Tenant ${tenantId} not found`);
+C:\Fp\api\src\modules\shifts\shifts.service.ts:62:    if (!shift) throw new NotFoundException('Shift not found');
+C:\Fp\api\src\modules\shifts\shifts.service.ts:63:    if (shift.status === 'closed') throw new BadRequestException('Shift already closed');
+C:\Fp\api\src\modules\shifts\shifts.service.ts:64:    if (shift.cashier_id !== actorId) throw new BadRequestException('Not your shift');
+C:\Fp\api\src\modules\shifts\shifts.service.ts:111:    if (!shift) throw new NotFoundException('Shift not found');
+C:\Fp\api\src\modules\subscriptions\subscriptions.service.ts:53:    if (error || !data) throw new NotFoundException('Tenant not found');
+C:\Fp\api\src\modules\subscriptions\subscriptions.service.ts:64:    if (ownerError || !owner) throw new NotFoundException('Tenant owner not found');
+C:\Fp\api\src\modules\superadmin\controllers\queues.controller.ts:56:      throw new NotFoundException((err as Error).message);
+C:\Fp\api\src\modules\superadmin\controllers\queues.controller.ts:84:      throw new BadRequestException((err as Error).message);
+C:\Fp\api\src\modules\superadmin\guards\superadmin.guard.ts:15:      throw new ForbiddenException('SuperAdmin access required');
+C:\Fp\api\src\modules\superadmin\services\audit-logs.service.ts:16:    if (!log) throw new NotFoundException(`Audit log ${id} not found`);
+C:\Fp\api\src\modules\tenants\tenants.service.ts:11:    if (!tenant) throw new NotFoundException('Tenant not found');
+C:\Fp\api\src\modules\tenants\tenants.service.ts:17:    if (!tenant) throw new NotFoundException('Tenant not found');
+C:\Fp\api\src\modules\tenants\tenants.service.ts:23:    if (!tenant) throw new NotFoundException('Tenant not found');
+C:\Fp\api\src\modules\tenants\tenants.service.ts:36:    if (!tenant) throw new NotFoundException('Tenant not found');
+C:\Fp\api\src\modules\users\users.service.ts:28:    if (error) throw new BadRequestException(error.message);
+C:\Fp\api\src\modules\users\users.service.ts:34:    if (error || !data) throw new NotFoundException('User not found');
+C:\Fp\api\src\modules\users\users.service.ts:42:    if (existing) throw new ConflictException('Email already exists in this tenant');
+C:\Fp\api\src\modules\users\users.service.ts:45:      throw new ForbiddenException('Cannot create superadmin via this endpoint');
+C:\Fp\api\src\modules\users\users.service.ts:59:    if (error) throw new BadRequestException(error.message);
+C:\Fp\api\src\modules\users\users.service.ts:81:    if (dto.role) throw new BadRequestException('Use PATCH /users/:id/role to change role');
+C:\Fp\api\src\modules\users\users.service.ts:84:    if (error) throw new BadRequestException(error.message);
+C:\Fp\api\src\modules\users\users.service.ts:103:      throw new ForbiddenException('Cannot change superadmin role');
+C:\Fp\api\src\modules\users\users.service.ts:106:      throw new ForbiddenException('Cannot assign superadmin role');
+C:\Fp\api\src\modules\users\users.service.ts:110:    if (error) throw new BadRequestException(error.message);
+C:\Fp\api\src\modules\users\users.service.ts:128:    if (id === actorId) throw new ForbiddenException('Cannot delete yourself');
+C:\Fp\api\src\modules\users\users.service.ts:131:    if (error) throw new BadRequestException(error.message);
