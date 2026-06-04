@@ -17,18 +17,29 @@ type StripeInstance = InstanceType<typeof Stripe>;
 @Injectable()
 export class StripePaymentProvider implements PaymentProvider {
   readonly providerName = 'stripe';
-  private readonly stripe: StripeInstance;
+  private stripe: StripeInstance | null = null;
   private readonly logger = new Logger(StripePaymentProvider.name);
 
   constructor(private readonly configService: ConfigService) {
-    const secretKey = this.configService.getOrThrow<string>('STRIPE_SECRET_KEY');
-    this.stripe = new Stripe(secretKey, {
-      apiVersion: '2026-05-27.dahlia',
-    });
+    const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');
+    if (secretKey) {
+      this.stripe = new Stripe(secretKey, {
+        apiVersion: '2026-05-27.dahlia',
+      });
+    } else {
+      this.logger.warn('[Stripe] STRIPE_SECRET_KEY not set — Stripe disabled');
+    }
+  }
+
+  private getStripe(): StripeInstance {
+    if (!this.stripe) {
+      throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
+    }
+    return this.stripe;
   }
 
   async createCustomer(input: CreateCustomerInput): Promise<CreateCustomerResult> {
-    const customer = await this.stripe.customers.create({
+    const customer = await this.getStripe().customers.create({
       email: input.email,
       name: input.name,
       metadata: { tenantId: input.tenantId },
@@ -39,7 +50,7 @@ export class StripePaymentProvider implements PaymentProvider {
 
   async createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
     try {
-      const paymentIntent = await this.stripe.paymentIntents.create({
+      const paymentIntent = await this.getStripe().paymentIntents.create({
         amount: Math.round(input.amount * 100),
         currency: input.currency.toLowerCase(),
         customer: input.providerCustomerId,
@@ -68,7 +79,7 @@ export class StripePaymentProvider implements PaymentProvider {
 
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentResult> {
     try {
-      await this.stripe.refunds.create({
+      await this.getStripe().refunds.create({
         payment_intent: input.providerPaymentId,
         amount: Math.round(input.amount * 100),
       });
