@@ -16,8 +16,11 @@ import { BillingModule } from '../billing/billing.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const redisUrl = config.get<string>('REDIS_URL');
+        const nodeEnv = config.get<string>('NODE_ENV', 'development');
+        const appEnv = config.get<string>('APP_ENV', 'production');
+        const prefix = appEnv === 'staging' ? 'sefay-staging' : 'sefay';
         return {
-          prefix: 'sefay',
+          prefix,
           connection: redisUrl
             ? { url: redisUrl }
             : {
