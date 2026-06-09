@@ -66,6 +66,11 @@ export class SuperAdminService {
     return this.featureSvc.getFeatureOverrides(tenantId);
   }
 
+  // H-028 FIX: aggregated features endpoint
+  getTenantFeaturesWithOverrides(tenantId: string) {
+    return this.featureSvc.getTenantFeaturesWithOverrides(tenantId);
+  }
+
   upsertFeatureOverride(
     tenantId: string,
     featureKey: string,

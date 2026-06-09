@@ -385,4 +385,43 @@ export class AuthService {
 
     return { message: 'Session revoked' };
   }
+
+  // H-024 FIX: get sessions enriched with user_name, user_email, tenant_name
+  async getSessions(userId: string) {
+    const { data: sessions, error } = await this.supabase
+      .from('device_sessions')
+      .select('id, device_name, device_type, ip_address, last_active_at, is_revoked, created_at, user_id, tenant_id')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const enriched = await Promise.all(
+      (sessions ?? []).map(async (s: any) => {
+        const [userRes, tenantRes] = await Promise.all([
+          this.supabase
+            .from('users')
+            .select('name, email')
+            .eq('id', s.user_id)
+            .single(),
+          s.tenant_id
+            ? this.supabase
+                .from('tenants')
+                .select('name')
+                .eq('id', s.tenant_id)
+                .single()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        return {
+          ...s,
+          user_name: userRes.data?.name ?? null,
+          user_email: userRes.data?.email ?? null,
+          tenant_name: (tenantRes as any).data?.name ?? null,
+        };
+      }),
+    );
+
+    return enriched;
+  }
 }

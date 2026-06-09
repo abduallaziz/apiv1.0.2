@@ -8,6 +8,47 @@ export class TenantManagementRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
+  // H-020 + H-021 + H-022 FIX: enrich tenants with owner, counts, plan
+  private async enrichTenant(tenant: any) {
+    const [ownerRes, usersRes, branchesRes, subRes] = await Promise.all([
+      this.supabase
+        .from('users')
+        .select('name, email')
+        .eq('tenant_id', tenant.id)
+        .eq('role', 'owner')
+        .is('deleted_at', null)
+        .limit(1)
+        .single(),
+      this.supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.id)
+        .is('deleted_at', null),
+      this.supabase
+        .from('branches')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.id)
+        .is('deleted_at', null),
+      this.supabase
+        .from('subscriptions')
+        .select('plans(name)')
+        .eq('tenant_id', tenant.id)
+        .in('status', ['active', 'trial'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single(),
+    ]);
+
+    return {
+      ...tenant,
+      owner_name: ownerRes.data?.name ?? null,
+      owner_email: ownerRes.data?.email ?? null,
+      users_count: usersRes.count ?? 0,
+      branches_count: branchesRes.count ?? 0,
+      subscription_plan: (subRes.data as any)?.plans?.name ?? null,
+    };
+  }
+
   async findAll(params: {
     page: number;
     limit: number;
@@ -32,7 +73,11 @@ export class TenantManagementRepository {
 
     const { data, error, count } = await query;
     if (error) throw error;
-    return { data: data ?? [], count: count ?? 0 };
+
+    // H-020 + H-021 + H-022 FIX: enrich each tenant
+    const enriched = await Promise.all((data ?? []).map((t) => this.enrichTenant(t)));
+
+    return { data: enriched, count: count ?? 0 };
   }
 
   async findById(tenantId: string) {
@@ -43,7 +88,7 @@ export class TenantManagementRepository {
       .is('deleted_at', null)
       .single();
     if (error) throw error;
-    return data;
+    return this.enrichTenant(data);
   }
 
   async updateStatus(tenantId: string, status: string) {

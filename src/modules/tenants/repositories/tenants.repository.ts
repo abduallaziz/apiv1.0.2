@@ -34,6 +34,8 @@ export class TenantsRepository {
   }
 
   async getSubscription(tenantId: string) {
+    // H-013 FIX: remove expires_at (never written) → use current_period_end
+    // H-014 FIX: remove max_users/max_branches from subscriptions → JOIN plans
     const { data, error } = await this.supabase
       .from('subscriptions')
       .select(`
@@ -41,14 +43,12 @@ export class TenantsRepository {
         status,
         plan_id,
         started_at,
-        expires_at,
+        current_period_end,
         cancelled_at,
         trial_ends_at,
-        max_users,
-        max_branches,
         billing_cycle,
         current_period_start,
-        current_period_end
+        plans(max_users, max_branches, name, price_monthly, price_yearly)
       `)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
@@ -56,7 +56,25 @@ export class TenantsRepository {
       .single();
 
     if (error && error.code !== 'PGRST116') throw error;
-    return data ?? null;
+    if (!data) return null;
+
+    // H-014 FIX: flatten plan limits
+    const plan = (data as any).plans ?? {};
+    return {
+      id: data.id,
+      status: data.status,
+      plan_id: data.plan_id,
+      plan_name: plan.name ?? null,
+      started_at: data.started_at,
+      expires_at: data.current_period_end ?? null,   // H-013 FIX: alias for consumers
+      current_period_end: data.current_period_end,
+      current_period_start: data.current_period_start,
+      cancelled_at: data.cancelled_at,
+      trial_ends_at: data.trial_ends_at,
+      billing_cycle: data.billing_cycle,
+      max_users: plan.max_users ?? 0,                // H-014 FIX: from plans
+      max_branches: plan.max_branches ?? 0,          // H-014 FIX: from plans
+    };
   }
 
   async countUsers(tenantId: string): Promise<number> {

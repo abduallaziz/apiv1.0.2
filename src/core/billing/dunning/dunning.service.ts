@@ -130,6 +130,7 @@ export class DunningService {
       attempt_number: nextAttemptNumber,
       status: 'pending',
       next_retry_at: nextRetryAt.toISOString(),
+      attempted_at: new Date().toISOString(), // H-025 FIX
     });
 
     this.logger.log(
@@ -161,10 +162,9 @@ export class DunningService {
         throw new Error('No billing customer found');
       }
 
-      // جلب الـ invoice المرتبطة بالـ dunning attempt
       const { data: invoice } = await this.supabase
         .from('invoices')
-        .select('id, amount_due, currency')
+        .select('id, total_amount, currency')
         .eq('subscription_id', attempt.subscription_id)
         .eq('status', 'open')
         .order('created_at', { ascending: false })
@@ -175,7 +175,7 @@ export class DunningService {
         tenantId: attempt.tenant_id,
         providerCustomerId: billingCustomer.provider_customer_id,
         invoiceId: invoice?.id ?? attempt.billing_invoice_id ?? 'unknown',
-        amount: invoice?.amount_due ?? 0,
+        amount: invoice?.total_amount ?? 0,
         currency: invoice?.currency ?? 'SAR',
         description: `Dunning retry #${attempt.attempt_number}`,
       });
@@ -212,18 +212,28 @@ export class DunningService {
   }
 
   private async markExhausted(subscriptionId: string, tenantId: string): Promise<void> {
+    // H-026 FIX: write grace_period_ends_at when marking exhausted
+    const gracePeriodEndsAt = new Date();
+    gracePeriodEndsAt.setDate(gracePeriodEndsAt.getDate() + DUNNING_GRACE_PERIOD_DAYS);
+
+    await this.supabase
+      .from('subscriptions')
+      .update({
+        status: 'grace_period',
+        grace_period_ends_at: gracePeriodEndsAt.toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', subscriptionId);
+
     await this.supabase
       .from('dunning_attempts')
       .update({ status: 'exhausted' })
       .eq('subscription_id', subscriptionId)
       .eq('status', 'pending');
 
-    await this.supabase
-      .from('subscriptions')
-      .update({ status: 'past_due' })
-      .eq('id', subscriptionId);
-
-    this.logger.warn(`Tenant ${tenantId} marked for suspension after grace period.`);
+    this.logger.warn(
+      `Tenant ${tenantId} entered grace period — ends at ${gracePeriodEndsAt.toISOString()}`,
+    );
   }
 
   private async suspendTenant(tenantId: string): Promise<void> {
@@ -236,6 +246,16 @@ export class DunningService {
       this.logger.error(`Failed to suspend tenant ${tenantId}`, error.message);
       return;
     }
+
+    await this.supabase
+      .from('subscriptions')
+      .update({
+        status: 'suspended',
+        suspended_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'grace_period');
 
     this.logger.warn(`Tenant ${tenantId} has been suspended due to non-payment.`);
   }

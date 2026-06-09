@@ -13,6 +13,17 @@ export class ItemsRepository extends ScopedRepository {
     return { tenantId } as TenantContext;
   }
 
+  // H-009 FIX: flatten categories object → category_id, category_name, category_type
+  private flattenItem(item: any) {
+    const { categories, ...rest } = item;
+    return {
+      ...rest,
+      category_id: categories?.id ?? null,
+      category_name: categories?.name ?? null,
+      category_type: categories?.type ?? null,
+    };
+  }
+
   async findAll(tenantId: string) {
     const { data, error } = await this.scopedQuery('items', this.ctx(tenantId))
       .select(
@@ -22,7 +33,7 @@ export class ItemsRepository extends ScopedRepository {
       .eq('is_active', true)
       .order('name');
     if (error) throw error;
-    return data;
+    return (data ?? []).map(this.flattenItem);
   }
 
   async findById(id: string, tenantId: string) {
@@ -35,7 +46,7 @@ export class ItemsRepository extends ScopedRepository {
       .eq('id', id)
       .single();
     if (error) throw error;
-    return data;
+    return this.flattenItem(data);
   }
 
   async create(tenantId: string, payload: Record<string, unknown>) {

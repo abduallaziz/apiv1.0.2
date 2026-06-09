@@ -66,13 +66,36 @@ export class SuperAdminController {
     return this.superAdminService.softDelete(id, (req as any).user.sub);
   }
 
+  // H-028 FIX: aggregated features + overrides endpoint
+  @Get('tenants/:id/features')
+  getTenantFeatures(@Param('id') id: string) {
+    return this.superAdminService.getTenantFeaturesWithOverrides(id);
+  }
+
   @Get('tenants/:id/feature-overrides')
   getFeatureOverrides(@Param('id') id: string) {
     return this.superAdminService.getFeatureOverrides(id);
   }
 
-  @Patch('tenants/:id/feature-overrides/:featureKey')
+  @Patch('tenants/:id/features/:featureKey')
   upsertFeatureOverride(
+    @Param('id') id: string,
+    @Param('featureKey') featureKey: string,
+    @Body() dto: FeatureOverrideDto,
+    @Req() req: Request,
+  ) {
+    return this.superAdminService.upsertFeatureOverride(
+      id,
+      featureKey,
+      dto.is_enabled ?? null,
+      dto.limit_value ?? null,
+      (req as any).user.sub,
+      dto.note,
+    );
+  }
+
+  @Patch('tenants/:id/feature-overrides/:featureKey')
+  upsertFeatureOverrideLegacy(
     @Param('id') id: string,
     @Param('featureKey') featureKey: string,
     @Body() dto: FeatureOverrideDto,

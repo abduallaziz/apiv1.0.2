@@ -54,6 +54,13 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('sessions')
+  getSessions(@Req() req: Request) {
+    const user = req.user as JwtPayload;
+    return this.authService.getSessions(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('revoke-session')
   @HttpCode(HttpStatus.OK)
   revokeSession(@Body() dto: RevokeSessionDto, @Req() req: Request) {
