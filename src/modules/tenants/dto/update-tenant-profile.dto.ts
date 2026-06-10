@@ -1,13 +1,8 @@
 import { IsString, IsOptional, MinLength, MaxLength, IsEnum } from 'class-validator';
+import { BusinessType } from '../../../shared/types/enums';
 
-export enum BusinessType {
-  RESTAURANT = 'restaurant',
-  CAFE = 'cafe',
-  RETAIL = 'retail',
-  SERVICE = 'service',
-  WORKSHOP = 'workshop',
-  OTHER = 'other',
-}
+// H-027 FIX: removed local BusinessType enum — import from shared enums
+// shared enums uses 'services' (plural); local was 'service' (singular) — mismatch fixed
 
 export class UpdateTenantProfileDto {
   @IsOptional()

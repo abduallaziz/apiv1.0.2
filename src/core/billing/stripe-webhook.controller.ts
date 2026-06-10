@@ -98,16 +98,15 @@ export class StripeWebhookController {
       .update({
         status: 'failed',
         failure_reason: lastError?.message ?? 'Unknown failure',
-        updated_at: new Date().toISOString(),
       })
       .eq('provider_payment_id', providerPaymentId);
 
     await this.supabase
-      .from('billing_invoices')
-      .update({ status: 'failed', updated_at: new Date().toISOString() })
+      .from('invoices')
+      .update({ status: 'void', updated_at: new Date().toISOString() })
       .eq('id', invoiceId);
 
-    this.logger.log(`[Stripe Webhook] Marked invoice ${invoiceId} as failed`);
+    this.logger.log(`[Stripe Webhook] Marked invoice ${invoiceId} as void`);
   }
 
   private async handlePaymentSucceeded(obj: Record<string, unknown>): Promise<void> {
@@ -121,11 +120,11 @@ export class StripeWebhookController {
 
     await this.supabase
       .from('payments')
-      .update({ status: 'succeeded', updated_at: new Date().toISOString() })
+      .update({ status: 'succeeded' })
       .eq('provider_payment_id', providerPaymentId);
 
     await this.supabase
-      .from('billing_invoices')
+      .from('invoices')
       .update({
         status: 'paid',
         paid_at: new Date().toISOString(),

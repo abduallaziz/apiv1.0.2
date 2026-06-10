@@ -33,8 +33,6 @@ export class InvoicesController {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string; role: string };
-    const branchId = req.headers['x-branch-id'] as string;
-    const shiftId = req.headers['x-shift-id'] as string;
     const ip = (req.headers['x-forwarded-for'] as string) ?? req.ip ?? '';
     const device = (req.headers['user-agent'] as string) ?? '';
 
@@ -43,8 +41,8 @@ export class InvoicesController {
       dto,
       user.sub,
       user.role,
-      branchId,
-      shiftId,
+      dto.branch_id,
+      dto.shift_id,
       ip,
       device,
     );

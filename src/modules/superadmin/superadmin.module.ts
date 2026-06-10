@@ -13,11 +13,14 @@ import { SupabaseModule } from '../../shared/supabase/supabase.module';
 import { QueueModule } from '../../core/queue/queue.module';
 import { HealthController } from './health/health.controller';
 import { HealthService } from './health/health.service';
+import { PublicHealthController } from './health/public-health.controller';
+
+
 
 
 @Module({
   imports: [TenantManagementModule, AnalyticsModule, PermissionsModule, SupabaseModule, QueueModule],
-  controllers: [SuperAdminController, AnalyticsController, AuditLogsController,HealthController, QueuesController],
+  controllers: [SuperAdminController, AnalyticsController, AuditLogsController, HealthController, QueuesController, PublicHealthController],
   providers: [SuperAdminService, AuditLogsService, HealthService, AuditLogsRepository ],
 })
 export class SuperAdminModule {}

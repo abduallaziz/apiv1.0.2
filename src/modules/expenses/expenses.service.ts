@@ -96,7 +96,7 @@ export class ExpensesService {
   }
 
   async create(dto: CreateExpenseDto, tenantId: string, userId: string) {
-    let expiryHours = 24;
+    let expiryHours = 8760; // 365 days
     let templateName: string | undefined;
 
     if (dto.template_id) {

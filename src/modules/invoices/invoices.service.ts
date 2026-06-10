@@ -35,7 +35,7 @@ export class InvoicesService {
     const built = this.posEngine.buildInvoice(
       dto.items,
       dto.discount,
-      dto.tax_rate ?? 15,
+      dto.tax_rate ?? 0,
     );
 
     if (dto.payment_method === 'cash') {

@@ -49,6 +49,13 @@ export class DiscountDto {
 }
 
 export class CreateInvoiceDto {
+  @IsUUID()
+  branch_id: string;
+
+  @IsOptional()
+  @IsUUID()
+  shift_id?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => InvoiceItemDto)
