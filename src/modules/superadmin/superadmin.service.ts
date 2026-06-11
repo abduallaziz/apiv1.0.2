@@ -88,4 +88,7 @@ export class SuperAdminService {
       note,
     });
   }
+  getAllFeatures() {
+  return this.featureSvc.getAllFeatures();
+}
 }

@@ -100,4 +100,12 @@ export class FeatureService {
       };
     });
   }
+  async getAllFeatures() {
+  const { data, error } = await this.supabase
+    .from('features')
+    .select('id, key, name, description, category, is_enabled')
+    .order('category', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
 }

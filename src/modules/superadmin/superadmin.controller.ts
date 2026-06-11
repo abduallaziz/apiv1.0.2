@@ -32,6 +32,12 @@ export class SuperAdminController {
     return this.superAdminService.getRevenueReport(period);
   }
 
+
+  @Get('features')
+getAllFeatures() {
+  return this.superAdminService.getAllFeatures();
+}
+
   @Get('tenants')
   findAll(@Query() query: SuperAdminTenantsQueryDto) {
     return this.superAdminService.findAll(query);
