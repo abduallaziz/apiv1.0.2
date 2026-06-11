@@ -30,7 +30,7 @@ export class FeatureService {
     // 1. get all features
     const { data: allFeatures, error: featErr } = await this.supabase
       .from('features')
-      .select('id, key, name, description, is_enabled');
+      .select('id, key, name, description, category, is_enabled');
     if (featErr) throw featErr;
 
     // 2. get tenant's active plan
@@ -97,6 +97,7 @@ export class FeatureService {
         tenant_override: override,
         effective_enabled,
         effective_limit,
+        category: feature.category,
       };
     });
   }
