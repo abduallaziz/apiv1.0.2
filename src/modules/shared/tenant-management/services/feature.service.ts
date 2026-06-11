@@ -90,6 +90,7 @@ export class FeatureService {
         id: feature.id,
         key: feature.key,
         name: feature.name,
+        name_ar: feature.name_ar,
         description: feature.description ?? null,
         is_enabled: feature.is_enabled,
         plan_default,
@@ -104,7 +105,7 @@ export class FeatureService {
   async getAllFeatures() {
   const { data, error } = await this.supabase
     .from('features')
-    .select('id, key, name, description, category, is_enabled')
+    .select('id, key, name, name_ar, description, category, is_enabled')
     .order('category', { ascending: true });
   if (error) throw error;
   return data ?? [];
