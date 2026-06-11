@@ -11,7 +11,7 @@ export class ShiftsRepository {
   async findAll(tenantId: string | null, branchId?: string) {
   let query = this.supabase
     .from('shifts')
-    .select('id, status, opening_cash, closing_cash, discrepancy, expected_cash, opened_at, closed_at, cashier_id, branch_id')
+    .select('id, status, opening_cash, closing_cash, discrepancy, expected_cash, opened_at, closed_at, cashier_id, branch_id, users!cashier_id(name)')
     .is('deleted_at', null)
     .order('opened_at', { ascending: false });
 
@@ -20,7 +20,11 @@ export class ShiftsRepository {
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return data ?? [];
+  return (data ?? []).map((s: any) => ({
+  ...s,
+  cashier_name: s.users?.name ?? null,
+  users: undefined,
+}));
 }
 
   async findOpenByUser(cashierId: string, tenantId: string) {
