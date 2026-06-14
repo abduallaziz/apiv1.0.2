@@ -61,15 +61,16 @@ export class ShiftsController {
   }
 
   @Get('current')
-  @RequirePermission('shift.view.own')
-  getCurrentShift(
-    @GetTenant() tenant: TenantContext,
-    @Req() req: Request,
-    @Query('branch_id') branchId?: string,
-  ) {
-    const user = (req as any).user;
-    return this.service.getCurrentShift(tenant, user.sub, branchId);
-  }
+@RequirePermission('shift.view.own')
+async getCurrentShift(
+  @GetTenant() tenant: TenantContext,
+  @Req() req: Request,
+  @Query('branch_id') branchId?: string,
+) {
+  const user = (req as any).user;
+  const shift = await this.service.getCurrentShift(tenant, user.sub, branchId);
+  return shift ?? null;
+}
 
   @Get(':id/summary')
   @RequirePermission('shift.view.own')
