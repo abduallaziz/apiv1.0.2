@@ -55,27 +55,26 @@ export class ExpensesService {
   }
 
   async findAll(tenantId: string, query: QueryExpensesDto) {
-    let req = this.supabase
-      .from('expenses')
-      .select(`
-        *,
-        category:expense_categories(id, name),
-        requester:users!requested_by(id, name, role),
-        approver:users!approved_by(id, name, role)
-      `)
-      .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false });
+  let req = this.supabase
+    .from('expenses')
+    .select(`
+      *,
+      requester:users!requested_by(id, name, role),
+      approver:users!approved_by(id, name, role)
+    `)
+    .eq('tenant_id', tenantId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
 
-    if (query.branch_id) req = req.eq('branch_id', query.branch_id);
-    if (query.status) req = req.eq('status', query.status);
-    if (query.from) req = req.gte('created_at', query.from);
-    if (query.to) req = req.lte('created_at', query.to);
+  if (query.branch_id) req = req.eq('branch_id', query.branch_id);
+  if (query.status) req = req.eq('status', query.status);
+  if (query.from) req = req.gte('created_at', query.from);
+  if (query.to) req = req.lte('created_at', query.to);
 
-    const { data, error } = await req;
-    if (error) throw new Error(error.message);
-    return data;
-  }
+  const { data, error } = await req;
+  if (error) throw new Error(error.message);
+  return data;
+}
 
   async findOne(id: string, tenantId: string) {
     const { data, error } = await this.supabase
