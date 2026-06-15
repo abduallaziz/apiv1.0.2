@@ -22,7 +22,7 @@ class UpdateCategoryDto {
 }
 
 @Controller('expense-categories')
-@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, TenantGuard)
 export class ExpenseCategoriesController {
   constructor(private readonly service: ExpenseCategoriesService) {}
 

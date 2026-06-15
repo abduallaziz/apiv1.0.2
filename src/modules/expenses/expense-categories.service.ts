@@ -22,7 +22,7 @@ export class ExpenseCategoriesService {
   async create(tenantId: string, name: string) {
     const { data, error } = await this.supabase
       .from('expense_categories')
-      .insert({ tenant_id: tenantId, name })
+      .insert({ tenant_id: tenantId, name, is_active: true })
       .select()
       .single();
     if (error) throw new Error(error.message);
