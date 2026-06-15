@@ -20,6 +20,8 @@ ALTER TABLE expenses
 -- RLS
 ALTER TABLE expense_categories ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "tenant_isolation_expense_categories" ON expense_categories;
+
 CREATE POLICY "tenant_isolation_expense_categories"
   ON expense_categories
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
