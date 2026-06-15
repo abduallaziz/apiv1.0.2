@@ -20,7 +20,8 @@ export class TenantsRepository {
     return data;
   }
 
-  async updateProfile(tenantId: string, updates: { name?: string; business_type?: string }) {
+  async updateProfile(tenantId: string, updates: { name?: string; business_type?: string; currency_code?: string; currency_symbol?: string }) {
+
     const { data, error } = await this.supabase
       .from('tenants')
       .update(updates)
