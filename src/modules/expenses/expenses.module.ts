@@ -2,8 +2,6 @@ import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ExpensesController } from './expenses.controller';
 import { ExpensesService } from './expenses.service';
-import { ExpenseTemplatesController } from './expense-templates.controller';
-import { ExpenseTemplatesService } from './expense-templates.service';
 import { ExpenseCategoriesController } from './expense-categories.controller';
 import { ExpenseCategoriesService } from './expense-categories.service';
 import { ExpensesScheduler } from './expenses.scheduler';
@@ -14,10 +12,9 @@ import { AuditInterceptor } from '../../core/audit/audit.interceptor';
 
 @Module({
   imports: [ExpenseEngineModule, ApprovalEngineModule, PermissionsModule],
-  controllers: [ExpensesController, ExpenseTemplatesController, ExpenseCategoriesController],
+  controllers: [ExpensesController, ExpenseCategoriesController],
   providers: [
     ExpensesService,
-    ExpenseTemplatesService,
     ExpenseCategoriesService,
     ExpensesScheduler,
     {
