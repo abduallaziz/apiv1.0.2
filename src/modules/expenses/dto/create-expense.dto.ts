@@ -1,13 +1,25 @@
-import { IsString, IsOptional, IsNumber, IsUUID, Min, IsNotEmpty } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsUUID, Min, IsNotEmpty, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export enum ExpenseType {
+  ONE_TIME = 'one_time',
+  RECURRING = 'recurring',
+}
+
+export enum RecurrenceType {
+  DAILY = 'daily',
+  WEEKLY = 'weekly',
+  MONTHLY = 'monthly',
+  YEARLY = 'yearly',
+}
 
 export class CreateExpenseDto {
   @IsUUID()
   branch_id: string;
 
-  @IsOptional()
   @IsUUID()
-  template_id?: string;
+  @IsNotEmpty()
+  category_id: string;
 
   @IsNumber()
   @Min(0.01)
@@ -16,7 +28,14 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
-  note?: string;
+  description?: string;
+
+  @IsEnum(ExpenseType)
+  type: ExpenseType;
+
+  @IsOptional()
+  @IsEnum(RecurrenceType)
+  recurrence?: RecurrenceType;
 
   @IsOptional()
   @IsString()

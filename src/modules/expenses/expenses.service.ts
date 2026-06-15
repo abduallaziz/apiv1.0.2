@@ -44,7 +44,7 @@ export class ExpensesService {
 
     return {
       total_count: all.length,
-      total_amount: sum(approved), // فقط المعتمدة
+      total_amount: sum(approved),
       approved_count: approved.length,
       approved_amount: sum(approved),
       pending_count: pending.length,
@@ -59,7 +59,7 @@ export class ExpensesService {
       .from('expenses')
       .select(`
         *,
-        template:expense_templates(id, name),
+        category:expense_categories(id, name),
         requester:users!requested_by(id, name, role),
         approver:users!approved_by(id, name, role)
       `)
@@ -82,7 +82,7 @@ export class ExpensesService {
       .from('expenses')
       .select(`
         *,
-        template:expense_templates(id, name, requires_photo),
+        category:expense_categories(id, name),
         requester:users!requested_by(id, name, role),
         approver:users!approved_by(id, name, role)
       `)
@@ -96,39 +96,22 @@ export class ExpensesService {
   }
 
   async create(dto: CreateExpenseDto, tenantId: string, userId: string) {
-    let expiryHours = 8760; // 365 days
-    let templateName: string | undefined;
+    const expiryHours = 8760;
 
-    if (dto.template_id) {
-      const { data: template } = await this.supabase
-        .from('expense_templates')
-        .select('expiry_hours, requires_photo, default_amount, name')
-        .eq('id', dto.template_id)
-        .eq('tenant_id', tenantId)
-        .single();
-
-      if (template) {
-        expiryHours = template.expiry_hours;
-        templateName = template.name;
-        if (template.requires_photo && !dto.photo_url) {
-          throw new BadRequestException(
-            'This expense template requires a photo',
-          );
-        }
-      }
-    }
-
-    const expenseData = this.expenseEngine.buildExpenseRequest({
-      tenantId,
-      branchId: dto.branch_id,
-      requestedBy: userId,
-      templateId: dto.template_id,
-      templateName,
+    const expenseData = {
+      tenant_id: tenantId,
+      branch_id: dto.branch_id,
+      category_id: dto.category_id,
+      requested_by: userId,
       amount: dto.amount,
-      note: dto.note,
-      photoUrl: dto.photo_url,
-      expiryHours,
-    });
+      title: dto.description ?? '',
+      notes: dto.description ?? null,
+      type: dto.type,
+      recurrence: dto.recurrence ?? null,
+      photo_url: dto.photo_url ?? null,
+      status: 'pending',
+      expires_at: new Date(Date.now() + expiryHours * 3600000).toISOString(),
+    };
 
     const { data, error } = await this.supabase
       .from('expenses')
@@ -158,10 +141,7 @@ export class ExpensesService {
         .update({ status: 'expired' })
         .eq('id', id)
         .eq('tenant_id', tenantId);
-
-      throw new BadRequestException(
-        'Expense has expired and cannot be approved',
-      );
+      throw new BadRequestException('Expense has expired and cannot be approved');
     }
 
     const result = this.approvalEngine.approve(approverId);
