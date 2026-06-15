@@ -44,7 +44,7 @@ export class ExpensesService {
 
     return {
       total_count: all.length,
-      total_amount: sum(all),
+      total_amount: sum(approved), // فقط المعتمدة
       approved_count: approved.length,
       approved_amount: sum(approved),
       pending_count: pending.length,
