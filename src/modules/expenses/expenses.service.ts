@@ -308,7 +308,8 @@ export class ExpensesService {
             title: template.name,
             amount: template.default_amount ?? 0,
             notes: `Auto-generated from recurring template: ${template.name}`,
-            status: 'pending',
+            status: template.is_pre_approved ? 'approved' : 'pending',
+            resolved_at: template.is_pre_approved ? new Date().toISOString() : null,
             expires_at: new Date(Date.now() + expiryHours * 3600000).toISOString(),
           });
 
