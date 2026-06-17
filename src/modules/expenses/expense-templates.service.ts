@@ -19,6 +19,30 @@ export class ExpenseTemplatesService {
     return data ?? [];
   }
 
+  async create(tenantId: string, dto: {
+    name: string;
+    default_amount?: number | null;
+    expiry_hours?: number;
+    requires_photo?: boolean;
+  }) {
+    const { data, error } = await this.supabase
+      .from('expense_templates')
+      .insert({
+        tenant_id: tenantId,
+        name: dto.name,
+        default_amount: dto.default_amount ?? null,
+        expiry_hours: dto.expiry_hours ?? 24,
+        requires_photo: dto.requires_photo ?? false,
+        is_active: true,
+        is_pre_approved: false,
+        recurrence_type: 'none',
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
   async update(
     id: string,
     tenantId: string,

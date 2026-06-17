@@ -1,10 +1,17 @@
-import { Controller, Get, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
-import { IsString, IsBoolean, IsNumber, IsOptional, IsIn } from 'class-validator';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { IsString, IsBoolean, IsNumber, IsOptional, IsIn, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { ExpenseTemplatesService } from './expense-templates.service';
+
+class CreateTemplateDto {
+  @IsString() @MinLength(1) name: string;
+  @IsOptional() @IsNumber() default_amount?: number | null;
+  @IsOptional() @IsNumber() expiry_hours?: number;
+  @IsOptional() @IsBoolean() requires_photo?: boolean;
+}
 
 class UpdateTemplateDto {
   @IsOptional() @IsString() name?: string;
@@ -27,6 +34,16 @@ export class ExpenseTemplatesController {
   findAll(@GetTenant() tenant: TenantContext, @Request() req: any) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
     return this.service.findAll(tenantId);
+  }
+
+  @Post()
+  create(
+    @Body() dto: CreateTemplateDto,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    const tenantId = tenant?.tenantId ?? req.user.tenant_id;
+    return this.service.create(tenantId, dto);
   }
 
   @Patch(':id')
