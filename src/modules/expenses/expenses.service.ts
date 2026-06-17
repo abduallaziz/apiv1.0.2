@@ -249,4 +249,124 @@ export class ExpensesService {
 
     return data?.length ?? 0;
   }
+
+  async processRecurringExpenses(): Promise<number> {
+    const now = new Date();
+
+    // جلب كل templates المفعّلة التي حان وقتها
+    const { data: templates, error } = await this.supabase
+      .from('expense_templates')
+      .select('*')
+      .neq('recurrence_type', 'none')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .lte('next_run_at', now.toISOString());
+
+    if (error) {
+      console.error('[RecurringExpenses] Error fetching templates:', error.message);
+      return 0;
+    }
+
+    if (!templates || templates.length === 0) return 0;
+
+    let created = 0;
+
+    for (const template of templates) {
+      try {
+        // جلب أول branch للـ tenant (الـ template لا يحمل branch_id)
+        const { data: branches } = await this.supabase
+          .from('branches')
+          .select('id')
+          .eq('tenant_id', template.tenant_id)
+          .is('deleted_at', null)
+          .limit(1);
+
+        const branchId = branches?.[0]?.id;
+        if (!branchId) continue;
+
+        // جلب أول owner/manager للـ tenant كـ requester
+        const { data: users } = await this.supabase
+          .from('users')
+          .select('id')
+          .eq('tenant_id', template.tenant_id)
+          .in('role', ['owner', 'manager'])
+          .is('deleted_at', null)
+          .limit(1);
+
+        const requestedBy = users?.[0]?.id;
+        if (!requestedBy) continue;
+
+        // إنشاء expense
+        const expiryHours = template.expiry_hours ?? 24;
+        const { error: insertError } = await this.supabase
+          .from('expenses')
+          .insert({
+            tenant_id: template.tenant_id,
+            branch_id: branchId,
+            template_id: template.id,
+            requested_by: requestedBy,
+            title: template.name,
+            amount: template.default_amount ?? 0,
+            notes: `Auto-generated from recurring template: ${template.name}`,
+            status: 'pending',
+            expires_at: new Date(Date.now() + expiryHours * 3600000).toISOString(),
+          });
+
+        if (insertError) {
+          console.error(`[RecurringExpenses] Failed to create expense for template ${template.id}:`, insertError.message);
+          continue;
+        }
+
+        // حساب next_run_at
+        const next = this.calculateNextRun(template.recurrence_type, template.recurrence_day);
+
+        await this.supabase
+          .from('expense_templates')
+          .update({ next_run_at: next.toISOString() })
+          .eq('id', template.id);
+
+        this.metricsService.recordExpense(template.tenant_id, 'requested');
+        created++;
+      } catch (err) {
+        console.error(`[RecurringExpenses] Unexpected error for template ${template.id}:`, err);
+      }
+    }
+
+    return created;
+  }
+
+  private calculateNextRun(recurrenceType: string, recurrenceDay: number | null): Date {
+    const now = new Date();
+
+    if (recurrenceType === 'daily') {
+      const next = new Date(now);
+      next.setDate(next.getDate() + 1);
+      next.setHours(0, 0, 0, 0);
+      return next;
+    }
+
+    if (recurrenceType === 'weekly') {
+      const targetDay = recurrenceDay ?? 0; // 0=Sunday
+      const next = new Date(now);
+      const currentDay = next.getDay();
+      const daysUntil = (targetDay - currentDay + 7) % 7 || 7;
+      next.setDate(next.getDate() + daysUntil);
+      next.setHours(0, 0, 0, 0);
+      return next;
+    }
+
+    if (recurrenceType === 'monthly') {
+      const targetDay = recurrenceDay ?? 1; // 1=أول الشهر
+      const next = new Date(now);
+      next.setMonth(next.getMonth() + 1);
+      next.setDate(Math.min(targetDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+      next.setHours(0, 0, 0, 0);
+      return next;
+    }
+
+    // fallback
+    const next = new Date(now);
+    next.setDate(next.getDate() + 1);
+    return next;
+  }
 }
