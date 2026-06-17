@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
 import { IsString, IsBoolean, IsNumber, IsOptional, IsIn } from 'class-validator';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
@@ -38,5 +38,15 @@ export class ExpenseTemplatesController {
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
     return this.service.update(id, tenantId, dto);
+  }
+
+  @Delete(':id')
+  remove(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    const tenantId = tenant?.tenantId ?? req.user.tenant_id;
+    return this.service.remove(id, tenantId);
   }
 }

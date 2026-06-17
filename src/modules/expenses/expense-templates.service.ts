@@ -44,4 +44,13 @@ export class ExpenseTemplatesService {
     if (error) throw new Error(error.message);
     return data;
   }
+
+  async remove(id: string, tenantId: string) {
+    const { error } = await this.supabase
+      .from('expense_templates')
+      .update({ deleted_at: new Date().toISOString(), is_active: false })
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+    if (error) throw new Error(error.message);
+  }
 }
