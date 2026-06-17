@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
 
 export interface ApprovalResult {
   status: ApprovalStatus;
@@ -36,6 +36,6 @@ export class ApprovalEngine {
   }
 
   canReject(currentStatus: ApprovalStatus): boolean {
-    return currentStatus === 'pending';
+    return currentStatus === 'pending' || currentStatus === 'approved';
   }
 }
