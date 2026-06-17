@@ -10,7 +10,6 @@ export class InvoicesRepository extends ScopedRepository {
     super(supabase);
   }
 
-  // H-001 FIX: alias discount → discount_amount in SELECT
   private readonly ORDER_SELECT = `
     id, status, subtotal,
     discount_amount:discount,
@@ -19,7 +18,6 @@ export class InvoicesRepository extends ScopedRepository {
     cashier_id, customer_id, branch_id
   `;
 
-  // H-002 + H-003 + H-004 FIX
   private readonly ORDER_ITEMS_SELECT = `
     id, order_id, item_id, item_name,
     quantity:qty,
@@ -36,7 +34,6 @@ export class InvoicesRepository extends ScopedRepository {
     return query;
   }
 
-  // H-006 FIX: resolve names from IDs
   private async resolveName(
     table: string,
     id: string | null,
@@ -50,19 +47,23 @@ export class InvoicesRepository extends ScopedRepository {
     return (data as any)?.name ?? null;
   }
 
-  async findAll(tenant: TenantContext, branchId?: string) {
+  async findAll(
+    tenant: TenantContext,
+    branchId?: string,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
     let query = this.ordersQuery(tenant).select(this.ORDER_SELECT);
 
-    if (branchId) {
-      query = query.eq('branch_id', branchId);
-    }
+    if (branchId) query = query.eq('branch_id', branchId);
+    if (dateFrom) query = query.gte('created_at', dateFrom);
+    if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59.999Z');
 
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
 
     const orders = data ?? [];
 
-    // H-006 FIX: resolve cashier and customer names
     const resolved = await Promise.all(
       orders.map(async (o: any) => ({
         ...o,
@@ -90,7 +91,6 @@ export class InvoicesRepository extends ScopedRepository {
 
     if (itemsError) throw itemsError;
 
-    // H-006 FIX: resolve names
     const o = order as any;
     const cashier_name = await this.resolveName('users', o.cashier_id);
     const customer_name = await this.resolveName('customers', o.customer_id);

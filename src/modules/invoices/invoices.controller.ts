@@ -53,8 +53,10 @@ export class InvoicesController {
   async findAll(
     @GetTenant() tenant: TenantContext,
     @Query('branch_id') branchId?: string,
+    @Query('date_from') dateFrom?: string,
+    @Query('date_to') dateTo?: string,
   ) {
-    return this.invoicesService.findAll(tenant, branchId);
+    return this.invoicesService.findAll(tenant, branchId, dateFrom, dateTo);
   }
 
   @Get(':id')

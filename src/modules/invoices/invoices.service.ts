@@ -100,8 +100,13 @@ export class InvoicesService {
     return { id: invoice.id, total: built.total };
   }
 
-  async findAll(tenant: TenantContext, branchId?: string) {
-    return this.repo.findAll(tenant, branchId);
+  async findAll(
+    tenant: TenantContext,
+    branchId?: string,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    return this.repo.findAll(tenant, branchId, dateFrom, dateTo);
   }
 
   async findById(tenant: TenantContext, id: string) {
