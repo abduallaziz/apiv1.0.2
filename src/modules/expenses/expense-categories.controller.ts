@@ -19,18 +19,6 @@ class UpdateCategoryDto {
   is_active?: boolean;
 }
 
-class UpdateTemplateDto {
-  name?: string;
-  default_amount?: number | null;
-  requires_photo?: boolean;
-  expiry_hours?: number;
-  is_active?: boolean;
-  is_pre_approved?: boolean;
-  recurrence_type?: string;
-  recurrence_day?: number | null;
-  next_run_at?: string | null;
-}
-
 @Controller('expense-categories')
 @UseGuards(JwtAuthGuard, TenantGuard)
 export class ExpenseCategoriesController {
@@ -71,24 +59,5 @@ export class ExpenseCategoriesController {
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
     return this.service.remove(id, tenantId);
-  }
-
-  // ── Templates ──────────────────────────────────────────────
-
-  @Get('/templates')
-  findAllTemplates(@GetTenant() tenant: TenantContext, @Request() req: any) {
-    const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.service.findAllTemplates(tenantId);
-  }
-
-  @Patch('/templates/:id')
-  updateTemplate(
-    @Param('id') id: string,
-    @Body() dto: UpdateTemplateDto,
-    @GetTenant() tenant: TenantContext,
-    @Request() req: any,
-  ) {
-    const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.service.updateTemplate(id, tenantId, dto);
   }
 }
