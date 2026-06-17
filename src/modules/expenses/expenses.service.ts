@@ -202,6 +202,33 @@ export class ExpensesService {
     return data;
   }
 
+  async cancel(id: string, tenantId: string) {
+    const expense = await this.findOne(id, tenantId);
+
+    if (expense.status !== 'pending') {
+      throw new BadRequestException(
+        `Cannot cancel expense with status: ${expense.status}`,
+      );
+    }
+
+    const { data, error } = await this.supabase
+      .from('expenses')
+      .update({
+        status: 'cancelled',
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    this.metricsService.recordExpense(tenantId, 'cancelled');
+
+    return data;
+  }
+
   async expireStaleExpenses(): Promise<number> {
     const { data, error } = await this.supabase
       .from('expenses')

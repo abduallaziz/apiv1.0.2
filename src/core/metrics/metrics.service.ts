@@ -107,7 +107,7 @@ export class MetricsService implements OnModuleInit {
 
   recordExpense(
     tenantId: string,
-    status: 'requested' | 'approved' | 'rejected',
+    status: 'requested' | 'approved' | 'rejected' | 'cancelled',
   ): void {
     this.expensesTotal.inc({ tenant_id: tenantId, status });
   }

@@ -88,4 +88,15 @@ export class ExpensesController {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
     return this.expensesService.reject(id, dto, tenantId, req.user.sub);
   }
+
+  @Patch(':id/cancel')
+  @Audit('expense.cancel')
+  cancel(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    const tenantId = tenant?.tenantId ?? req.user.tenant_id;
+    return this.expensesService.cancel(id, tenantId);
+  }
 }
