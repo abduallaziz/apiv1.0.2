@@ -59,6 +59,7 @@ export class ExpensesService {
       .from('expenses')
       .select(`
         *,
+        category:expense_categories(id, name),
         requester:users!requested_by(id, name, role),
         approver:users!approved_by(id, name, role)
       `)
