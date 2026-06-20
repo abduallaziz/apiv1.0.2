@@ -10,10 +10,11 @@ import { ExpensesScheduler } from './expenses.scheduler';
 import { ExpenseEngineModule } from '../../engines/expense-engine/expense-engine.module';
 import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
+import { NotificationModule } from '../../core/notification/notification.module';
 import { AuditInterceptor } from '../../core/audit/audit.interceptor';
 
 @Module({
-  imports: [ExpenseEngineModule, ApprovalEngineModule, PermissionsModule],
+  imports: [ExpenseEngineModule, ApprovalEngineModule, PermissionsModule, NotificationModule],
   controllers: [ExpensesController, ExpenseCategoriesController, ExpenseTemplatesController],
   providers: [
     ExpensesService,

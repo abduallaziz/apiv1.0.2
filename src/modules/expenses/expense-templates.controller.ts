@@ -2,8 +2,10 @@ import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request }
 import { IsString, IsBoolean, IsNumber, IsOptional, IsIn, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
+import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { ExpenseTemplatesService } from './expense-templates.service';
 
 class CreateTemplateDto {
@@ -26,17 +28,19 @@ class UpdateTemplateDto {
 }
 
 @Controller('expense-templates')
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 export class ExpenseTemplatesController {
   constructor(private readonly service: ExpenseTemplatesService) {}
 
   @Get()
+  @RequirePermission('expenses.view')
   findAll(@GetTenant() tenant: TenantContext, @Request() req: any) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
     return this.service.findAll(tenantId);
   }
 
   @Post()
+  @RequirePermission('expenses.manage')
   create(
     @Body() dto: CreateTemplateDto,
     @GetTenant() tenant: TenantContext,
@@ -47,6 +51,7 @@ export class ExpenseTemplatesController {
   }
 
   @Patch(':id')
+  @RequirePermission('expenses.manage')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateTemplateDto,
@@ -58,6 +63,7 @@ export class ExpenseTemplatesController {
   }
 
   @Delete(':id')
+  @RequirePermission('expenses.manage')
   remove(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,

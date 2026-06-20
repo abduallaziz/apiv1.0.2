@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import * as express from 'express';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { LoggerService } from './core/logger/logger.service';
 import { LoggingInterceptor } from './core/logger/interceptors/logging.interceptor';
@@ -15,6 +16,7 @@ async function bootstrap(): Promise<void> {
   });
 
   app.use(helmet());
+  app.use(cookieParser());
 
   app.use(
     '/api/v1/webhooks/stripe',
@@ -22,21 +24,21 @@ async function bootstrap(): Promise<void> {
   );
 
   app.enableCors({
-  origin: [
-    'http://localhost:3000',
-    'https://sefayv1-0-2.vercel.app',
-    process.env.FRONTEND_URL ?? '',
-  ].filter(Boolean),
-  credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'x-branch-id',
-    'x-tenant-id',
-    'x-correlation-id',
-  ],
-});
+    origin: [
+      'http://localhost:3000',
+      'https://sefayv1-0-2.vercel.app',
+      process.env.FRONTEND_URL ?? '',
+    ].filter(Boolean),
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-branch-id',
+      'x-tenant-id',
+      'x-correlation-id',
+    ],
+  });
 
   app.setGlobalPrefix('api/v1');
 

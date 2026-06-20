@@ -7,6 +7,7 @@ import { QueueService } from './queue.service';
 import { QueueExistsPipe } from './pipes/queue-exists.pipe';
 import { DunningProcessor } from './processors/dunning.processor';
 import { AuditCleanupProcessor } from './processors/audit-cleanup.processor';
+import { AuditCleanupScheduler } from './processors/audit-cleanup.scheduler';
 import { BillingModule } from '../billing/billing.module';
 
 @Module({
@@ -16,7 +17,6 @@ import { BillingModule } from '../billing/billing.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const redisUrl = config.get<string>('REDIS_URL');
-        const nodeEnv = config.get<string>('NODE_ENV', 'development');
         const appEnv = config.get<string>('APP_ENV', 'production');
         const prefix = appEnv === 'staging' ? 'sefay-staging' : 'sefay';
         return {
@@ -44,7 +44,14 @@ import { BillingModule } from '../billing/billing.module';
     ),
     BillingModule,
   ],
-  providers: [QueueRegistry, QueueService, QueueExistsPipe, DunningProcessor, AuditCleanupProcessor],
+  providers: [
+    QueueRegistry,
+    QueueService,
+    QueueExistsPipe,
+    DunningProcessor,
+    AuditCleanupProcessor,
+    AuditCleanupScheduler,
+  ],
   exports: [BullModule, QueueRegistry, QueueService, QueueExistsPipe],
 })
 export class QueueModule {}

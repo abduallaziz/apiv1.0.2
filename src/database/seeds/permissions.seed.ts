@@ -10,111 +10,76 @@ const supabase = createClient(
 );
 
 const permissions = [
-  // Invoices
-  { key: 'invoice.create.own', resource: 'invoice', action: 'create', scope: 'own', description: 'Create own invoices' },
-  { key: 'invoice.view.own', resource: 'invoice', action: 'view', scope: 'own', description: 'View own invoices' },
-  { key: 'invoice.view.branch', resource: 'invoice', action: 'view', scope: 'branch', description: 'View branch invoices' },
-  { key: 'invoice.view.all', resource: 'invoice', action: 'view', scope: 'all', description: 'View all invoices' },
-  { key: 'invoice.cancel.own', resource: 'invoice', action: 'cancel', scope: 'own', description: 'Cancel own invoices' },
-  { key: 'invoice.cancel.branch', resource: 'invoice', action: 'cancel', scope: 'branch', description: 'Cancel branch invoices' },
-
-  // Expenses
-  { key: 'expense.request', resource: 'expense', action: 'request', scope: 'own', description: 'Submit expense requests' },
-  { key: 'expense.view.branch', resource: 'expense', action: 'view', scope: 'branch', description: 'View branch expenses' },
-  { key: 'expense.view.all', resource: 'expense', action: 'view', scope: 'all', description: 'View all expenses' },
-  { key: 'expense.approve', resource: 'expense', action: 'approve', scope: 'all', description: 'Approve expenses' },
-  { key: 'expense.reject', resource: 'expense', action: 'reject', scope: 'all', description: 'Reject expenses' },
-
-  // Shifts
-  { key: 'shift.open', resource: 'shift', action: 'open', scope: 'own', description: 'Open a shift' },
-  { key: 'shift.close', resource: 'shift', action: 'close', scope: 'own', description: 'Close own shift' },
-  { key: 'shift.view.own', resource: 'shift', action: 'view', scope: 'own', description: 'View own shift' },
-  { key: 'shift.view.branch', resource: 'shift', action: 'view', scope: 'branch', description: 'View branch shifts' },
-  { key: 'shift.view.all', resource: 'shift', action: 'view', scope: 'all', description: 'View all shifts' },
-
-  // Users
-  { key: 'users.view', resource: 'users', action: 'view', scope: 'branch', description: 'View users' },
-  { key: 'users.manage', resource: 'users', action: 'manage', scope: 'all', description: 'Manage users' },
-
-  // Items
-  { key: 'items.manage', resource: 'items', action: 'manage', scope: 'all', description: 'Manage items' },
-
-  // Branches
-  { key: 'branches.manage', resource: 'branches', action: 'manage', scope: 'all', description: 'Manage branches' },
-
-  // Reports
-  { key: 'reports.view.branch', resource: 'reports', action: 'view', scope: 'branch', description: 'View branch reports' },
-  { key: 'reports.view.all', resource: 'reports', action: 'view', scope: 'all', description: 'View all reports' },
-
-  // Settings
-  { key: 'settings.view', resource: 'settings', action: 'view', scope: 'own', description: 'View tenant settings' },
-  { key: 'settings.manage', resource: 'settings', action: 'manage', scope: 'all', description: 'Manage settings' },
+  { name: 'invoice.create.own', resource: 'invoice', action: 'create', description: 'Create own invoices' },
+  { name: 'invoice.view.own', resource: 'invoice', action: 'view', description: 'View own invoices' },
+  { name: 'invoice.view.branch', resource: 'invoice', action: 'view', description: 'View branch invoices' },
+  { name: 'invoice.view.all', resource: 'invoice', action: 'view', description: 'View all invoices' },
+  { name: 'invoice.cancel.own', resource: 'invoice', action: 'cancel', description: 'Cancel own invoices' },
+  { name: 'invoice.cancel.branch', resource: 'invoice', action: 'cancel', description: 'Cancel branch invoices' },
+  { name: 'expense.request', resource: 'expense', action: 'request', description: 'Submit expense requests' },
+  { name: 'expense.view.branch', resource: 'expense', action: 'view', description: 'View branch expenses' },
+  { name: 'expense.view.all', resource: 'expense', action: 'view', description: 'View all expenses' },
+  { name: 'expense.approve', resource: 'expense', action: 'approve', description: 'Approve expenses' },
+  { name: 'expense.reject', resource: 'expense', action: 'reject', description: 'Reject expenses' },
+  { name: 'shift.open', resource: 'shift', action: 'open', description: 'Open a shift' },
+  { name: 'shift.close', resource: 'shift', action: 'close', description: 'Close own shift' },
+  { name: 'shift.view.own', resource: 'shift', action: 'view', description: 'View own shift' },
+  { name: 'shift.view.branch', resource: 'shift', action: 'view', description: 'View branch shifts' },
+  { name: 'shift.view.all', resource: 'shift', action: 'view', description: 'View all shifts' },
+  { name: 'users.view', resource: 'users', action: 'view', description: 'View users' },
+  { name: 'users.manage', resource: 'users', action: 'manage', description: 'Manage users' },
+  { name: 'items.view', resource: 'items', action: 'view', description: 'View items' },
+  { name: 'items.manage', resource: 'items', action: 'manage', description: 'Manage items' },
+  { name: 'branches.view', resource: 'branches', action: 'view', description: 'View branches' },
+  { name: 'branches.manage', resource: 'branches', action: 'manage', description: 'Manage branches' },
+  { name: 'customers.view', resource: 'customers', action: 'view', description: 'View customers' },
+  { name: 'customers.manage', resource: 'customers', action: 'manage', description: 'Manage customers' },
+  { name: 'expenses.view', resource: 'expenses', action: 'view', description: 'View expenses' },
+  { name: 'expenses.manage', resource: 'expenses', action: 'manage', description: 'Manage expenses' },
+  { name: 'reports.view.branch', resource: 'reports', action: 'view', description: 'View branch reports' },
+  { name: 'reports.view.all', resource: 'reports', action: 'view', description: 'View all reports' },
+  { name: 'settings.view', resource: 'settings', action: 'view', description: 'View settings' },
+  { name: 'settings.manage', resource: 'settings', action: 'manage', description: 'Manage settings' },
+  { name: 'analytics.view.all', resource: 'analytics', action: 'view', description: 'View platform analytics' },
+  { name: 'audit.view.all', resource: 'audit', action: 'view', description: 'View audit logs' },
+  { name: 'superadmin.queue.view', resource: 'superadmin', action: 'queue.view', description: 'View queues' },
+  { name: 'superadmin.queue.manage', resource: 'superadmin', action: 'queue.manage', description: 'Manage queues' },
+  { name: 'superadmin.health.view', resource: 'superadmin', action: 'health.view', description: 'View health' },
+  { name: 'superadmin.backup.view', resource: 'superadmin', action: 'backup.view', description: 'View backup' },
 ];
 
-const rolePermissions: { role: string; permission_key: string; is_granted: boolean }[] = [];
+const rolePerms: { role: string; permission_key: string; is_granted: boolean }[] = [];
+const add = (role: string, keys: string[]) =>
+  keys.forEach(k => rolePerms.push({ role, permission_key: k, is_granted: true }));
 
-const ownerPermissions = [
-  'invoice.create.own', 'invoice.cancel.branch', 'invoice.view.all',
-  'expense.approve', 'expense.reject', 'expense.view.all',
-  'shift.open', 'shift.close', 'shift.view.all',
-  'users.manage', 'branches.manage', 'items.manage',
-  'reports.view.all', 'settings.view', 'settings.manage',
-];
-
-const managerPermissions = [
-  'invoice.create.own', 'invoice.view.branch',
-  'expense.view.branch',
-  'shift.open', 'shift.close', 'shift.view.branch',
-  'users.view', 'items.manage',
-  'reports.view.branch', 'settings.view',
-];
-
-const cashierPermissions = [
-  'invoice.create.own', 'invoice.view.own',
-  'expense.request',
-  'shift.open', 'shift.close', 'shift.view.own',
-];
-
-const workerPermissions = [
-  'invoice.view.own',
-  'shift.view.own',
-];
-
-function addRolePermissions(role: string, keys: string[]) {
-  for (const key of keys) {
-    rolePermissions.push({ role, permission_key: key, is_granted: true });
-  }
-}
-
-addRolePermissions('owner', ownerPermissions);
-addRolePermissions('manager', managerPermissions);
-addRolePermissions('cashier', cashierPermissions);
-addRolePermissions('worker', workerPermissions);
+add('superadmin', ['analytics.view.all','audit.view.all','invoice.view.all','expense.view.all','expense.approve','expense.reject','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.manage','superadmin.queue.view','superadmin.queue.manage','superadmin.health.view','superadmin.backup.view','invoice.create.own','invoice.view.own','invoice.cancel.branch']);
+add('owner', ['invoice.create.own','invoice.cancel.branch','invoice.view.all','expense.approve','expense.reject','expense.view.all','shift.open','shift.close','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.view','settings.manage']);
+add('manager', ['invoice.create.own','invoice.view.branch','expense.view.branch','shift.open','shift.close','shift.view.branch','users.view','items.manage','items.view','customers.view','customers.manage','expenses.view','reports.view.branch','settings.view']);
+add('cashier', ['invoice.create.own','invoice.view.own','expense.request','shift.open','shift.close','shift.view.own','items.view','customers.view']);
+add('worker', ['invoice.view.own','shift.view.own','items.view']);
 
 async function seed() {
   console.log('Seeding permissions...');
 
   const { error: permError } = await supabase
     .from('permissions')
-    .upsert(permissions, { onConflict: 'key' });
+    .upsert(permissions, { onConflict: 'name' });
 
   if (permError) {
     console.error('Error seeding permissions:', permError.message);
     process.exit(1);
   }
-
   console.log(`✓ ${permissions.length} permissions seeded`);
 
   const { error: rpError } = await supabase
     .from('role_permissions')
-    .upsert(rolePermissions, { onConflict: 'role,permission_key' });
+    .upsert(rolePerms, { onConflict: 'role,permission_key' });
 
   if (rpError) {
     console.error('Error seeding role_permissions:', rpError.message);
     process.exit(1);
   }
-
-  console.log(`✓ ${rolePermissions.length} role_permissions seeded`);
+  console.log(`✓ ${rolePerms.length} role_permissions seeded`);
   console.log('Done ✓');
 }
 

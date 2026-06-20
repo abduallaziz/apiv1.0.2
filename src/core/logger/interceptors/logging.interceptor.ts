@@ -21,11 +21,11 @@ export class LoggingInterceptor implements NestInterceptor {
     const req = context.switchToHttp().getRequest<Request>();
     const res = context.switchToHttp().getResponse<Response>();
 
-    const user = (req as Request & { user?: { sub?: string; role?: string; tenantId?: string } }).user;
+    const user = (req as Request & { user?: { sub?: string; role?: string; tenant_id?: string } }).user;
 
     const requestContext = createRequestContext({
       correlationId: req.headers['x-correlation-id'] as string | undefined,
-      tenantId: user?.tenantId,
+      tenantId: user?.tenant_id,
       userId: user?.sub,
       role: user?.role,
     });

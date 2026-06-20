@@ -86,8 +86,11 @@ async function applyMigration(filename: string): Promise<void> {
   console.log(`  → Applying: ${filename}`);
 
   await runSQL(sql);
+
+  // استخدام escape آمن بدل string interpolation مباشر
+  const safeFilename = filename.replace(/'/g, "''");
   await runSQL(
-    `INSERT INTO schema_migrations (filename) VALUES ('${filename}')`,
+    `INSERT INTO schema_migrations (filename) VALUES ('${safeFilename}')`,
   );
 
   console.log(`  ✅ Applied: ${filename}`);

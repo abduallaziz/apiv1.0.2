@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -10,8 +11,21 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+function requireEnv(name: string): string {
+  const val = process.env[name];
+  if (!val) {
+    console.error(`❌ Missing required env var: ${name}`);
+    process.exit(1);
+  }
+  return val;
+}
+
 async function seed() {
   console.log('🚀 Starting full setup seed...\n');
+
+  // كلمات المرور من البيئة أو توليد عشوائي
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? crypto.randomBytes(12).toString('hex');
+  const ownerPassword = process.env.SEED_OWNER_PASSWORD ?? crypto.randomBytes(12).toString('hex');
 
   // ===== 1. PERMISSIONS =====
   console.log('1️⃣  Seeding permissions...');
@@ -34,8 +48,14 @@ async function seed() {
     { name: 'shift.view.all', resource: 'shift', action: 'view', description: 'View all shifts' },
     { name: 'users.view', resource: 'users', action: 'view', description: 'View users' },
     { name: 'users.manage', resource: 'users', action: 'manage', description: 'Manage users' },
+    { name: 'items.view', resource: 'items', action: 'view', description: 'View items' },
     { name: 'items.manage', resource: 'items', action: 'manage', description: 'Manage items' },
+    { name: 'branches.view', resource: 'branches', action: 'view', description: 'View branches' },
     { name: 'branches.manage', resource: 'branches', action: 'manage', description: 'Manage branches' },
+    { name: 'customers.view', resource: 'customers', action: 'view', description: 'View customers' },
+    { name: 'customers.manage', resource: 'customers', action: 'manage', description: 'Manage customers' },
+    { name: 'expenses.view', resource: 'expenses', action: 'view', description: 'View expenses' },
+    { name: 'expenses.manage', resource: 'expenses', action: 'manage', description: 'Manage expenses' },
     { name: 'reports.view.branch', resource: 'reports', action: 'view', description: 'View branch reports' },
     { name: 'reports.view.all', resource: 'reports', action: 'view', description: 'View all reports' },
     { name: 'settings.view', resource: 'settings', action: 'view', description: 'View settings' },
@@ -60,11 +80,11 @@ async function seed() {
   const add = (role: string, keys: string[]) =>
     keys.forEach(k => rolePerms.push({ role, permission_key: k, is_granted: true }));
 
-  add('superadmin', ['analytics.view.all','audit.view.all','invoice.view.all','expense.view.all','expense.approve','expense.reject','shift.view.all','users.manage','branches.manage','items.manage','reports.view.all','settings.manage','superadmin.queue.view','superadmin.queue.manage','superadmin.health.view','superadmin.backup.view']);
-  add('owner', ['invoice.create.own','invoice.cancel.branch','invoice.view.all','expense.approve','expense.reject','expense.view.all','shift.open','shift.close','shift.view.all','users.manage','branches.manage','items.manage','reports.view.all','settings.view','settings.manage']);
-  add('manager', ['invoice.create.own','invoice.view.branch','expense.view.branch','shift.open','shift.close','shift.view.branch','users.view','items.manage','reports.view.branch','settings.view']);
-  add('cashier', ['invoice.create.own','invoice.view.own','expense.request','shift.open','shift.close','shift.view.own']);
-  add('worker', ['invoice.view.own','shift.view.own']);
+  add('superadmin', ['analytics.view.all','audit.view.all','invoice.view.all','invoice.create.own','invoice.view.own','invoice.cancel.branch','expense.view.all','expense.approve','expense.reject','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.manage','superadmin.queue.view','superadmin.queue.manage','superadmin.health.view','superadmin.backup.view']);
+  add('owner', ['invoice.create.own','invoice.cancel.branch','invoice.view.all','expense.approve','expense.reject','expense.view.all','shift.open','shift.close','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.view','settings.manage']);
+  add('manager', ['invoice.create.own','invoice.view.branch','expense.view.branch','shift.open','shift.close','shift.view.branch','users.view','items.manage','items.view','customers.view','customers.manage','expenses.view','reports.view.branch','settings.view']);
+  add('cashier', ['invoice.create.own','invoice.view.own','expense.request','shift.open','shift.close','shift.view.own','items.view','customers.view']);
+  add('worker', ['invoice.view.own','shift.view.own','items.view']);
 
   const { error: rpError } = await supabase
     .from('role_permissions')
@@ -74,8 +94,8 @@ async function seed() {
 
   // ===== 3. SUPERADMIN USER =====
   console.log('3️⃣  Creating superadmin user...');
-  const superadminHash = await bcrypt.hash('123456', 12);
-  const { data: superadmin, error: saError } = await supabase
+  const superadminHash = await bcrypt.hash(adminPassword, 12);
+  const { error: saError } = await supabase
     .from('users')
     .upsert({
       email: 'admin@sefay.com',
@@ -84,11 +104,9 @@ async function seed() {
       role: 'superadmin',
       tenant_id: null,
       is_active: true,
-    }, { onConflict: 'email' })
-    .select('id')
-    .single();
+    }, { onConflict: 'email' });
   if (saError) { console.error('❌ superadmin:', saError.message); process.exit(1); }
-  console.log(`   ✓ superadmin: admin@sefay.com / 123456`);
+  console.log(`   ✓ superadmin: admin@sefay.com`);
 
   // ===== 4. PLAN =====
   console.log('4️⃣  Creating plan...');
@@ -123,12 +141,12 @@ async function seed() {
     { key: 'multi_branch', name: 'Multi Branch', is_enabled: true },
     { key: 'audit_logs', name: 'Audit Logs', is_enabled: true },
   ];
+
   const { error: featError } = await supabase
     .from('features')
     .upsert(features, { onConflict: 'key' });
   if (featError) { console.error('❌ features:', featError.message); process.exit(1); }
 
-  // plan_features — كل الميزات مفعّلة للـ Enterprise
   const planFeatures = features.map(f => ({
     plan_id: plan!.id,
     feature_key: f.key,
@@ -182,7 +200,7 @@ async function seed() {
 
   // ===== 8. OWNER USER =====
   console.log('8️⃣  Creating owner user...');
-  const ownerHash = await bcrypt.hash('123456', 12);
+  const ownerHash = await bcrypt.hash(ownerPassword, 12);
   const { error: ownerError } = await supabase
     .from('users')
     .upsert({
@@ -194,7 +212,7 @@ async function seed() {
       is_active: true,
     }, { onConflict: 'email' });
   if (ownerError) { console.error('❌ owner:', ownerError.message); process.exit(1); }
-  console.log(`   ✓ owner: owner@sefay.com / 123456`);
+  console.log(`   ✓ owner: owner@sefay.com`);
 
   // ===== 9. BRANCH =====
   console.log('9️⃣  Creating branch...');
@@ -211,8 +229,9 @@ async function seed() {
 
   console.log('\n✅ Full setup complete!\n');
   console.log('📋 Accounts:');
-  console.log('   SuperAdmin : admin@sefay.com  / 123456');
-  console.log('   Owner      : owner@sefay.com  / 123456');
+  console.log(`   SuperAdmin : admin@sefay.com  / ${adminPassword}`);
+  console.log(`   Owner      : owner@sefay.com  / ${ownerPassword}`);
+  console.log('\n⚠️  Save these passwords — they will not be shown again.');
 }
 
 seed().catch(console.error);

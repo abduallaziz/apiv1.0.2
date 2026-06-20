@@ -1,10 +1,12 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { IsString, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
+import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { ExpenseCategoriesService } from './expense-categories.service';
-import { IsString, MinLength } from 'class-validator';
 
 class CreateCategoryDto {
   @IsString()
@@ -20,17 +22,19 @@ class UpdateCategoryDto {
 }
 
 @Controller('expense-categories')
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 export class ExpenseCategoriesController {
   constructor(private readonly service: ExpenseCategoriesService) {}
 
   @Get()
+  @RequirePermission('expenses.view')
   findAll(@GetTenant() tenant: TenantContext, @Request() req: any) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
     return this.service.findAll(tenantId);
   }
 
   @Post()
+  @RequirePermission('expenses.manage')
   create(
     @Body() dto: CreateCategoryDto,
     @GetTenant() tenant: TenantContext,
@@ -41,6 +45,7 @@ export class ExpenseCategoriesController {
   }
 
   @Patch(':id')
+  @RequirePermission('expenses.manage')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateCategoryDto,
@@ -52,6 +57,7 @@ export class ExpenseCategoriesController {
   }
 
   @Delete(':id')
+  @RequirePermission('expenses.manage')
   remove(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,

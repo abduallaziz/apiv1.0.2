@@ -8,7 +8,6 @@ export class TenantManagementRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  // H-020 + H-021 + H-022 FIX: enrich tenants with owner, counts, plan
   private async enrichTenant(tenant: any) {
     const [ownerRes, usersRes, branchesRes, subRes] = await Promise.all([
       this.supabase
@@ -31,7 +30,7 @@ export class TenantManagementRepository {
         .is('deleted_at', null),
       this.supabase
         .from('subscriptions')
-        .select('plans(name)')
+        .select('billing_cycle, plans(name, price_monthly, price_yearly)')
         .eq('tenant_id', tenant.id)
         .in('status', ['active', 'trial'])
         .order('created_at', { ascending: false })
@@ -39,13 +38,22 @@ export class TenantManagementRepository {
         .single(),
     ]);
 
+    const plan = (subRes.data as any)?.plans ?? null;
+    const billingCycle = (subRes.data as any)?.billing_cycle ?? 'monthly';
+    const mrr = plan
+      ? billingCycle === 'yearly'
+        ? Math.round((plan.price_yearly ?? 0) / 12)
+        : (plan.price_monthly ?? 0)
+      : 0;
+
     return {
       ...tenant,
       owner_name: ownerRes.data?.name ?? null,
       owner_email: ownerRes.data?.email ?? null,
       users_count: usersRes.count ?? 0,
       branches_count: branchesRes.count ?? 0,
-      subscription_plan: (subRes.data as any)?.plans?.name ?? null,
+      subscription_plan: plan?.name ?? null,
+      mrr,
     };
   }
 
@@ -74,7 +82,6 @@ export class TenantManagementRepository {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    // H-020 + H-021 + H-022 FIX: enrich each tenant
     const enriched = await Promise.all((data ?? []).map((t) => this.enrichTenant(t)));
 
     return { data: enriched, count: count ?? 0 };

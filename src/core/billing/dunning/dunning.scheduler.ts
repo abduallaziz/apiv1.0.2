@@ -1,31 +1,50 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { DunningService } from './dunning.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { QUEUE_NAMES } from '../../queue/queue.constants';
+import {
+  DUNNING_JOB_PROCESS_FAILED,
+  DUNNING_JOB_RETRY_PENDING,
+  DUNNING_JOB_SUSPEND_EXPIRED,
+} from '../../queue/processors/dunning.processor';
 
 @Injectable()
 export class DunningScheduler {
   private readonly logger = new Logger(DunningScheduler.name);
 
-  constructor(private readonly dunningService: DunningService) {}
+  constructor(
+    @InjectQueue(QUEUE_NAMES.DUNNING)
+    private readonly dunningQueue: Queue,
+  ) {}
 
-  // كل ساعة — يتحقق من subscriptions فاشلة ويجدول dunning
   @Cron(CronExpression.EVERY_HOUR)
   async handleFailedPayments(): Promise<void> {
-    this.logger.log('[CRON] processFailedPayments triggered');
-    await this.dunningService.processFailedPayments();
+    this.logger.log('[CRON] Queuing processFailedPayments job');
+    await this.dunningQueue.add(DUNNING_JOB_PROCESS_FAILED, {}, {
+      jobId: `process-failed-${Date.now()}`,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
   }
 
-  // كل 30 دقيقة — يُعيد المحاولات المجدولة
   @Cron(CronExpression.EVERY_30_MINUTES)
   async handleRetries(): Promise<void> {
-    this.logger.log('[CRON] retryPendingAttempts triggered');
-    await this.dunningService.retryPendingAttempts();
+    this.logger.log('[CRON] Queuing retryPendingAttempts job');
+    await this.dunningQueue.add(DUNNING_JOB_RETRY_PENDING, {}, {
+      jobId: `retry-pending-${Date.now()}`,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
   }
 
-  // مرة يومياً الساعة 9 صباحاً — يُعلّق من تجاوز grace period
   @Cron('0 9 * * *')
   async handleGracePeriodExpiry(): Promise<void> {
-    this.logger.log('[CRON] suspendExpiredGracePeriods triggered');
-    await this.dunningService.suspendExpiredGracePeriods();
+    this.logger.log('[CRON] Queuing suspendExpiredGracePeriods job');
+    await this.dunningQueue.add(DUNNING_JOB_SUSPEND_EXPIRED, {}, {
+      jobId: `suspend-expired-${Date.now()}`,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
   }
 }

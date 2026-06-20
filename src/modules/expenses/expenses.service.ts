@@ -9,6 +9,8 @@ import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ExpenseEngine } from '../../engines/expense-engine/expense.engine';
 import { ApprovalEngine } from '../../engines/approval-engine/approval.engine';
 import { MetricsService } from '../../core/metrics/metrics.service';
+import { NotificationService } from '../../core/notification/notification.service';
+import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../core/notification/notification.constants';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { RejectExpenseDto } from './dto/reject-expense.dto';
 import { QueryExpensesDto } from './dto/query-expenses.dto';
@@ -20,6 +22,7 @@ export class ExpensesService {
     private readonly expenseEngine: ExpenseEngine,
     private readonly approvalEngine: ApprovalEngine,
     private readonly metricsService: MetricsService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async getStats(tenantId: string, branchId?: string) {
@@ -123,6 +126,15 @@ export class ExpensesService {
 
     this.metricsService.recordExpense(tenantId, 'requested');
 
+    // إشعار للمستخدم أن طلب المصروف تم استلامه
+    this.notificationService.notify({
+      userId,
+      tenantId,
+      type: NOTIFICATION_TYPES.EXPENSE_REQUESTED,
+      channels: [NOTIFICATION_CHANNELS.IN_APP],
+      data: { amount: dto.amount, title: dto.description ?? '' },
+    }).catch(() => {});
+
     return data;
   }
 
@@ -161,6 +173,17 @@ export class ExpensesService {
     if (error) throw new Error(error.message);
 
     this.metricsService.recordExpense(tenantId, 'approved');
+
+    // إشعار لصاحب الطلب أن مصروفه اعتُمد
+    if (expense.requested_by) {
+      this.notificationService.notify({
+        userId: expense.requested_by,
+        tenantId,
+        type: NOTIFICATION_TYPES.EXPENSE_APPROVED,
+        channels: [NOTIFICATION_CHANNELS.IN_APP],
+        data: { amount: expense.amount, title: expense.title },
+      }).catch(() => {});
+    }
 
     return data;
   }
@@ -203,6 +226,17 @@ export class ExpensesService {
     if (error) throw new Error(error.message);
 
     this.metricsService.recordExpense(tenantId, 'rejected');
+
+    // إشعار لصاحب الطلب أن مصروفه رُفض
+    if (expense.requested_by) {
+      this.notificationService.notify({
+        userId: expense.requested_by,
+        tenantId,
+        type: NOTIFICATION_TYPES.EXPENSE_REJECTED,
+        channels: [NOTIFICATION_CHANNELS.IN_APP],
+        data: { amount: expense.amount, title: expense.title, reason: dto.reason ?? '' },
+      }).catch(() => {});
+    }
 
     return data;
   }
@@ -253,7 +287,6 @@ export class ExpensesService {
   async processRecurringExpenses(): Promise<number> {
     const now = new Date();
 
-    // جلب كل templates المفعّلة التي حان وقتها
     const { data: templates, error } = await this.supabase
       .from('expense_templates')
       .select('*')
@@ -273,7 +306,6 @@ export class ExpensesService {
 
     for (const template of templates) {
       try {
-        // جلب أول branch للـ tenant (الـ template لا يحمل branch_id)
         const { data: branches } = await this.supabase
           .from('branches')
           .select('id')
@@ -284,7 +316,6 @@ export class ExpensesService {
         const branchId = branches?.[0]?.id;
         if (!branchId) continue;
 
-        // جلب أول owner/manager للـ tenant كـ requester
         const { data: users } = await this.supabase
           .from('users')
           .select('id')
@@ -296,7 +327,6 @@ export class ExpensesService {
         const requestedBy = users?.[0]?.id;
         if (!requestedBy) continue;
 
-        // إنشاء expense
         const expiryHours = template.expiry_hours ?? 24;
         const { error: insertError } = await this.supabase
           .from('expenses')
@@ -318,7 +348,6 @@ export class ExpensesService {
           continue;
         }
 
-        // حساب next_run_at
         const next = this.calculateNextRun(template.recurrence_type, template.recurrence_day);
 
         await this.supabase
@@ -347,7 +376,7 @@ export class ExpensesService {
     }
 
     if (recurrenceType === 'weekly') {
-      const targetDay = recurrenceDay ?? 0; // 0=Sunday
+      const targetDay = recurrenceDay ?? 0;
       const next = new Date(now);
       const currentDay = next.getDay();
       const daysUntil = (targetDay - currentDay + 7) % 7 || 7;
@@ -357,7 +386,7 @@ export class ExpensesService {
     }
 
     if (recurrenceType === 'monthly') {
-      const targetDay = recurrenceDay ?? 1; // 1=أول الشهر
+      const targetDay = recurrenceDay ?? 1;
       const next = new Date(now);
       next.setMonth(next.getMonth() + 1);
       next.setDate(Math.min(targetDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
@@ -365,7 +394,6 @@ export class ExpensesService {
       return next;
     }
 
-    // fallback
     const next = new Date(now);
     next.setDate(next.getDate() + 1);
     return next;

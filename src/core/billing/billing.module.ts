@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { BillingService } from './billing.service';
 import { BillingInvoiceService } from './billing-invoice.service';
 import { MockPaymentProvider } from './providers/mock-payment.provider';
@@ -9,12 +10,19 @@ import { DunningService } from './dunning/dunning.service';
 import { DunningScheduler } from './dunning/dunning.scheduler';
 import { StripeWebhookController } from './stripe-webhook.controller';
 import { SupabaseModule } from '../../shared/supabase/supabase.module';
+import { NotificationModule } from '../notification/notification.module';
 import { PaymentsRepository } from './repositories/payments.repository';
 import { InvoicesRepository } from './repositories/invoices.repository';
 import { BillingCustomersRepository } from './repositories/billing-customers.repository';
+import { QUEUE_NAMES } from '../queue/queue.constants';
 
 @Module({
-  imports: [SupabaseModule, ConfigModule],
+  imports: [
+    SupabaseModule,
+    ConfigModule,
+    NotificationModule,
+    BullModule.registerQueue({ name: QUEUE_NAMES.DUNNING }),
+  ],
   controllers: [StripeWebhookController],
   providers: [
     BillingService,

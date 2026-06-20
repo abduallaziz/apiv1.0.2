@@ -19,6 +19,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed:permissions": "ts-node -r tsconfig-paths/register src/database/seeds/permissions.seed.ts",
+    "seed:full": "ts-node -r tsconfig-paths/register src/seeds/full-setup.seed.ts",
     "gen:tokens": "ts-node -r tsconfig-paths/register src/database/seeds/generate-token.ts",
     "migrate": "ts-node -r tsconfig-paths/register src/database/migrate.ts"
   },
@@ -38,6 +39,7 @@
     "bullmq": "^5.78.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "helmet": "^8.2.0",
@@ -61,6 +63,7 @@
     "@nestjs/testing": "^11.0.1",
     "@types/bcrypt": "^6.0.0",
     "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/helmet": "^0.0.48",
     "@types/jest": "^30.0.0",
@@ -85,19 +88,13 @@
     "typescript-eslint": "^8.20.0"
   },
   "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
+    "moduleFileExtensions": ["js", "json", "ts"],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
-    "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
+    "collectCoverageFrom": ["**/*.(t|j)s"],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   }

@@ -11,7 +11,7 @@ export class TenantsRepository {
   async findById(tenantId: string) {
     const { data, error } = await this.supabase
       .from('tenants')
-      .select('id, name, business_type, status, trial_ends_at, created_at, currency_code, currency_symbol')
+      .select('id, name, business_type, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate')
       .eq('id', tenantId)
       .is('deleted_at', null)
       .single();
@@ -20,14 +20,31 @@ export class TenantsRepository {
     return data;
   }
 
-  async updateProfile(tenantId: string, updates: { name?: string; business_type?: string; currency_code?: string; currency_symbol?: string }) {
+  async getTaxRate(tenantId: string): Promise<number> {
+    const { data, error } = await this.supabase
+      .from('tenants')
+      .select('tax_rate')
+      .eq('id', tenantId)
+      .is('deleted_at', null)
+      .single();
 
+    if (error || !data) return 0;
+    return data.tax_rate ?? 0;
+  }
+
+  async updateProfile(tenantId: string, updates: {
+    name?: string;
+    business_type?: string;
+    currency_code?: string;
+    currency_symbol?: string;
+    tax_rate?: number;
+  }) {
     const { data, error } = await this.supabase
       .from('tenants')
       .update(updates)
       .eq('id', tenantId)
       .is('deleted_at', null)
-      .select('id, name, business_type, status, trial_ends_at, created_at, currency_code, currency_symbol')
+      .select('id, name, business_type, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate')
       .single();
 
     if (error) throw error;
@@ -35,8 +52,6 @@ export class TenantsRepository {
   }
 
   async getSubscription(tenantId: string) {
-    // H-013 FIX: remove expires_at (never written) → use current_period_end
-    // H-014 FIX: remove max_users/max_branches from subscriptions → JOIN plans
     const { data, error } = await this.supabase
       .from('subscriptions')
       .select(`
@@ -59,7 +74,6 @@ export class TenantsRepository {
     if (error && error.code !== 'PGRST116') throw error;
     if (!data) return null;
 
-    // H-014 FIX: flatten plan limits
     const plan = (data as any).plans ?? {};
     return {
       id: data.id,
@@ -67,14 +81,14 @@ export class TenantsRepository {
       plan_id: data.plan_id,
       plan_name: plan.name ?? null,
       started_at: data.started_at,
-      expires_at: data.current_period_end ?? null,   // H-013 FIX: alias for consumers
+      expires_at: data.current_period_end ?? null,
       current_period_end: data.current_period_end,
       current_period_start: data.current_period_start,
       cancelled_at: data.cancelled_at,
       trial_ends_at: data.trial_ends_at,
       billing_cycle: data.billing_cycle,
-      max_users: plan.max_users ?? 0,                // H-014 FIX: from plans
-      max_branches: plan.max_branches ?? 0,          // H-014 FIX: from plans
+      max_users: plan.max_users ?? 0,
+      max_branches: plan.max_branches ?? 0,
     };
   }
 

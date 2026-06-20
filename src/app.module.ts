@@ -7,6 +7,8 @@ import { throttlerConfig } from './core/security/throttler.config';
 import { IpMiddleware } from './core/security/ip.middleware';
 import { SupabaseModule } from './shared/supabase/supabase.module';
 import { SecurityModule } from './core/security/security.module';
+import { PermissionsModule } from './core/permissions/permissions.module';
+import { FeatureFlagsModule } from './core/feature-flags/feature-flags.module';
 import { CoreAuthModule } from './core/auth/auth.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -49,6 +51,8 @@ import { envValidationSchema } from './core/secrets/config/env.validation';
     LoggerModule,
     SupabaseModule,
     SecurityModule,
+    PermissionsModule,
+    FeatureFlagsModule,
     CoreAuthModule,
     BillingModule,
     AuthModule,

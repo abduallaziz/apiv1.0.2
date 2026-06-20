@@ -3,6 +3,8 @@ import { ShiftsRepository } from './shifts.repository';
 import { ShiftEngine } from '../../engines/shift-engine/shift.engine';
 import { AuditService } from '../../core/audit/audit.service';
 import { MetricsService } from '../../core/metrics/metrics.service';
+import { NotificationService } from '../../core/notification/notification.service';
+import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../core/notification/notification.constants';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
@@ -14,6 +16,7 @@ export class ShiftsService {
     private readonly engine: ShiftEngine,
     private readonly audit: AuditService,
     private readonly metricsService: MetricsService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async openShift(
@@ -49,6 +52,14 @@ export class ShiftsService {
     });
 
     this.metricsService.recordShift(tenant.tenantId, 'open');
+
+    this.notificationService.notify({
+      userId: actorId,
+      tenantId: tenant.tenantId,
+      type: NOTIFICATION_TYPES.SHIFT_OPENED,
+      channels: [NOTIFICATION_CHANNELS.IN_APP],
+      data: { shift_id: shift.id, opening_cash: dto.opening_cash },
+    }).catch(() => {});
 
     return shift;
   }
@@ -97,6 +108,18 @@ export class ShiftsService {
     });
 
     this.metricsService.recordShift(tenant.tenantId, 'close');
+
+    this.notificationService.notify({
+      userId: actorId,
+      tenantId: tenant.tenantId,
+      type: NOTIFICATION_TYPES.SHIFT_CLOSED,
+      channels: [NOTIFICATION_CHANNELS.IN_APP],
+      data: {
+        shift_id: shiftId,
+        total: summary.totalInvoices,
+        discrepancy: summary.discrepancy,
+      },
+    }).catch(() => {});
 
     return { shift: closed, summary };
   }

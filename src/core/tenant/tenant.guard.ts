@@ -7,12 +7,16 @@ import {
 import { Reflector } from '@nestjs/core';
 import { SKIP_TENANT_KEY } from './skip-tenant.decorator';
 import { TenantContext } from './tenant-context';
+import { BranchValidatorService } from '../security/branch-validator.service';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly branchValidator: BranchValidatorService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const skip = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -23,11 +27,11 @@ export class TenantGuard implements CanActivate {
     const user = request.user;
 
     if (user?.role === 'superadmin') {
-  const superadminTenantId: string | null = request.headers['x-tenant-id'] ?? null;
-  const branchId: string | null = request.headers['x-branch-id'] ?? null;
-  request.tenantContext = new TenantContext(superadminTenantId, branchId);
-  return true;
-}
+      const superadminTenantId: string | null = request.headers['x-tenant-id'] ?? null;
+      const branchId: string | null = request.headers['x-branch-id'] ?? null;
+      request.tenantContext = new TenantContext(superadminTenantId, branchId);
+      return true;
+    }
 
     const tenantId: string | undefined = user?.tenant_id;
 
@@ -36,6 +40,10 @@ export class TenantGuard implements CanActivate {
     }
 
     const branchId: string | null = request.headers['x-branch-id'] ?? null;
+
+    if (branchId) {
+      await this.branchValidator.validate(branchId, tenantId);
+    }
 
     request.tenantContext = new TenantContext(tenantId, branchId);
     return true;

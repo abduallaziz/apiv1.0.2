@@ -8,6 +8,9 @@ import { PosEngine } from '../../engines/pos-engine/pos.engine';
 import { PaymentEngine } from '../../engines/payment-engine/payment.engine';
 import { AuditService } from '../../core/audit/audit.service';
 import { MetricsService } from '../../core/metrics/metrics.service';
+import { TenantsRepository } from '../tenants/repositories/tenants.repository';
+import { NotificationService } from '../../core/notification/notification.service';
+import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../core/notification/notification.constants';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CancelInvoiceDto } from './dto/cancel-invoice.dto';
@@ -20,6 +23,8 @@ export class InvoicesService {
     private readonly paymentEngine: PaymentEngine,
     private readonly auditService: AuditService,
     private readonly metricsService: MetricsService,
+    private readonly tenantsRepo: TenantsRepository,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async create(
@@ -32,10 +37,14 @@ export class InvoicesService {
     ip: string,
     device: string,
   ) {
+    const taxRate = tenant.tenantId
+      ? await this.tenantsRepo.getTaxRate(tenant.tenantId)
+      : 0;
+
     const built = this.posEngine.buildInvoice(
       dto.items,
       dto.discount,
-      dto.tax_rate ?? 0,
+      taxRate,
     );
 
     if (dto.payment_method === 'cash') {
@@ -69,19 +78,19 @@ export class InvoicesService {
       notes: dto.notes ?? null,
     });
 
-    const orderItems = built.items.map((item) => ({
-      order_id: invoice.id,
-      tenant_id: tenant.tenantId,
-      item_id: item.item_id,
-      item_name: item.item_name,
-      variant_id: item.variant_id ?? null,
-      variant_name: item.variant_name ?? null,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      total_price: parseFloat((item.unit_price * item.quantity).toFixed(2)),
-    }));
-
-    await this.repo.insertItems(orderItems);
+    await this.repo.insertItems(
+      built.items.map((item) => ({
+        order_id: invoice.id,
+        tenant_id: tenant.tenantId,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        variant_id: item.variant_id ?? null,
+        variant_name: item.variant_name ?? null,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total_price: parseFloat((item.unit_price * item.quantity).toFixed(2)),
+      })),
+    );
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
@@ -90,14 +99,23 @@ export class InvoicesService {
       action: 'invoice.create',
       resource_type: 'invoice',
       resource_id: invoice.id,
-      after_data: { total: built.total, payment_method: dto.payment_method },
+      after_data: { total: built.total, payment_method: dto.payment_method, tax_rate: taxRate },
       ip_address: ip,
       device,
     });
 
     this.metricsService.recordInvoice(tenant.tenantId, 'completed');
 
-    return { id: invoice.id, total: built.total };
+    // إشعار داخلي للكاشير عند إتمام الفاتورة
+    this.notificationService.notify({
+      userId: cashierId,
+      tenantId: tenant.tenantId,
+      type: NOTIFICATION_TYPES.PAYMENT_SUCCESS,
+      channels: [NOTIFICATION_CHANNELS.IN_APP],
+      data: { total: built.total, invoice_id: invoice.id },
+    }).catch(() => {}); // لا نوقف العملية إذا فشل الإشعار
+
+    return { id: invoice.id, total: built.total, tax_rate: taxRate };
   }
 
   async findAll(

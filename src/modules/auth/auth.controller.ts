@@ -4,17 +4,26 @@ import {
   Get,
   Body,
   Req,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { RefreshDto } from './dto/refresh.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+
+const REFRESH_COOKIE = 'sefay_refresh';
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  path: '/',
+};
 
 @Controller('auth')
 export class AuthController {
@@ -22,28 +31,70 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: LoginDto, @Req() req: Request) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
-    return this.authService.login(dto, ip, userAgent);
+    const result = await this.authService.login(dto, ip, userAgent);
+
+    res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
+
+    return {
+      access_token: result.access_token,
+      user: result.user,
+    };
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  refresh(@Body() dto: RefreshDto, @Req() req: Request) {
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
-    return this.authService.refresh(dto, ip, userAgent);
+    const refreshToken = req.cookies?.[REFRESH_COOKIE];
+
+    if (!refreshToken) {
+      res.status(401).json({ message: 'No refresh token' });
+      return;
+    }
+
+    const result = await this.authService.refresh(
+      { refresh_token: refreshToken },
+      ip,
+      userAgent,
+    );
+
+    res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
+
+    return { access_token: result.access_token };
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  logout(@Req() req: Request) {
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const user = req.user as JwtPayload;
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const ua = req.headers['user-agent'] || '';
-    return this.authService.logout(user.sub, user.session_id, ip, ua, user.role, user.tenant_id);
+
+    res.clearCookie(REFRESH_COOKIE, { path: '/' });
+
+    return this.authService.logout(
+      user.sub,
+      user.session_id,
+      ip,
+      ua,
+      user.role,
+      user.tenant_id,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -67,6 +118,13 @@ export class AuthController {
     const user = req.user as JwtPayload;
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const ua = req.headers['user-agent'] || '';
-    return this.authService.revokeSession(dto, user.sub, user.role, user.tenant_id, ip, ua);
+    return this.authService.revokeSession(
+      dto,
+      user.sub,
+      user.role,
+      user.tenant_id,
+      ip,
+      ua,
+    );
   }
 }

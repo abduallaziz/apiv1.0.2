@@ -53,13 +53,6 @@ export enum ShiftStatus {
   CLOSED = 'closed',
 }
 
-export enum SubscriptionStatus {
-  ACTIVE = 'active',
-  CANCELLED = 'cancelled',
-  EXPIRED = 'expired',
-  TRIAL = 'trial',
-}
-
 export enum DeviceType {
   WEB = 'web',
   MOBILE = 'mobile',

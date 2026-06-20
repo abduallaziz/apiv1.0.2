@@ -9,6 +9,8 @@ import {
 import { DunningResult } from '../interfaces/dunning-result.interface';
 import { PAYMENT_PROVIDER } from '../billing.constants';
 import { PaymentProvider } from '../providers/payment-provider.interface';
+import { NotificationService } from '../../notification/notification.service';
+import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../notification/notification.constants';
 
 @Injectable()
 export class DunningService {
@@ -17,6 +19,7 @@ export class DunningService {
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: PaymentProvider,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async processFailedPayments(): Promise<void> {
@@ -130,7 +133,7 @@ export class DunningService {
       attempt_number: nextAttemptNumber,
       status: 'pending',
       next_retry_at: nextRetryAt.toISOString(),
-      attempted_at: new Date().toISOString(), // H-025 FIX
+      attempted_at: new Date().toISOString(),
     });
 
     this.logger.log(
@@ -192,6 +195,13 @@ export class DunningService {
           .eq('id', attempt.subscription_id);
 
         this.logger.log(`Dunning succeeded for tenant ${attempt.tenant_id}`);
+
+        // إشعار نجاح الدفع — نجلب owner المستأجر
+        await this.notifyTenantOwner(attempt.tenant_id, NOTIFICATION_TYPES.PAYMENT_SUCCESS, {
+          amount: invoice?.total_amount ?? 0,
+          currency: invoice?.currency ?? 'SAR',
+        });
+
       } else {
         throw new Error(result.failureReason ?? 'Payment failed');
       }
@@ -205,6 +215,11 @@ export class DunningService {
         .update({ status: 'failed', error_message: err.message })
         .eq('id', attempt.id);
 
+      // إشعار فشل الدفع
+      await this.notifyTenantOwner(attempt.tenant_id, NOTIFICATION_TYPES.PAYMENT_FAILED, {
+        attempt_number: attempt.attempt_number,
+      });
+
       if (attempt.attempt_number >= DUNNING_MAX_ATTEMPTS) {
         await this.markExhausted(attempt.subscription_id, attempt.tenant_id);
       }
@@ -212,7 +227,6 @@ export class DunningService {
   }
 
   private async markExhausted(subscriptionId: string, tenantId: string): Promise<void> {
-    // H-026 FIX: write grace_period_ends_at when marking exhausted
     const gracePeriodEndsAt = new Date();
     gracePeriodEndsAt.setDate(gracePeriodEndsAt.getDate() + DUNNING_GRACE_PERIOD_DAYS);
 
@@ -234,6 +248,11 @@ export class DunningService {
     this.logger.warn(
       `Tenant ${tenantId} entered grace period — ends at ${gracePeriodEndsAt.toISOString()}`,
     );
+
+    // إشعار دخول فترة السماح
+    await this.notifyTenantOwner(tenantId, NOTIFICATION_TYPES.SUBSCRIPTION_EXPIRED, {
+      grace_period_ends_at: gracePeriodEndsAt.toISOString(),
+    });
   }
 
   private async suspendTenant(tenantId: string): Promise<void> {
@@ -258,5 +277,37 @@ export class DunningService {
       .eq('status', 'grace_period');
 
     this.logger.warn(`Tenant ${tenantId} has been suspended due to non-payment.`);
+  }
+
+  // جلب owner المستأجر وإرسال الإشعار
+  private async notifyTenantOwner(
+    tenantId: string,
+    type: any,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const { data: owner } = await this.supabase
+        .from('users')
+        .select('id, email')
+        .eq('tenant_id', tenantId)
+        .eq('role', 'owner')
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .limit(1)
+        .single();
+
+      if (!owner) return;
+
+      await this.notificationService.notify({
+        userId: owner.id,
+        tenantId,
+        type,
+        channels: [NOTIFICATION_CHANNELS.IN_APP, NOTIFICATION_CHANNELS.EMAIL],
+        recipientEmail: owner.email,
+        data,
+      });
+    } catch {
+      // لا نوقف العملية إذا فشل الإشعار
+    }
   }
 }
