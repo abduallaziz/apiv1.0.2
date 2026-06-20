@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
+import { seedPermissions } from './seeds/permissions.seed';
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 const PROJECT_REF = 'uugxagglmkxcjmncxgja';
@@ -118,7 +119,12 @@ async function runMigrations(): Promise<void> {
   console.log(`\n✅ Done. ${pending.length} migration(s) applied successfully.\n`);
 }
 
-runMigrations().catch((err) => {
+async function main(): Promise<void> {
+  await runMigrations();
+  await seedPermissions();
+}
+
+main().catch((err) => {
   console.error('\n❌ Migration failed:\n', err.message);
   process.exit(1);
 });

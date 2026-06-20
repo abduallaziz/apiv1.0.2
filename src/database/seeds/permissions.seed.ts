@@ -58,7 +58,7 @@ add('manager', ['invoice.create.own','invoice.view.branch','expense.view.branch'
 add('cashier', ['invoice.create.own','invoice.view.own','expense.request','shift.open','shift.close','shift.view.own','items.view','customers.view']);
 add('worker', ['invoice.view.own','shift.view.own','items.view']);
 
-async function seed() {
+export async function seedPermissions(): Promise<void> {
   console.log('Seeding permissions...');
 
   const { error: permError } = await supabase
@@ -66,8 +66,7 @@ async function seed() {
     .upsert(permissions, { onConflict: 'name' });
 
   if (permError) {
-    console.error('Error seeding permissions:', permError.message);
-    process.exit(1);
+    throw new Error(`Error seeding permissions: ${permError.message}`);
   }
   console.log(`✓ ${permissions.length} permissions seeded`);
 
@@ -76,11 +75,15 @@ async function seed() {
     .upsert(rolePerms, { onConflict: 'role,permission_key' });
 
   if (rpError) {
-    console.error('Error seeding role_permissions:', rpError.message);
-    process.exit(1);
+    throw new Error(`Error seeding role_permissions: ${rpError.message}`);
   }
   console.log(`✓ ${rolePerms.length} role_permissions seeded`);
   console.log('Done ✓');
 }
 
-seed();
+if (require.main === module) {
+  seedPermissions().catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
+}
