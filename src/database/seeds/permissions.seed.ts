@@ -16,6 +16,9 @@ const permissions = [
   { name: 'invoice.view.all', resource: 'invoice', action: 'view', description: 'View all invoices' },
   { name: 'invoice.cancel.own', resource: 'invoice', action: 'cancel', description: 'Cancel own invoices' },
   { name: 'invoice.cancel.branch', resource: 'invoice', action: 'cancel', description: 'Cancel branch invoices' },
+  { name: 'invoice.view', resource: 'invoice', action: 'view', description: 'View invoices (flat, matches InvoicesController guard)' },
+  { name: 'invoice.create', resource: 'invoice', action: 'create', description: 'Create invoices (flat, matches InvoicesController guard)' },
+  { name: 'invoice.cancel', resource: 'invoice', action: 'cancel', description: 'Cancel invoices (flat, matches InvoicesController guard)' },
   { name: 'expense.request', resource: 'expense', action: 'request', description: 'Submit expense requests' },
   { name: 'expense.view.branch', resource: 'expense', action: 'view', description: 'View branch expenses' },
   { name: 'expense.view.all', resource: 'expense', action: 'view', description: 'View all expenses' },
@@ -53,10 +56,10 @@ const add = (role: string, keys: string[]) =>
   keys.forEach(k => rolePerms.push({ role, permission_key: k, is_granted: true }));
 
 add('superadmin', ['analytics.view.all','audit.view.all','invoice.view.all','expense.view.all','expense.approve','expense.reject','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.manage','superadmin.queue.view','superadmin.queue.manage','superadmin.health.view','superadmin.backup.view','invoice.create.own','invoice.view.own','invoice.cancel.branch']);
-add('owner', ['invoice.create.own','invoice.cancel.branch','invoice.view.all','expense.approve','expense.reject','expense.view.all','shift.open','shift.close','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.view','settings.manage']);
-add('manager', ['invoice.create.own','invoice.view.branch','expense.view.branch','shift.open','shift.close','shift.view.branch','users.view','items.manage','items.view','customers.view','customers.manage','expenses.view','reports.view.branch','settings.view']);
-add('cashier', ['invoice.create.own','invoice.view.own','expense.request','shift.open','shift.close','shift.view.own','items.view','customers.view']);
-add('worker', ['invoice.view.own','shift.view.own','items.view']);
+add('owner', ['invoice.create.own','invoice.cancel.branch','invoice.view.all','invoice.view','invoice.create','invoice.cancel','expense.approve','expense.reject','expense.view.all','shift.open','shift.close','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.view','settings.manage']);
+add('manager', ['invoice.create.own','invoice.view.branch','invoice.view','invoice.create','expense.view.branch','shift.open','shift.close','shift.view.branch','users.view','items.manage','items.view','customers.view','customers.manage','expenses.view','reports.view.branch','settings.view']);
+add('cashier', ['invoice.create.own','invoice.view.own','invoice.view','invoice.create','expense.request','expenses.view','shift.open','shift.close','shift.view.own','items.view','customers.view']);
+add('worker', ['invoice.view.own','invoice.view','shift.view.own','items.view']);
 
 export async function seedPermissions(): Promise<void> {
   console.log('Seeding permissions...');
