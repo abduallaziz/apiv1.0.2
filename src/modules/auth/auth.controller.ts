@@ -12,6 +12,7 @@ import {
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
@@ -39,6 +40,25 @@ export class AuthController {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
     const result = await this.authService.login(dto, ip, userAgent);
+
+    res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
+
+    return {
+      access_token: result.access_token,
+      user: result.user,
+    };
+  }
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  async register(
+    @Body() dto: RegisterDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
+    const userAgent = req.headers['user-agent'] || '';
+    const result = await this.authService.register(dto, ip, userAgent);
 
     res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
 

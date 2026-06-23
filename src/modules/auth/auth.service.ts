@@ -2,6 +2,8 @@ import {
   Injectable,
   UnauthorizedException,
   ForbiddenException,
+  ConflictException,
+  ServiceUnavailableException,
   Inject,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -14,7 +16,48 @@ import { AuditService } from '../../core/audit/audit.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
+import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+
+const ACTIVITY_SECTION_TO_BUSINESS_TYPE: Record<string, string> = {
+  restaurant: 'restaurant',
+  cafe: 'cafe',
+  fastFood: 'restaurant',
+  bakery: 'restaurant',
+  juice: 'cafe',
+  foodTruck: 'restaurant',
+  grocery: 'retail',
+  supermarket: 'retail',
+  perfume: 'retail',
+  stationery: 'retail',
+  gifts: 'retail',
+  menClothing: 'retail',
+  womenClothing: 'retail',
+  shoes: 'retail',
+  accessories: 'retail',
+  tailoring: 'services',
+  pharmacy: 'retail',
+  medical: 'services',
+  clinic: 'services',
+  optics: 'retail',
+  supplements: 'retail',
+  barber: 'services',
+  womenSalon: 'services',
+  spa: 'services',
+  cosmetics: 'retail',
+  carWash: 'services',
+  laundry: 'services',
+  phoneFix: 'workshop',
+  carWorkshop: 'workshop',
+  homeServices: 'services',
+  phones: 'retail',
+  gadgets: 'retail',
+  gaming: 'retail',
+  furniture: 'retail',
+  homeware: 'retail',
+  flowers: 'retail',
+  pets: 'retail',
+};
 
 @Injectable()
 export class AuthService {
@@ -192,6 +235,178 @@ export class AuthService {
         features,
       },
     };
+  }
+
+  async register(dto: RegisterDto, ip: string, userAgent: string) {
+    const { data: existing } = await this.supabase
+      .from('users')
+      .select('id')
+      .eq('email', dto.email)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (existing) {
+      throw new ConflictException('Email already registered');
+    }
+
+    const { data: plan, error: planError } = await this.supabase
+      .from('plans')
+      .select('id, trial_days')
+      .eq('is_active', true)
+      .order('price_monthly', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (planError || !plan) {
+      throw new ServiceUnavailableException('No active subscription plan is configured');
+    }
+
+    const businessType = ACTIVITY_SECTION_TO_BUSINESS_TYPE[dto.activity] ?? 'other';
+    const language = dto.language ?? 'ar';
+    const currency = dto.currency ?? 'SAR';
+
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + plan.trial_days);
+
+    const { data: tenant, error: tenantError } = await this.supabase
+      .from('tenants')
+      .insert({
+        name: dto.businessName,
+        business_type: businessType,
+        status: 'trial',
+        trial_ends_at: trialEndsAt.toISOString(),
+        default_language: language,
+        phone: dto.phone,
+        email: dto.email,
+        address: dto.city ?? null,
+        currency,
+      })
+      .select('id')
+      .single();
+
+    if (tenantError || !tenant) {
+      throw new ServiceUnavailableException('Failed to create tenant');
+    }
+
+    try {
+      const password_hash = await bcrypt.hash(dto.password, 12);
+
+      const { data: user, error: userError } = await this.supabase
+        .from('users')
+        .insert({
+          tenant_id: tenant.id,
+          email: dto.email,
+          password_hash,
+          name: dto.ownerName,
+          role: 'owner',
+          language,
+          is_active: true,
+        })
+        .select('id, email, name, role, tenant_id')
+        .single();
+
+      if (userError || !user) {
+        throw new ServiceUnavailableException('Failed to create owner account');
+      }
+
+      const { error: branchError } = await this.supabase.from('branches').insert({
+        tenant_id: tenant.id,
+        name: dto.branchName?.trim() || `${dto.businessName} - الفرع الرئيسي`,
+        address: dto.city ?? null,
+        is_active: true,
+      });
+
+      if (branchError) {
+        throw new ServiceUnavailableException('Failed to create branch');
+      }
+
+      const { error: subError } = await this.supabase.from('subscriptions').insert({
+        tenant_id: tenant.id,
+        plan_id: plan.id,
+        status: 'trial',
+        billing_cycle: 'monthly',
+        started_at: new Date().toISOString(),
+        trial_ends_at: trialEndsAt.toISOString(),
+      });
+
+      if (subError) {
+        throw new ServiceUnavailableException('Failed to create subscription');
+      }
+
+      const { data: session } = await this.supabase
+        .from('device_sessions')
+        .insert({
+          user_id: user.id,
+          tenant_id: tenant.id,
+          device_name: dto.device_name ?? 'Signup',
+          device_type: 'web',
+          ip_address: ip,
+          user_agent: userAgent,
+          last_active_at: new Date().toISOString(),
+          is_revoked: false,
+        })
+        .select('id')
+        .single();
+
+      const payload: JwtPayload = {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        tenant_id: user.tenant_id,
+        session_id: session!.id,
+        business_type: businessType,
+      };
+
+      const access_token = this.jwtService.sign(payload);
+      const refresh_token = crypto.randomBytes(64).toString('hex');
+      const token_hash = crypto.createHash('sha256').update(refresh_token).digest('hex');
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      await this.supabase.from('refresh_tokens').insert({
+        user_id: user.id,
+        session_id: session!.id,
+        token_hash,
+        expires_at: expiresAt.toISOString(),
+        is_used: false,
+      });
+
+      await this.auditService.log({
+        tenant_id: tenant.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        action: 'auth.register',
+        resource_type: 'tenant',
+        resource_id: tenant.id,
+        ip_address: ip,
+        device: userAgent,
+      });
+
+      const [permissions, features] = await Promise.all([
+        this.getUserPermissions(user.role),
+        this.getTenantFeatures(tenant.id),
+      ]);
+
+      return {
+        access_token,
+        refresh_token,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          tenant_id: user.tenant_id,
+          session_id: session!.id,
+          business_type: businessType,
+          permissions,
+          features,
+        },
+      };
+    } catch (err) {
+      await this.supabase.from('tenants').delete().eq('id', tenant.id);
+      throw err;
+    }
   }
 
   async refresh(dto: RefreshDto, ip: string, userAgent: string) {
