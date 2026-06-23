@@ -266,4 +266,173 @@ export class ReportsService {
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);
   }
+  async getTopItems(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+
+    const { data: orderItems, error } = await this.supabase
+      .from('order_items')
+      .select('item_id, item_name, quantity, total, orders!inner(tenant_id, status, created_at)')
+      .eq('orders.tenant_id', tenant.tenantId)
+      .eq('orders.status', 'completed')
+      .gte('orders.created_at', from)
+      .lte('orders.created_at', to);
+
+    if (error) throw error;
+
+    const map: Record<string, { name: string; quantity: number; total: number }> = {};
+    for (const row of orderItems ?? []) {
+      const id = row.item_id ?? row.item_name;
+      if (!map[id]) map[id] = { name: row.item_name, quantity: 0, total: 0 };
+      map[id].quantity += row.quantity ?? 0;
+      map[id].total    += row.total    ?? 0;
+    }
+
+    const items = Object.values(map)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    const maxTotal = items[0]?.total ?? 1;
+
+    return {
+      items: items.map(i => ({
+        name:     i.name,
+        quantity: i.quantity,
+        total:    i.total,
+        pct:      Math.round((i.total / maxTotal) * 100),
+      })),
+    };
+  }
+
+  async getRecentActivity(tenant: TenantContext) {
+    const { data: orders, error: oErr } = await this.supabase
+      .from('orders')
+      .select('id, total, payment_method, status, created_at')
+      .eq('tenant_id', tenant.tenantId)
+      .in('status', ['completed', 'cancelled'])
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (oErr) throw oErr;
+
+    const { data: lowStock, error: lErr } = await this.supabase
+      .from('items')
+      .select('id, name, stock_quantity, low_stock_threshold')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .not('stock_quantity', 'is', null)
+      .not('low_stock_threshold', 'is', null)
+      .limit(5);
+
+    if (lErr) throw lErr;
+
+    const activity: {
+      type: 'order' | 'refund' | 'alert'
+      title: string
+      sub: string
+      amount: number | null
+      time: string
+    }[] = [];
+
+    for (const o of orders ?? []) {
+      activity.push({
+        type:   o.status === 'cancelled' ? 'refund' : 'order',
+        title:  `فاتورة #${o.id.slice(-4).toUpperCase()}`,
+        sub:    o.payment_method ?? 'cash',
+        amount: o.status === 'cancelled' ? -(o.total ?? 0) : (o.total ?? 0),
+        time:   o.created_at,
+      });
+    }
+
+    for (const item of lowStock ?? []) {
+      if ((item.stock_quantity ?? 0) <= (item.low_stock_threshold ?? 0)) {
+        activity.push({
+          type:   'alert',
+          title:  `مخزون منخفض — ${item.name}`,
+          sub:    `كمية متبقية: ${item.stock_quantity}`,
+          amount: null,
+          time:   new Date().toISOString(),
+        });
+      }
+    }
+
+    activity.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+    return { activity: activity.slice(0, 8) };
+  }
+
+  async getSparklines(tenant: TenantContext) {
+    const days: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().substring(0, 10));
+    }
+
+    const from = days[0] + 'T00:00:00.000Z';
+    const to   = days[6] + 'T23:59:59.999Z';
+
+    const { data: orders, error: oErr } = await this.supabase
+      .from('orders')
+      .select('total, created_at')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to);
+
+    if (oErr) throw oErr;
+
+    const { data: customers, error: cErr } = await this.supabase
+      .from('customers')
+      .select('created_at')
+      .eq('tenant_id', tenant.tenantId)
+      .gte('created_at', from)
+      .lte('created_at', to);
+
+    if (cErr) throw cErr;
+
+    const { data: expenses, error: eErr } = await this.supabase
+      .from('expenses')
+      .select('amount, created_at')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'approved')
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .is('deleted_at', null);
+
+    if (eErr) throw eErr;
+
+    const salesMap:     Record<string, number> = {};
+    const ordersMap:    Record<string, number> = {};
+    const customersMap: Record<string, number> = {};
+    const expensesMap:  Record<string, number> = {};
+
+    for (const d of days) {
+      salesMap[d] = 0; ordersMap[d] = 0;
+      customersMap[d] = 0; expensesMap[d] = 0;
+    }
+
+    for (const o of orders ?? []) {
+      const d = o.created_at.substring(0, 10);
+      if (salesMap[d] !== undefined) {
+        salesMap[d]  += o.total ?? 0;
+        ordersMap[d] += 1;
+      }
+    }
+    for (const c of customers ?? []) {
+      const d = c.created_at.substring(0, 10);
+      if (customersMap[d] !== undefined) customersMap[d] += 1;
+    }
+    for (const e of expenses ?? []) {
+      const d = e.created_at.substring(0, 10);
+      if (expensesMap[d] !== undefined) expensesMap[d] += e.amount ?? 0;
+    }
+
+    return {
+      sales:     days.map(d => salesMap[d]),
+      orders:    days.map(d => ordersMap[d]),
+      customers: days.map(d => customersMap[d]),
+      expenses:  days.map(d => expensesMap[d]),
+    };
+  }
 }

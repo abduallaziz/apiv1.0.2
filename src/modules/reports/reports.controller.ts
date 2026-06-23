@@ -101,4 +101,24 @@ export class ReportsController {
 
     return data;
   }
+  @Get('top-items')
+  @RequirePermission('reports.view.branch')
+  async getTopItems(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+  ) {
+    return this.reportsService.getTopItems(tenant, query);
+  }
+
+  @Get('recent-activity')
+  @RequirePermission('reports.view.branch')
+  async getRecentActivity(@GetTenant() tenant: TenantContext) {
+    return this.reportsService.getRecentActivity(tenant);
+  }
+
+  @Get('sparklines')
+  @RequirePermission('reports.view.branch')
+  async getSparklines(@GetTenant() tenant: TenantContext) {
+    return this.reportsService.getSparklines(tenant);
+  }
 }
