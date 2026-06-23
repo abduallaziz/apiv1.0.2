@@ -21,15 +21,16 @@ export class RegisterDto {
   password: string;
 
   @IsString()
+  @MinLength(1)
   activity: string;
 
-  @IsOptional()
   @IsString()
-  branchName?: string;
+  @MinLength(2)
+  branchName: string;
 
-  @IsOptional()
   @IsString()
-  city?: string;
+  @MinLength(2)
+  city: string;
 
   @IsOptional()
   @IsIn(['SAR', 'AED', 'KWD', 'BHD', 'QAR', 'OMR'])
