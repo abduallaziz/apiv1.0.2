@@ -73,6 +73,19 @@ export class AuthService {
       .map(([key]) => key);
   }
 
+  private async getTenantBusinessType(tenantId: string | null): Promise<string | null> {
+    if (!tenantId) return null;
+
+    const { data } = await this.supabase
+      .from('tenants')
+      .select('business_type')
+      .eq('id', tenantId)
+      .is('deleted_at', null)
+      .single();
+
+    return data?.business_type ?? null;
+  }
+
   async login(dto: LoginDto, ip: string, userAgent: string) {
     const { data: user, error } = await this.supabase
       .from('users')
@@ -119,12 +132,15 @@ export class AuthService {
       .select('id')
       .single();
 
+    const business_type = await this.getTenantBusinessType(user.tenant_id);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       tenant_id: user.tenant_id,
       session_id: session!.id,
+      business_type,
     };
 
     const access_token = this.jwtService.sign(payload);
@@ -171,6 +187,7 @@ export class AuthService {
         role: user.role,
         tenant_id: user.tenant_id,
         session_id: session!.id,
+        business_type,
         permissions,
         features,
       },
@@ -243,12 +260,15 @@ export class AuthService {
       .update({ is_used: true })
       .eq('id', tokenRecord.id);
 
+    const business_type = await this.getTenantBusinessType(user.tenant_id);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       tenant_id: user.tenant_id,
       session_id: session.id,
+      business_type,
     };
 
     const access_token = this.jwtService.sign(payload);
@@ -322,9 +342,10 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    const [permissions, features] = await Promise.all([
+    const [permissions, features, business_type] = await Promise.all([
       this.getUserPermissions(user.role),
       this.getTenantFeatures(user.tenant_id),
+      this.getTenantBusinessType(user.tenant_id),
     ]);
 
     return {
@@ -335,6 +356,7 @@ export class AuthService {
       tenant_id: user.tenant_id,
       is_active: user.is_active,
       created_at: user.created_at,
+      business_type,
       permissions,
       features,
     };
@@ -386,7 +408,6 @@ export class AuthService {
     return { message: 'Session revoked' };
   }
 
-  // H-024 FIX: get sessions enriched with user_name, user_email, tenant_name
   async getSessions(userId: string) {
     const { data: sessions, error } = await this.supabase
       .from('device_sessions')
