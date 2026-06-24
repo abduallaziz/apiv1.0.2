@@ -1,4 +1,4 @@
-import { IsEmail, IsString, IsBoolean, IsOptional, MinLength, IsIn } from 'class-validator';
+import { IsEmail, IsString, IsBoolean, IsOptional, MinLength, IsIn, Matches } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -10,10 +10,15 @@ export class RegisterDto {
   ownerName: string;
 
   @IsString()
-  @MinLength(7)
+  @Matches(/^\+?[1-9]\d{7,14}$/, {
+    message: 'phone must be a valid international phone number, e.g. +9665XXXXXXXX',
+  })
   phone: string;
 
-  @IsEmail()
+  @IsEmail(undefined, { message: 'email must be a valid email address' })
+  @Matches(/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/, {
+    message: 'email must be a valid email address',
+  })
   email: string;
 
   @IsString()
