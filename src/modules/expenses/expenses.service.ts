@@ -104,6 +104,7 @@ export class ExpensesService {
     const expenseData = {
       tenant_id: tenantId,
       branch_id: dto.branch_id,
+      shift_id: dto.shift_id ?? null,
       category_id: dto.category_id,
       requested_by: userId,
       amount: dto.amount,

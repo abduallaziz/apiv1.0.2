@@ -40,4 +40,8 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsString()
   photo_url?: string;
+
+  @IsOptional()
+  @IsUUID()
+  shift_id?: string;
 }
