@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
@@ -51,7 +51,12 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
       })
       .select()
       .single();
-    if (error) throw error;
+    if (error) {
+      if (error.code === '23505') {
+        throw new BadRequestException('field_key already exists for this tenant');
+      }
+      throw error;
+    }
     return data;
   }
 
