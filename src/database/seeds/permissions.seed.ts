@@ -61,6 +61,8 @@ add('manager', ['invoice.create.own','invoice.view.branch','invoice.view','invoi
 add('cashier', ['invoice.create.own','invoice.view.own','invoice.view','invoice.create','expense.request','expenses.view','shift.open','shift.close','shift.view.own','items.view','customers.view','customers.manage']);
 add('worker', ['invoice.view.own','invoice.view','shift.view.own','items.view']);
 
+export { permissions, rolePerms };
+
 export async function seedPermissions(): Promise<void> {
   console.log('Seeding permissions...');
 

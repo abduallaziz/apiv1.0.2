@@ -98,9 +98,9 @@ export class CustomersService {
     let customFieldKeys: string[] = [];
     if (query.search) {
       const definitions = await this.fieldDefinitionsRepo.findAll(tenant, true);
-      customFieldKeys = definitions
-        .filter((d) => d.field_type === 'text' || d.field_type === 'select')
-        .map((d) => d.field_key);
+      // custom_fields->>key always returns text regardless of the underlying JSON type,
+      // so every field type (including number) is searchable via ilike.
+      customFieldKeys = definitions.map((d) => d.field_key);
     }
     return this.repo.findAll(tenant, query.search, query.page, query.limit, customFieldKeys);
   }
