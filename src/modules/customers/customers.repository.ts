@@ -12,15 +12,27 @@ export class CustomersRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenant: TenantContext, search?: string, page = 1, limit = 20) {
+  async findAll(
+    tenant: TenantContext,
+    search?: string,
+    page = 1,
+    limit = 20,
+    customFieldKeys: string[] = [],
+  ) {
     let query = this.scopedQuery('customers', tenant)
-      .select('id, full_name, phone, email, loyalty_points, is_active, created_at')
+      .select('id, full_name, phone, email, loyalty_points, is_active, custom_fields, created_at')
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .range((page - 1) * limit, page * limit - 1);
 
     if (search) {
-      query = query.or(`full_name.ilike.%${search}%,phone.ilike.%${search}%`);
+      const escaped = search.replace(/[%,]/g, '');
+      const conditions = [
+        `full_name.ilike.%${escaped}%`,
+        `phone.ilike.%${escaped}%`,
+        ...customFieldKeys.map((key) => `custom_fields->>${key}.ilike.%${escaped}%`),
+      ];
+      query = query.or(conditions.join(','));
     }
 
     const { data, error } = await query;

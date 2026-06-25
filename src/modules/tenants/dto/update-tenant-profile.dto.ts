@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MinLength, MaxLength, IsEnum } from 'class-validator';
+import { IsString, IsOptional, MinLength, MaxLength, IsEnum, IsBoolean } from 'class-validator';
 import { BusinessType } from '../../../shared/types/enums';
 
 export class UpdateTenantProfileDto {
@@ -21,4 +21,8 @@ export class UpdateTenantProfileDto {
   @IsString()
   @MaxLength(10)
   currency_symbol?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  customer_capture_enabled?: boolean;
 }

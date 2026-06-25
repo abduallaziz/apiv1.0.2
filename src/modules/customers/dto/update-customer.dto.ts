@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MaxLength, IsBoolean } from 'class-validator';
+import { IsEmail, IsObject, IsOptional, IsString, MaxLength, IsBoolean } from 'class-validator';
 
 export class UpdateCustomerDto {
   @IsOptional()
@@ -23,4 +23,8 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  custom_fields?: Record<string, string | number | boolean | null>;
 }

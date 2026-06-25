@@ -15,4 +15,12 @@ export class ExpensesScheduler {
       this.logger.log(`Expired ${count} stale expense requests`);
     }
   }
+
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async handleRecurringExpenses() {
+    const count = await this.expensesService.processRecurringExpenses();
+    if (count > 0) {
+      this.logger.log(`Created ${count} expense(s) from recurring templates`);
+    }
+  }
 }
