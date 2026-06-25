@@ -10,7 +10,10 @@ import { AuditService } from '../../core/audit/audit.service';
 import { MetricsService } from '../../core/metrics/metrics.service';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { NotificationService } from '../../core/notification/notification.service';
-import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../core/notification/notification.constants';
+import {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+} from '../../core/notification/notification.constants';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CancelInvoiceDto } from './dto/cancel-invoice.dto';
@@ -41,15 +44,13 @@ export class InvoicesService {
       ? await this.tenantsRepo.getTaxRate(tenant.tenantId)
       : 0;
 
-    const built = this.posEngine.buildInvoice(
-      dto.items,
-      dto.discount,
-      taxRate,
-    );
+    const built = this.posEngine.buildInvoice(dto.items, dto.discount, taxRate);
 
     if (dto.payment_method === 'cash') {
       if (!dto.cash_tendered) {
-        throw new BadRequestException('cash_tendered required for cash payment');
+        throw new BadRequestException(
+          'cash_tendered required for cash payment',
+        );
       }
       this.paymentEngine.processCashPayment(built.total, dto.cash_tendered);
     } else if (dto.payment_method === 'split') {
@@ -62,6 +63,10 @@ export class InvoicesService {
         built.total,
         dto.cash_amount,
         dto.card_amount,
+      );
+    } else if (dto.payment_method === 'tab' && !dto.customer_id) {
+      throw new BadRequestException(
+        'customer_id required for tab (open account) payment',
       );
     }
 
@@ -99,7 +104,11 @@ export class InvoicesService {
       action: 'invoice.create',
       resource_type: 'invoice',
       resource_id: invoice.id,
-      after_data: { total: built.total, payment_method: dto.payment_method, tax_rate: taxRate },
+      after_data: {
+        total: built.total,
+        payment_method: dto.payment_method,
+        tax_rate: taxRate,
+      },
       ip_address: ip,
       device,
     });
@@ -107,13 +116,15 @@ export class InvoicesService {
     this.metricsService.recordInvoice(tenant.tenantId, 'completed');
 
     // إشعار داخلي للكاشير عند إتمام الفاتورة
-    this.notificationService.notify({
-      userId: cashierId,
-      tenantId: tenant.tenantId,
-      type: NOTIFICATION_TYPES.PAYMENT_SUCCESS,
-      channels: [NOTIFICATION_CHANNELS.IN_APP],
-      data: { total: built.total, invoice_id: invoice.id },
-    }).catch(() => {}); // لا نوقف العملية إذا فشل الإشعار
+    this.notificationService
+      .notify({
+        userId: cashierId,
+        tenantId: tenant.tenantId,
+        type: NOTIFICATION_TYPES.PAYMENT_SUCCESS,
+        channels: [NOTIFICATION_CHANNELS.IN_APP],
+        data: { total: built.total, invoice_id: invoice.id },
+      })
+      .catch(() => {}); // لا نوقف العملية إذا فشل الإشعار
 
     return { id: invoice.id, total: built.total, tax_rate: taxRate };
   }

@@ -70,8 +70,29 @@ export class CreateInvoiceDto {
   @IsUUID()
   customer_id?: string;
 
-  @IsEnum(['cash', 'card', 'split'])
-  payment_method: 'cash' | 'card' | 'split';
+  @IsEnum([
+    'cash',
+    'card',
+    'split',
+    'wallet',
+    'mada',
+    'visa',
+    'mastercard',
+    'stc_pay',
+    'apple_pay',
+    'tab',
+  ])
+  payment_method:
+    | 'cash'
+    | 'card'
+    | 'split'
+    | 'wallet'
+    | 'mada'
+    | 'visa'
+    | 'mastercard'
+    | 'stc_pay'
+    | 'apple_pay'
+    | 'tab';
 
   @IsOptional()
   @IsNumber()
