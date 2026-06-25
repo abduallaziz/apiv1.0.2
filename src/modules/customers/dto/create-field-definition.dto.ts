@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsIn, IsArray, MaxLength, Matches } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsIn, IsArray, IsInt, MaxLength, Matches } from 'class-validator';
 
 export class CreateFieldDefinitionDto {
   @IsString()
@@ -24,4 +24,8 @@ export class CreateFieldDefinitionDto {
   @IsOptional()
   @IsBoolean()
   required?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  sort_order?: number;
 }

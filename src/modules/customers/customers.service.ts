@@ -1,39 +1,53 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomersRepository } from './customers.repository';
 import { CustomerFieldDefinitionsRepository } from './customer-field-definitions.repository';
+import { BUILTIN_FIELD_KEYS, CustomerFieldDefinitionsService } from './customer-field-definitions.service';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
+
+const BUILTIN_KEY_SET = new Set<string>(BUILTIN_FIELD_KEYS);
 
 @Injectable()
 export class CustomersService {
   constructor(
     private readonly repo: CustomersRepository,
     private readonly fieldDefinitionsRepo: CustomerFieldDefinitionsRepository,
+    private readonly fieldDefinitionsService: CustomerFieldDefinitionsService,
   ) {}
 
-  private async validateCustomFields(
+  /**
+   * full_name/phone are owner-configurable like any other field — required-ness
+   * comes entirely from customer_field_definitions, not from hardcoded DTO rules.
+   */
+  private async validateFields(
     tenant: TenantContext,
-    customFields: Record<string, unknown> | undefined,
+    dto: CreateCustomerDto | UpdateCustomerDto,
     isCreate: boolean,
   ) {
+    // ensures full_name/phone definitions exist for this tenant
+    await this.fieldDefinitionsService.findAll(tenant, true);
     const definitions = await this.fieldDefinitionsRepo.findAll(tenant, true);
-    const byKey = new Map(definitions.map((d) => [d.field_key, d]));
+    const customFields = dto.custom_fields;
 
     for (const key of Object.keys(customFields ?? {})) {
-      if (!byKey.has(key)) {
+      if (BUILTIN_KEY_SET.has(key)) continue;
+      if (!definitions.some((d) => d.field_key === key)) {
         throw new BadRequestException(`Unknown custom field: ${key}`);
       }
     }
 
     for (const def of definitions) {
-      const value = customFields?.[def.field_key];
+      const value = BUILTIN_KEY_SET.has(def.field_key)
+        ? (dto as Record<string, unknown>)[def.field_key]
+        : customFields?.[def.field_key];
 
       if (isCreate && def.required && (value === undefined || value === null || value === '')) {
         throw new BadRequestException(`Custom field "${def.field_key}" is required`);
       }
 
+      if (BUILTIN_KEY_SET.has(def.field_key)) continue; // type already enforced by DTO validators
       if (value === undefined || value === null) continue;
 
       if (def.field_type === 'number' && typeof value !== 'number') {
@@ -60,7 +74,7 @@ export class CustomersService {
     if (query.search) {
       const definitions = await this.fieldDefinitionsRepo.findAll(tenant, true);
       customFieldKeys = definitions
-        .filter((d) => d.field_type === 'text' || d.field_type === 'select')
+        .filter((d) => !BUILTIN_KEY_SET.has(d.field_key) && (d.field_type === 'text' || d.field_type === 'select'))
         .map((d) => d.field_key);
     }
     return this.repo.findAll(tenant, query.search, query.page, query.limit, customFieldKeys);
@@ -73,9 +87,11 @@ export class CustomersService {
   }
 
   async create(tenant: TenantContext, dto: CreateCustomerDto) {
-    const existing = await this.repo.findByPhone(tenant, dto.phone);
-    if (existing) throw new BadRequestException('Phone already registered for this tenant');
-    await this.validateCustomFields(tenant, dto.custom_fields, true);
+    if (dto.phone) {
+      const existing = await this.repo.findByPhone(tenant, dto.phone);
+      if (existing) throw new BadRequestException('Phone already registered for this tenant');
+    }
+    await this.validateFields(tenant, dto, true);
     return this.repo.create(tenant, dto);
   }
 
@@ -89,9 +105,7 @@ export class CustomersService {
       }
     }
 
-    if (dto.custom_fields) {
-      await this.validateCustomFields(tenant, dto.custom_fields, false);
-    }
+    await this.validateFields(tenant, dto, false);
 
     return this.repo.update(tenant, id, dto);
   }
