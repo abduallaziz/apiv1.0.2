@@ -37,6 +37,7 @@ export class TenantsService {
     return {
       tax_rate: tenant.tax_rate,
       customer_capture_enabled: tenant.customer_capture_enabled,
+      name_field_enabled: tenant.name_field_enabled,
     };
   }
 

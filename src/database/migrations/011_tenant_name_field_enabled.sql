@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS name_field_enabled BOOLEAN NOT NULL DEFAULT false;

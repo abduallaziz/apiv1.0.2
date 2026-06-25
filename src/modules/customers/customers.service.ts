@@ -5,12 +5,14 @@ import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
+import { TenantsService } from '../tenants/tenants.service';
 
 @Injectable()
 export class CustomersService {
   constructor(
     private readonly repo: CustomersRepository,
     private readonly fieldDefinitionsRepo: CustomerFieldDefinitionsRepository,
+    private readonly tenantsService: TenantsService,
   ) {}
 
   private async validateCustomFields(
@@ -51,6 +53,15 @@ export class CustomersService {
     }
   }
 
+  private syncContactColumns(
+    dto: { phone?: string; email?: string; custom_fields?: Record<string, string | number | boolean | null> },
+  ) {
+    const customFields = dto.custom_fields ?? {};
+    const phone = dto.phone ?? (typeof customFields.phone === 'string' ? customFields.phone : undefined);
+    const email = dto.email ?? (typeof customFields.email === 'string' ? customFields.email : undefined);
+    return { phone, email };
+  }
+
   async getStats(tenant: TenantContext) {
     return this.repo.getGlobalStats(tenant);
   }
@@ -73,26 +84,36 @@ export class CustomersService {
   }
 
   async create(tenant: TenantContext, dto: CreateCustomerDto) {
-    if (dto.phone) {
-      const existing = await this.repo.findByPhone(tenant, dto.phone);
+    const { phone, email } = this.syncContactColumns(dto);
+
+    if (phone) {
+      const existing = await this.repo.findByPhone(tenant, phone);
       if (existing) throw new BadRequestException('Phone already registered for this tenant');
     }
     await this.validateCustomFields(tenant, dto.custom_fields, true);
 
+    const posConfig = await this.tenantsService.getPosConfig(tenant.tenantId);
+
     let full_name = dto.full_name;
-    if (!full_name) {
+    if (posConfig.name_field_enabled) {
+      if (!full_name?.trim()) {
+        throw new BadRequestException('full_name is required');
+      }
+    } else {
       const count = await this.repo.countAll(tenant);
       full_name = `عميل ${count + 1}`;
     }
 
-    return this.repo.create(tenant, { ...dto, full_name });
+    return this.repo.create(tenant, { ...dto, full_name, phone, email });
   }
 
   async update(tenant: TenantContext, id: string, dto: UpdateCustomerDto) {
     await this.findById(tenant, id);
 
-    if (dto.phone) {
-      const existing = await this.repo.findByPhone(tenant, dto.phone);
+    const { phone, email } = this.syncContactColumns(dto);
+
+    if (phone) {
+      const existing = await this.repo.findByPhone(tenant, phone);
       if (existing && existing.id !== id) {
         throw new BadRequestException('Phone already registered for this tenant');
       }
@@ -102,7 +123,7 @@ export class CustomersService {
       await this.validateCustomFields(tenant, dto.custom_fields, false);
     }
 
-    return this.repo.update(tenant, id, dto);
+    return this.repo.update(tenant, id, { ...dto, phone, email });
   }
 
   async remove(tenant: TenantContext, id: string) {

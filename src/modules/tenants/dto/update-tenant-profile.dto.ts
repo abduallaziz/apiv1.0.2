@@ -25,4 +25,8 @@ export class UpdateTenantProfileDto {
   @IsOptional()
   @IsBoolean()
   customer_capture_enabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  name_field_enabled?: boolean;
 }
