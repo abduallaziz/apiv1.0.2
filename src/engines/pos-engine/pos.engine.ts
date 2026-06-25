@@ -55,8 +55,9 @@ export class PosEngine {
   }
 
   applyTax(subtotal: number, discountAmount: number, taxRate: number): number {
+    // taxRate is a fraction (e.g. 0.15 for 15%), matching tenants.tax_rate in the DB.
     const taxable = subtotal - discountAmount;
-    return parseFloat(((taxable * taxRate) / 100).toFixed(2));
+    return parseFloat((taxable * taxRate).toFixed(2));
   }
 
   calculateTotal(
@@ -70,7 +71,7 @@ export class PosEngine {
   buildInvoice(
     items: InvoiceItem[],
     discount?: DiscountInput,
-    taxRate: number = 15,
+    taxRate: number = 0.15,
   ): BuiltInvoice {
     const subtotal = this.calculateSubtotal(items);
     const discount_amount = this.applyDiscount(subtotal, discount);

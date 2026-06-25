@@ -37,7 +37,32 @@ export class CustomersRepository extends ScopedRepository {
 
     const { data, error } = await query;
     if (error) throw error;
-    return data;
+
+    const customers = data ?? [];
+    if (customers.length === 0) return customers;
+
+    const ids = customers.map((c) => c.id);
+    const { data: orders, error: ordersError } = await this.supabase
+      .from('orders')
+      .select('customer_id, total')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .in('customer_id', ids);
+    if (ordersError) throw ordersError;
+
+    const statsByCustomer = new Map<string, { orders_count: number; total_spent: number }>();
+    for (const order of orders ?? []) {
+      const entry = statsByCustomer.get(order.customer_id) ?? { orders_count: 0, total_spent: 0 };
+      entry.orders_count += 1;
+      entry.total_spent += order.total ?? 0;
+      statsByCustomer.set(order.customer_id, entry);
+    }
+
+    return customers.map((customer) => ({
+      ...customer,
+      orders_count: statsByCustomer.get(customer.id)?.orders_count ?? 0,
+      total_spent: statsByCustomer.get(customer.id)?.total_spent ?? 0,
+    }));
   }
 
   async findById(tenant: TenantContext, id: string) {
