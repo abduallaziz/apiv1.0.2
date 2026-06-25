@@ -66,8 +66,11 @@ export class CustomersService {
     const phoneFromField = phoneField ? customFields[phoneField.field_key] : undefined;
     const emailFromField = emailField ? customFields[emailField.field_key] : undefined;
 
-    const phone = dto.phone ?? (typeof phoneFromField === 'string' ? phoneFromField : undefined);
-    const email = dto.email ?? (typeof emailFromField === 'string' ? emailFromField : undefined);
+    const toStringValue = (value: unknown) =>
+      typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
+
+    const phone = dto.phone ?? toStringValue(phoneFromField);
+    const email = dto.email ?? toStringValue(emailFromField);
     return { phone, email };
   }
 
