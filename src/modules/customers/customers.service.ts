@@ -78,7 +78,14 @@ export class CustomersService {
       if (existing) throw new BadRequestException('Phone already registered for this tenant');
     }
     await this.validateCustomFields(tenant, dto.custom_fields, true);
-    return this.repo.create(tenant, dto);
+
+    let full_name = dto.full_name;
+    if (!full_name) {
+      const count = await this.repo.countAll(tenant);
+      full_name = `عميل ${count + 1}`;
+    }
+
+    return this.repo.create(tenant, { ...dto, full_name });
   }
 
   async update(tenant: TenantContext, id: string, dto: UpdateCustomerDto) {

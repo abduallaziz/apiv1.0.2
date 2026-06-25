@@ -59,6 +59,15 @@ export class CustomersRepository extends ScopedRepository {
     return data;
   }
 
+  async countAll(tenant: TenantContext): Promise<number> {
+    const { count, error } = await this.supabase
+      .from('customers')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.tenantId);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
   async create(tenant: TenantContext, payload: CreateCustomerDto) {
     const { data, error } = await this.supabase
       .from('customers')
