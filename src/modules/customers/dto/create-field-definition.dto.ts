@@ -28,4 +28,8 @@ export class CreateFieldDefinitionDto {
   @IsOptional()
   @IsInt()
   sort_order?: number;
+
+  @IsOptional()
+  @IsIn(['phone', 'email'])
+  contact_role?: 'phone' | 'email';
 }

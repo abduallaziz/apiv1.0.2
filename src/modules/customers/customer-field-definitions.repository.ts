@@ -14,7 +14,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
 
   async findAll(tenant: TenantContext, activeOnly = false) {
     let query = this.scopedQuery('customer_field_definitions', tenant)
-      .select('id, field_key, label_ar, label_en, field_type, options, required, is_active, sort_order, created_at')
+      .select('id, field_key, label_ar, label_en, field_type, options, required, is_active, sort_order, contact_role, created_at')
       .order('sort_order', { ascending: true });
 
     if (activeOnly) query = query.eq('is_active', true);

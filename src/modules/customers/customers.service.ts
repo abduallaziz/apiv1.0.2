@@ -53,12 +53,21 @@ export class CustomersService {
     }
   }
 
-  private syncContactColumns(
+  private async syncContactColumns(
+    tenant: TenantContext,
     dto: { phone?: string; email?: string; custom_fields?: Record<string, string | number | boolean | null> },
   ) {
     const customFields = dto.custom_fields ?? {};
-    const phone = dto.phone ?? (typeof customFields.phone === 'string' ? customFields.phone : undefined);
-    const email = dto.email ?? (typeof customFields.email === 'string' ? customFields.email : undefined);
+    const definitions = await this.fieldDefinitionsRepo.findAll(tenant, true);
+
+    const phoneField = definitions.find((d) => d.contact_role === 'phone');
+    const emailField = definitions.find((d) => d.contact_role === 'email');
+
+    const phoneFromField = phoneField ? customFields[phoneField.field_key] : undefined;
+    const emailFromField = emailField ? customFields[emailField.field_key] : undefined;
+
+    const phone = dto.phone ?? (typeof phoneFromField === 'string' ? phoneFromField : undefined);
+    const email = dto.email ?? (typeof emailFromField === 'string' ? emailFromField : undefined);
     return { phone, email };
   }
 
@@ -84,7 +93,7 @@ export class CustomersService {
   }
 
   async create(tenant: TenantContext, dto: CreateCustomerDto) {
-    const { phone, email } = this.syncContactColumns(dto);
+    const { phone, email } = await this.syncContactColumns(tenant, dto);
 
     if (phone) {
       const existing = await this.repo.findByPhone(tenant, phone);
@@ -110,7 +119,7 @@ export class CustomersService {
   async update(tenant: TenantContext, id: string, dto: UpdateCustomerDto) {
     await this.findById(tenant, id);
 
-    const { phone, email } = this.syncContactColumns(dto);
+    const { phone, email } = await this.syncContactColumns(tenant, dto);
 
     if (phone) {
       const existing = await this.repo.findByPhone(tenant, phone);

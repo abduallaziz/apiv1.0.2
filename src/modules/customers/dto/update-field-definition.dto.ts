@@ -30,4 +30,8 @@ export class UpdateFieldDefinitionDto {
   @IsOptional()
   @IsInt()
   sort_order?: number;
+
+  @IsOptional()
+  @IsIn(['phone', 'email', null])
+  contact_role?: 'phone' | 'email' | null;
 }
