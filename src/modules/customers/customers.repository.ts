@@ -20,7 +20,7 @@ export class CustomersRepository extends ScopedRepository {
     customFieldKeys: string[] = [],
   ) {
     let query = this.scopedQuery('customers', tenant)
-      .select('id, full_name, phone, email, loyalty_points, is_active, custom_fields, created_at')
+      .select('id, full_name, phone, email, plate_number, visit_date, odometer, loyalty_points, is_active, custom_fields, created_at')
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .range((page - 1) * limit, page * limit - 1);
