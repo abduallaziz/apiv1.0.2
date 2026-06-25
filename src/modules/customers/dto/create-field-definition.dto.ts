@@ -30,6 +30,6 @@ export class CreateFieldDefinitionDto {
   sort_order?: number;
 
   @IsOptional()
-  @IsIn(['phone', 'email'])
-  contact_role?: 'phone' | 'email';
+  @IsIn(['phone', 'email', 'plate_number', 'visit_date', 'odometer'])
+  contact_role?: 'phone' | 'email' | 'plate_number' | 'visit_date' | 'odometer';
 }

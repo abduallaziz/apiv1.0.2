@@ -55,23 +55,39 @@ export class CustomersService {
 
   private async syncContactColumns(
     tenant: TenantContext,
-    dto: { phone?: string; email?: string; custom_fields?: Record<string, string | number | boolean | null> },
+    dto: {
+      phone?: string;
+      email?: string;
+      custom_fields?: Record<string, string | number | boolean | null>;
+    },
   ) {
     const customFields = dto.custom_fields ?? {};
     const definitions = await this.fieldDefinitionsRepo.findAll(tenant, true);
 
-    const phoneField = definitions.find((d) => d.contact_role === 'phone');
-    const emailField = definitions.find((d) => d.contact_role === 'email');
-
-    const phoneFromField = phoneField ? customFields[phoneField.field_key] : undefined;
-    const emailFromField = emailField ? customFields[emailField.field_key] : undefined;
+    const fieldForRole = (role: string) => definitions.find((d) => d.contact_role === role);
 
     const toStringValue = (value: unknown) =>
       typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
 
-    const phone = dto.phone ?? toStringValue(phoneFromField);
-    const email = dto.email ?? toStringValue(emailFromField);
-    return { phone, email };
+    const toIntValue = (value: unknown) => {
+      if (typeof value === 'number') return Math.trunc(value);
+      if (typeof value === 'string' && value.trim() !== '' && !isNaN(Number(value))) return Math.trunc(Number(value));
+      return undefined;
+    };
+
+    const phoneField = fieldForRole('phone');
+    const emailField = fieldForRole('email');
+    const plateField = fieldForRole('plate_number');
+    const visitDateField = fieldForRole('visit_date');
+    const odometerField = fieldForRole('odometer');
+
+    const phone = dto.phone ?? toStringValue(phoneField ? customFields[phoneField.field_key] : undefined);
+    const email = dto.email ?? toStringValue(emailField ? customFields[emailField.field_key] : undefined);
+    const plate_number = toStringValue(plateField ? customFields[plateField.field_key] : undefined);
+    const visit_date = toStringValue(visitDateField ? customFields[visitDateField.field_key] : undefined);
+    const odometer = toIntValue(odometerField ? customFields[odometerField.field_key] : undefined);
+
+    return { phone, email, plate_number, visit_date, odometer };
   }
 
   async getStats(tenant: TenantContext) {
@@ -96,7 +112,7 @@ export class CustomersService {
   }
 
   async create(tenant: TenantContext, dto: CreateCustomerDto) {
-    const { phone, email } = await this.syncContactColumns(tenant, dto);
+    const { phone, email, plate_number, visit_date, odometer } = await this.syncContactColumns(tenant, dto);
 
     if (phone) {
       const existing = await this.repo.findByPhone(tenant, phone);
@@ -116,13 +132,13 @@ export class CustomersService {
       full_name = `عميل ${count + 1}`;
     }
 
-    return this.repo.create(tenant, { ...dto, full_name, phone, email });
+    return this.repo.create(tenant, { ...dto, full_name, phone, email, plate_number, visit_date, odometer });
   }
 
   async update(tenant: TenantContext, id: string, dto: UpdateCustomerDto) {
     await this.findById(tenant, id);
 
-    const { phone, email } = await this.syncContactColumns(tenant, dto);
+    const { phone, email, plate_number, visit_date, odometer } = await this.syncContactColumns(tenant, dto);
 
     if (phone) {
       const existing = await this.repo.findByPhone(tenant, phone);
@@ -135,7 +151,7 @@ export class CustomersService {
       await this.validateCustomFields(tenant, dto.custom_fields, false);
     }
 
-    return this.repo.update(tenant, id, { ...dto, phone, email });
+    return this.repo.update(tenant, id, { ...dto, phone, email, plate_number, visit_date, odometer });
   }
 
   async remove(tenant: TenantContext, id: string) {
