@@ -45,4 +45,10 @@ export class TenantsController {
   getUsage(@GetTenant() tenant: TenantContext) {
     return this.tenantsService.getUsage(tenant.tenantId);
   }
+
+  @Get('pos-config')
+  @RequirePermission('invoice.create.own')
+  getPosConfig(@GetTenant() tenant: TenantContext) {
+    return this.tenantsService.getPosConfig(tenant.tenantId);
+  }
 }

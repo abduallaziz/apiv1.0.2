@@ -31,6 +31,15 @@ export class TenantsService {
     };
   }
 
+  async getPosConfig(tenantId: string) {
+    const tenant = await this.tenantsRepository.findById(tenantId);
+    if (!tenant) throw new NotFoundException('Tenant not found');
+    return {
+      tax_rate: tenant.tax_rate,
+      customer_capture_enabled: tenant.customer_capture_enabled,
+    };
+  }
+
   async getUsage(tenantId: string) {
     const tenant = await this.tenantsRepository.findById(tenantId);
     if (!tenant) throw new NotFoundException('Tenant not found');
