@@ -11,7 +11,7 @@ export class TenantsRepository {
   async findById(tenantId: string) {
     const { data, error } = await this.supabase
       .from('tenants')
-      .select('id, name, business_type, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled')
+      .select('id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled')
       .eq('id', tenantId)
       .is('deleted_at', null)
       .single();
@@ -46,7 +46,7 @@ export class TenantsRepository {
       .update(updates)
       .eq('id', tenantId)
       .is('deleted_at', null)
-      .select('id, name, business_type, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled')
+      .select('id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled')
       .single();
 
     if (error) throw error;

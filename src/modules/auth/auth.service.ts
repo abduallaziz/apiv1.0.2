@@ -116,17 +116,22 @@ export class AuthService {
       .map(([key]) => key);
   }
 
-  private async getTenantBusinessType(tenantId: string | null): Promise<string | null> {
-    if (!tenantId) return null;
+  private async getTenantBusinessType(
+    tenantId: string | null,
+  ): Promise<{ business_type: string | null; activity: string | null }> {
+    if (!tenantId) return { business_type: null, activity: null };
 
     const { data } = await this.supabase
       .from('tenants')
-      .select('business_type')
+      .select('business_type, activity')
       .eq('id', tenantId)
       .is('deleted_at', null)
       .single();
 
-    return data?.business_type ?? null;
+    return {
+      business_type: data?.business_type ?? null,
+      activity: data?.activity ?? null,
+    };
   }
 
   async login(dto: LoginDto, ip: string, userAgent: string) {
@@ -175,7 +180,7 @@ export class AuthService {
       .select('id')
       .single();
 
-    const business_type = await this.getTenantBusinessType(user.tenant_id);
+    const { business_type, activity } = await this.getTenantBusinessType(user.tenant_id);
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -184,6 +189,7 @@ export class AuthService {
       tenant_id: user.tenant_id,
       session_id: session!.id,
       business_type,
+      activity,
     };
 
     const access_token = this.jwtService.sign(payload);
@@ -231,6 +237,7 @@ export class AuthService {
         tenant_id: user.tenant_id,
         session_id: session!.id,
         business_type,
+        activity,
         permissions,
         features,
       },
@@ -273,6 +280,7 @@ export class AuthService {
       .insert({
         name: dto.businessName,
         business_type: businessType,
+        activity: dto.activity,
         status: 'trial',
         trial_ends_at: trialEndsAt.toISOString(),
         default_language: language,
@@ -355,6 +363,7 @@ export class AuthService {
         tenant_id: user.tenant_id,
         session_id: session!.id,
         business_type: businessType,
+        activity: dto.activity,
       };
 
       const access_token = this.jwtService.sign(payload);
@@ -399,6 +408,7 @@ export class AuthService {
           tenant_id: user.tenant_id,
           session_id: session!.id,
           business_type: businessType,
+          activity: dto.activity,
           permissions,
           features,
         },
@@ -475,7 +485,7 @@ export class AuthService {
       .update({ is_used: true })
       .eq('id', tokenRecord.id);
 
-    const business_type = await this.getTenantBusinessType(user.tenant_id);
+    const { business_type, activity } = await this.getTenantBusinessType(user.tenant_id);
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -484,6 +494,7 @@ export class AuthService {
       tenant_id: user.tenant_id,
       session_id: session.id,
       business_type,
+      activity,
     };
 
     const access_token = this.jwtService.sign(payload);
@@ -557,7 +568,7 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    const [permissions, features, business_type] = await Promise.all([
+    const [permissions, features, { business_type, activity }] = await Promise.all([
       this.getUserPermissions(user.role),
       this.getTenantFeatures(user.tenant_id),
       this.getTenantBusinessType(user.tenant_id),
@@ -572,6 +583,7 @@ export class AuthService {
       is_active: user.is_active,
       created_at: user.created_at,
       business_type,
+      activity,
       permissions,
       features,
     };
