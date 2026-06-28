@@ -41,6 +41,7 @@ import { BillingModule } from '../billing/billing.module';
       { name: QUEUE_NAMES.DUNNING },
       { name: QUEUE_NAMES.AUDIT_CLEANUP },
       { name: QUEUE_NAMES.NOTIFICATIONS },
+      { name: QUEUE_NAMES.DOMAIN_EVENTS },
     ),
     BillingModule,
   ],

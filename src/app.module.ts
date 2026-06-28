@@ -28,6 +28,7 @@ import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueueModule } from './core/queue/queue.module';
+import { OutboxModule } from './core/outbox/outbox.module';
 import { NotificationModule } from './core/notification/notification.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { I18nModule } from './core/i18n/i18n.module';
@@ -74,6 +75,7 @@ import { envValidationSchema } from './core/secrets/config/env.validation';
     TenantsModule,
     PaymentsModule,
     QueueModule,
+    OutboxModule,
     NotificationModule,
     NotificationsModule,
     I18nModule,
