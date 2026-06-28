@@ -8,14 +8,25 @@ import { throwFromRpcError } from './rpc-error.util';
 export class CountsService {
   constructor(private readonly countsRepo: CountsRepository) {}
 
-  findAll(tenantId: string, status?: string) {
-    return this.countsRepo.findAll(tenantId, status);
+  async findAll(tenantId: string, status?: string) {
+    const counts = await this.countsRepo.findAll(tenantId, status);
+    return (counts ?? []).map((c: any) => ({
+      ...c,
+      warehouse_name: c.warehouses?.name ?? null,
+    }));
   }
 
   async findById(id: string, tenantId: string) {
-    const count = await this.countsRepo.findById(id, tenantId);
+    const count: any = await this.countsRepo.findById(id, tenantId);
     if (!count) throw new NotFoundException('Stock count not found');
-    return count;
+    return {
+      ...count,
+      warehouse_name: count.warehouses?.name ?? null,
+      items: (count.items ?? []).map((item: any) => ({
+        ...item,
+        item_name: item.items?.name ?? null,
+      })),
+    };
   }
 
   create(tenantId: string, dto: CreateStockCountDto, actorId: string) {
