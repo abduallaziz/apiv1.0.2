@@ -18,6 +18,17 @@ export interface StockLevelEnrichedFilter {
   status?: string;
 }
 
+export interface MovementsLedgerFilter {
+  warehouseId?: string;
+  itemId?: string;
+  movementType?: string;
+  referenceType?: string;
+  referenceId?: string;
+  createdBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
 @Injectable()
 export class StockRepository extends ScopedRepository {
   constructor(supabase: SupabaseClient) {
@@ -52,6 +63,30 @@ export class StockRepository extends ScopedRepository {
     });
     if (error) throw error;
     return data;
+  }
+
+  async findMovementsLedger(
+    tenantId: string,
+    filter: MovementsLedgerFilter,
+    page: number,
+    perPage: number,
+  ) {
+    const { data, error } = await this.supabase.rpc('fn_inventory_movements_ledger', {
+      p_tenant_id: tenantId,
+      p_warehouse_id: filter.warehouseId ?? null,
+      p_item_id: filter.itemId ?? null,
+      p_movement_type: filter.movementType ?? null,
+      p_reference_type: filter.referenceType ?? null,
+      p_reference_id: filter.referenceId ?? null,
+      p_created_by: filter.createdBy ?? null,
+      p_date_from: filter.dateFrom ?? null,
+      p_date_to: filter.dateTo ?? null,
+      p_limit: perPage,
+      p_offset: (page - 1) * perPage,
+    });
+    if (error) throw error;
+    const total = data && data.length > 0 ? Number(data[0].total_count) : 0;
+    return { data: data ?? [], total, page, perPage };
   }
 
   async findMovements(

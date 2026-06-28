@@ -46,6 +46,29 @@ export class StockController {
     });
   }
 
+  @Get('movements/ledger')
+  @RequirePermission('inventory.view')
+  findMovementsLedger(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('item_id') itemId?: string,
+    @Query('movement_type') movementType?: string,
+    @Query('reference_type') referenceType?: string,
+    @Query('reference_id') referenceId?: string,
+    @Query('created_by') createdBy?: string,
+    @Query('date_from') dateFrom?: string,
+    @Query('date_to') dateTo?: string,
+    @Query('page') page = '1',
+    @Query('per_page') perPage = '50',
+  ) {
+    return this.stockService.findMovementsLedger(
+      tenant.tenantId,
+      { warehouseId, itemId, movementType, referenceType, referenceId, createdBy, dateFrom, dateTo },
+      Number(page),
+      Number(perPage),
+    );
+  }
+
   @Get('movements')
   @RequirePermission('inventory.view')
   findMovements(
