@@ -23,6 +23,29 @@ export class StockController {
     return this.stockService.findLevels(tenant.tenantId, { warehouseId, itemId, variantId });
   }
 
+  @Get('levels/enriched')
+  @RequirePermission('inventory.view')
+  findLevelsEnriched(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('item_id') itemId?: string,
+    @Query('category_id') categoryId?: string,
+    @Query('location_id') locationId?: string,
+    @Query('batch_id') batchId?: string,
+    @Query('supplier_id') supplierId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.stockService.findLevelsEnriched(tenant.tenantId, {
+      warehouseId,
+      itemId,
+      categoryId,
+      locationId,
+      batchId,
+      supplierId,
+      status,
+    });
+  }
+
   @Get('movements')
   @RequirePermission('inventory.view')
   findMovements(

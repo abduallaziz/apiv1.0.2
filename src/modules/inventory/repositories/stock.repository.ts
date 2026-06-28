@@ -8,6 +8,16 @@ export interface StockLevelFilter {
   variantId?: string;
 }
 
+export interface StockLevelEnrichedFilter {
+  warehouseId?: string;
+  itemId?: string;
+  categoryId?: string;
+  locationId?: string;
+  batchId?: string;
+  supplierId?: string;
+  status?: string;
+}
+
 @Injectable()
 export class StockRepository extends ScopedRepository {
   constructor(supabase: SupabaseClient) {
@@ -25,6 +35,21 @@ export class StockRepository extends ScopedRepository {
     if (filter.variantId) query = query.eq('variant_id', filter.variantId);
 
     const { data, error } = await query.order('updated_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  }
+
+  async findLevelsEnriched(tenantId: string, filter: StockLevelEnrichedFilter) {
+    const { data, error } = await this.supabase.rpc('fn_inventory_stock_levels_enriched', {
+      p_tenant_id: tenantId,
+      p_warehouse_id: filter.warehouseId ?? null,
+      p_item_id: filter.itemId ?? null,
+      p_category_id: filter.categoryId ?? null,
+      p_location_id: filter.locationId ?? null,
+      p_batch_id: filter.batchId ?? null,
+      p_supplier_id: filter.supplierId ?? null,
+      p_status: filter.status ?? null,
+    });
     if (error) throw error;
     return data;
   }

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { StockRepository, StockLevelFilter } from './repositories/stock.repository';
+import { StockRepository, StockLevelFilter, StockLevelEnrichedFilter } from './repositories/stock.repository';
 
 @Injectable()
 export class StockService {
@@ -7,6 +7,10 @@ export class StockService {
 
   findLevels(tenantId: string, filter: StockLevelFilter) {
     return this.stockRepo.findLevels(tenantId, filter);
+  }
+
+  findLevelsEnriched(tenantId: string, filter: StockLevelEnrichedFilter) {
+    return this.stockRepo.findLevelsEnriched(tenantId, filter);
   }
 
   findMovements(
