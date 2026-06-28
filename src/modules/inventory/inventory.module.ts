@@ -35,6 +35,10 @@ import { CountsController } from './counts.controller';
 import { CountsService } from './counts.service';
 import { CountsRepository } from './repositories/counts.repository';
 
+import { AnalyticsController } from './analytics.controller';
+import { AnalyticsService } from './analytics.service';
+import { AnalyticsRepository } from './repositories/analytics.repository';
+
 @Module({
   imports: [SupabaseModule, PermissionsModule],
   controllers: [
@@ -46,6 +50,7 @@ import { CountsRepository } from './repositories/counts.repository';
     AdjustmentsController,
     TransfersController,
     CountsController,
+    AnalyticsController,
   ],
   providers: [
     WarehousesService,
@@ -56,6 +61,7 @@ import { CountsRepository } from './repositories/counts.repository';
     AdjustmentsService,
     TransfersService,
     CountsService,
+    AnalyticsService,
     {
       provide: WarehousesRepository,
       useFactory: (supabase: SupabaseClient) => new WarehousesRepository(supabase),
@@ -94,6 +100,11 @@ import { CountsRepository } from './repositories/counts.repository';
     {
       provide: CountsRepository,
       useFactory: (supabase: SupabaseClient) => new CountsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: AnalyticsRepository,
+      useFactory: (supabase: SupabaseClient) => new AnalyticsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],
