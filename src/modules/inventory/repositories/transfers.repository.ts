@@ -22,7 +22,9 @@ export class TransfersRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('stock_transfers')
-      .select('*, items:stock_transfer_items(*)')
+      .select(
+        '*, from:warehouses!stock_transfers_from_warehouse_id_fkey(name,code), to:warehouses!stock_transfers_to_warehouse_id_fkey(name,code), items:stock_transfer_items(*, items(name, sku))',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single();

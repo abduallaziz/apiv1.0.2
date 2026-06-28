@@ -7,14 +7,27 @@ import { throwFromRpcError } from './rpc-error.util';
 export class TransfersService {
   constructor(private readonly transfersRepo: TransfersRepository) {}
 
-  findAll(tenantId: string, status?: string) {
-    return this.transfersRepo.findAll(tenantId, status);
+  async findAll(tenantId: string, status?: string) {
+    const transfers = await this.transfersRepo.findAll(tenantId, status);
+    return (transfers ?? []).map((t: any) => ({
+      ...t,
+      from_warehouse_name: t.from?.name ?? null,
+      to_warehouse_name: t.to?.name ?? null,
+    }));
   }
 
   async findById(id: string, tenantId: string) {
-    const transfer = await this.transfersRepo.findById(id, tenantId);
+    const transfer: any = await this.transfersRepo.findById(id, tenantId);
     if (!transfer) throw new NotFoundException('Transfer not found');
-    return transfer;
+    return {
+      ...transfer,
+      from_warehouse_name: transfer.from?.name ?? null,
+      to_warehouse_name: transfer.to?.name ?? null,
+      items: (transfer.items ?? []).map((item: any) => ({
+        ...item,
+        item_name: item.items?.name ?? null,
+      })),
+    };
   }
 
   create(tenantId: string, dto: CreateTransferDto) {
