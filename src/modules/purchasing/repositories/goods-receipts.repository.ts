@@ -22,7 +22,9 @@ export class GoodsReceiptsRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('goods_receipts')
-      .select('*, items:goods_receipt_items(*, items(name, sku))')
+      .select(
+        '*, warehouses(name, code), purchase_orders(order_number, suppliers(name)), items:goods_receipt_items(*, items(name, sku), purchase_order_items(quantity_ordered))',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single();
