@@ -7,14 +7,27 @@ import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 export class PurchaseOrdersService {
   constructor(private readonly purchaseOrdersRepo: PurchaseOrdersRepository) {}
 
-  findAll(tenantId: string, status?: string) {
-    return this.purchaseOrdersRepo.findAll(tenantId, status);
+  async findAll(tenantId: string, status?: string) {
+    const orders = await this.purchaseOrdersRepo.findAll(tenantId, status);
+    return (orders ?? []).map((po: any) => ({
+      ...po,
+      supplier_name: po.suppliers?.name ?? null,
+      warehouse_name: po.warehouses?.name ?? null,
+    }));
   }
 
   async findById(id: string, tenantId: string) {
-    const po = await this.purchaseOrdersRepo.findById(id, tenantId);
+    const po: any = await this.purchaseOrdersRepo.findById(id, tenantId);
     if (!po) throw new NotFoundException('Purchase order not found');
-    return po;
+    return {
+      ...po,
+      supplier_name: po.suppliers?.name ?? null,
+      warehouse_name: po.warehouses?.name ?? null,
+      items: (po.items ?? []).map((item: any) => ({
+        ...item,
+        item_name: item.items?.name ?? null,
+      })),
+    };
   }
 
   create(tenantId: string, dto: CreatePurchaseOrderDto, createdBy: string) {
