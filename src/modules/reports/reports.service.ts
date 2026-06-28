@@ -271,7 +271,7 @@ export class ReportsService {
 
     const { data: orderItems, error } = await this.supabase
       .from('order_items')
-      .select('item_id, item_name, quantity, total, orders!inner(tenant_id, status, created_at)')
+      .select('item_id, item_name, qty, total_price, orders!inner(tenant_id, status, created_at)')
       .eq('orders.tenant_id', tenant.tenantId)
       .eq('orders.status', 'completed')
       .gte('orders.created_at', from)
@@ -283,8 +283,8 @@ export class ReportsService {
     for (const row of orderItems ?? []) {
       const id = row.item_id ?? row.item_name;
       if (!map[id]) map[id] = { name: row.item_name, quantity: 0, total: 0 };
-      map[id].quantity += row.quantity ?? 0;
-      map[id].total    += row.total    ?? 0;
+      map[id].quantity += row.qty ?? 0;
+      map[id].total    += row.total_price ?? 0;
     }
 
     const items = Object.values(map)
@@ -314,18 +314,6 @@ export class ReportsService {
 
     if (oErr) throw oErr;
 
-    const { data: lowStock, error: lErr } = await this.supabase
-      .from('items')
-      .select('id, name, stock_quantity, low_stock_threshold')
-      .eq('tenant_id', tenant.tenantId)
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .not('stock_quantity', 'is', null)
-      .not('low_stock_threshold', 'is', null)
-      .limit(5);
-
-    if (lErr) throw lErr;
-
     const activity: {
       type: 'order' | 'refund' | 'alert'
       title: string
@@ -342,18 +330,6 @@ export class ReportsService {
         amount: o.status === 'cancelled' ? -(o.total ?? 0) : (o.total ?? 0),
         time:   o.created_at,
       });
-    }
-
-    for (const item of lowStock ?? []) {
-      if ((item.stock_quantity ?? 0) <= (item.low_stock_threshold ?? 0)) {
-        activity.push({
-          type:   'alert',
-          title:  `مخزون منخفض — ${item.name}`,
-          sub:    `كمية متبقية: ${item.stock_quantity}`,
-          amount: null,
-          time:   new Date().toISOString(),
-        });
-      }
     }
 
     activity.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
