@@ -16,7 +16,13 @@ export class ReportsService {
     const to = now.toISOString();
 
     if (query.period === ReportPeriod.CUSTOM && query.from && query.to) {
-      return { from: query.from, to: query.to };
+      // query.to is a bare date (e.g. "2026-06-28") with no time component.
+      // Compared against a timestamptz, that parses as midnight at the START
+      // of that day, silently excluding every event from that day onward.
+      const toEndOfDay = /^\d{4}-\d{2}-\d{2}$/.test(query.to)
+        ? `${query.to}T23:59:59.999`
+        : query.to;
+      return { from: query.from, to: toEndOfDay };
     }
 
     const from = new Date(now);
