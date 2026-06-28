@@ -18,6 +18,16 @@ async function bootstrap(): Promise<void> {
   app.use(helmet());
   app.use(cookieParser());
 
+  // API responses carry private, tenant-scoped data behind JWT auth — must never be
+  // cached or conditionally revalidated by browsers/CDNs (etag/304 caused empty-body
+  // 304 responses to surface as fetch errors, and `Cache-Control: public` without
+  // `Vary: Authorization` risked a shared cache serving one tenant's data to another).
+  app.getHttpAdapter().getInstance().set('etag', false);
+  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
+
   app.use(
     '/api/v1/webhooks/stripe',
     express.raw({ type: 'application/json' }),
