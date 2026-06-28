@@ -11,7 +11,9 @@ export class AdjustmentsRepository extends ScopedRepository {
   async findAll(tenantId: string, status?: string) {
     let query = this.supabase
       .from('stock_adjustments')
-      .select('*, items(name, sku), warehouses(name, code)')
+      .select(
+        '*, items(name, sku), warehouses(name, code), requested_by_user:users!stock_adjustments_requested_by_fkey(name), approved_by_user:users!stock_adjustments_approved_by_fkey(name)',
+      )
       .eq('tenant_id', tenantId);
     if (status) query = query.eq('status', status);
     const { data, error } = await query.order('created_at', { ascending: false });
@@ -22,7 +24,9 @@ export class AdjustmentsRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('stock_adjustments')
-      .select('*')
+      .select(
+        '*, items(name, sku), warehouses(name, code), requested_by_user:users!stock_adjustments_requested_by_fkey(name), approved_by_user:users!stock_adjustments_approved_by_fkey(name)',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single();
