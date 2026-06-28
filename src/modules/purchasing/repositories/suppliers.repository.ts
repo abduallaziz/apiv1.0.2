@@ -57,4 +57,13 @@ export class SuppliersRepository extends ScopedRepository {
       .eq('tenant_id', tenantId);
     if (error) throw error;
   }
+
+  async findProfileStats(id: string, tenantId: string) {
+    const { data, error } = await this.supabase.rpc('fn_supplier_profile_stats', {
+      p_tenant_id: tenantId,
+      p_supplier_id: id,
+    });
+    if (error) throw error;
+    return data?.[0] ?? null;
+  }
 }

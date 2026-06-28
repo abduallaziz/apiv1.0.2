@@ -37,6 +37,12 @@ export class SuppliersController {
     return this.suppliersService.findById(id, tenant.tenantId);
   }
 
+  @Get(':id/profile-stats')
+  @RequirePermission('purchasing.view')
+  findProfileStats(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.suppliersService.findProfileStats(id, tenant.tenantId);
+  }
+
   @Post()
   @RequirePermission('purchasing.manage')
   create(@Body() dto: CreateSupplierDto, @GetTenant() tenant: TenantContext) {

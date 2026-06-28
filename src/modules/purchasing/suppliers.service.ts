@@ -30,4 +30,9 @@ export class SuppliersService {
     await this.findById(id, tenantId);
     await this.suppliersRepo.softDelete(id, tenantId);
   }
+
+  async findProfileStats(id: string, tenantId: string) {
+    await this.findById(id, tenantId);
+    return this.suppliersRepo.findProfileStats(id, tenantId);
+  }
 }
