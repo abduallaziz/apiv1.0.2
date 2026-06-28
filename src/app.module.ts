@@ -14,6 +14,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { ItemsModule } from './modules/items/items.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
@@ -59,6 +60,7 @@ import { envValidationSchema } from './core/secrets/config/env.validation';
     UsersModule,
     BranchesModule,
     ItemsModule,
+    InventoryModule,
     InvoicesModule,
     ShiftsModule,
     ExpensesModule,
