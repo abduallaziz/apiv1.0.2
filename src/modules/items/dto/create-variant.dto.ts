@@ -3,10 +3,11 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
-  IsInt,
-  Min,
 } from 'class-validator';
 
+// ملاحظة: stock_quantity أصبح حقلاً قديماً (legacy) منذ إدخال وحدة المخزون
+// (stock_levels/stock_movements). لا يجوز ضبطه عبر هذا الـ DTO؛ استخدم
+// Goods Receipt أو Stock Adjustment في وحدة Inventory لتسجيل أي كمية ابتدائية.
 export class CreateVariantDto {
   @IsString()
   @IsNotEmpty()
@@ -19,9 +20,4 @@ export class CreateVariantDto {
   @IsString()
   @IsOptional()
   sku?: string;
-
-  @IsInt()
-  @Min(0)
-  @IsOptional()
-  stock_quantity?: number;
 }
