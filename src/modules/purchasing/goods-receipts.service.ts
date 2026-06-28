@@ -7,14 +7,29 @@ import { throwFromRpcError } from '../inventory/rpc-error.util';
 export class GoodsReceiptsService {
   constructor(private readonly goodsReceiptsRepo: GoodsReceiptsRepository) {}
 
-  findAll(tenantId: string, status?: string) {
-    return this.goodsReceiptsRepo.findAll(tenantId, status);
+  async findAll(tenantId: string, status?: string) {
+    const receipts = await this.goodsReceiptsRepo.findAll(tenantId, status);
+    return (receipts ?? []).map((r: any) => ({
+      ...r,
+      warehouse_name: r.warehouses?.name ?? null,
+      purchase_order_number: r.purchase_orders?.order_number ?? null,
+    }));
   }
 
   async findById(id: string, tenantId: string) {
-    const receipt = await this.goodsReceiptsRepo.findById(id, tenantId);
+    const receipt: any = await this.goodsReceiptsRepo.findById(id, tenantId);
     if (!receipt) throw new NotFoundException('Goods receipt not found');
-    return receipt;
+    return {
+      ...receipt,
+      warehouse_name: receipt.warehouses?.name ?? null,
+      purchase_order_number: receipt.purchase_orders?.order_number ?? null,
+      supplier_name: receipt.purchase_orders?.suppliers?.name ?? null,
+      items: (receipt.items ?? []).map((item: any) => ({
+        ...item,
+        item_name: item.items?.name ?? null,
+        quantity_ordered: item.purchase_order_items?.quantity_ordered ?? null,
+      })),
+    };
   }
 
   create(tenantId: string, dto: CreateGoodsReceiptDto) {
