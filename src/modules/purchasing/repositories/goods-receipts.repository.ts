@@ -9,12 +9,10 @@ export class GoodsReceiptsRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string, status?: string) {
-    let query = this.supabase
-      .from('goods_receipts')
-      .select('*, warehouses(name, code), purchase_orders(order_number)')
-      .eq('tenant_id', tenantId);
-    if (status) query = query.eq('status', status);
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await this.supabase.rpc('fn_goods_receipts_list_enriched', {
+      p_tenant_id: tenantId,
+      p_status: status ?? null,
+    });
     if (error) throw error;
     return data;
   }

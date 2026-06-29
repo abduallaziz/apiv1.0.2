@@ -8,12 +8,7 @@ export class PurchaseOrdersService {
   constructor(private readonly purchaseOrdersRepo: PurchaseOrdersRepository) {}
 
   async findAll(tenantId: string, status?: string) {
-    const orders = await this.purchaseOrdersRepo.findAll(tenantId, status);
-    return (orders ?? []).map((po: any) => ({
-      ...po,
-      supplier_name: po.suppliers?.name ?? null,
-      warehouse_name: po.warehouses?.name ?? null,
-    }));
+    return (await this.purchaseOrdersRepo.findAll(tenantId, status)) ?? [];
   }
 
   async findById(id: string, tenantId: string) {

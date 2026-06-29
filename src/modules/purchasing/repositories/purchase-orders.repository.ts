@@ -9,13 +9,10 @@ export class PurchaseOrdersRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string, status?: string) {
-    let query = this.supabase
-      .from('purchase_orders')
-      .select('*, suppliers(name), warehouses(name, code)')
-      .eq('tenant_id', tenantId)
-      .is('deleted_at', null);
-    if (status) query = query.eq('status', status);
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await this.supabase.rpc('fn_purchase_orders_list_enriched', {
+      p_tenant_id: tenantId,
+      p_status: status ?? null,
+    });
     if (error) throw error;
     return data;
   }

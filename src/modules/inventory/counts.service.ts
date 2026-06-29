@@ -9,11 +9,7 @@ export class CountsService {
   constructor(private readonly countsRepo: CountsRepository) {}
 
   async findAll(tenantId: string, status?: string) {
-    const counts = await this.countsRepo.findAll(tenantId, status);
-    return (counts ?? []).map((c: any) => ({
-      ...c,
-      warehouse_name: c.warehouses?.name ?? null,
-    }));
+    return (await this.countsRepo.findAll(tenantId, status)) ?? [];
   }
 
   async findById(id: string, tenantId: string) {
