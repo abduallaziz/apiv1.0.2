@@ -4,6 +4,7 @@ export enum UserRole {
   MANAGER = 'manager',
   CASHIER = 'cashier',
   WORKER = 'worker',
+  INVENTORY_CLERK = 'inventory_clerk',
 }
 
 export enum BusinessType {

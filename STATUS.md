@@ -129,7 +129,8 @@
 | PurchasingModule | modules/purchasing/ | ✅ |
 | LocationsModule (جزء من inventory) | modules/inventory/locations/ | ✅ |
 | InventoryReportsModule | modules/inventory/reports/ | ✅ |
-| OutboxRelay (BullMQ worker) | core/queue/processors/ | ✅ |
+| OutboxModule (relay scheduler + BullMQ processor) | core/outbox/ | ✅ |
+| SecurityModule (Helmet + throttler + IP middleware + branch validator) | core/security/ | ✅ |
 
 ---
 
@@ -1966,3 +1967,29 @@ Nixpacks يضبط `NODE_ENV=production` تلقائيًا أثناء مرحلة `
 هذا يحلّ بالكامل بنود 10E (الموردين والمشتريات) وأغلب بنود 10D (المخزون المتقدم) بـTASKS.md — الباقي حقيقي ولم يُبنَ بعد: باركود/ملصقات، تتبّع انتهاء صلاحية الدفعات + تنبيهاتها، تقرير COGS مُجمَّع كـ endpoint مكشوف، وصفات/BOM للمطاعم (لا تخلط مع Phase 13 الأوسع نطاقًا للتصنيع الصناعي).
 
 **متبقٍ غير مكتمل (موثَّق صراحة، ليس فجوة مخفية)**: تلميع UX النهائي بالفرونت إند (إظهار/إخفاء أعمدة، إجراءات جماعية، اختصارات لوحة المفاتيح، رسوم بيانية، toast notifications، تمريرة accessibility) — لم يبدأ بعد.
+
+---
+
+# 51. تدقيق نهائي شامل للباك إند — إغلاق ملف التوثيق — يونيو 29, 2026
+
+## السياق
+بعد إغلاق ملف توثيق STATUS.md/TASKS.md (§49/§50)، طُلب تدقيق هندسي نهائي شامل: مطابقة `main` مع PRs المدموجة، تاريخ الكوميتات، الـ migrations، الموديولات، الـ repositories/services/controllers/DTOs، RPC functions، الصلاحيات، الـ seeds، البنية التحتية — قبل بدء أي مرحلة تطوير جديدة.
+
+## النتائج
+- **الفروع/الدمج**: فرعان فقط (`main` و`claude/verify-addition-8ual9f`)، الفرق بينهما = صفر. كل الـ 17 PR مدموجة، لا فروع مهجورة، لا عمل ضائع.
+- **Migrations**: 001–032 متسلسلة بلا فجوات أو تضارب. إعادة تعريف بعض الدوال (`CREATE OR REPLACE`) عبر migrations لاحقة (032 location-aware، 031 إصلاح كتابة ميتة) — تطور متوقع، ليس تضاربًا.
+- **RPC ↔ الكود ↔ المخطط**: كل استدعاء `.rpc()` في Inventory/Purchasing يطابق دالة معرَّفة فعليًا. لا استدعاءات معلَّقة.
+- **الكود الميت**: لا يوجد، باستثناء عمود `item_variants.stock_quantity` المُجمَّد عمدًا (trigger يمنع الكتابة) — موثَّق ومقصود.
+- **ثغرة حقيقية اكتُشفت ومُصلحت**: دور `inventory_clerk` كان موجودًا بالكامل على مستوى DB (migration 020) والصلاحيات (`permissions.seed.ts`) لكنه **لم يكن قابلًا للتعيين فعليًا** عبر Users API — `UserRole` enum بمستوى التطبيق (`src/shared/types/enums.ts`) لم يتضمنه، فكان `@IsEnum(UserRole)` يرفضه. تم الإصلاح:
+  - إضافة `INVENTORY_CLERK = 'inventory_clerk'` إلى `UserRole` (apiv1.0.2)
+  - تحديث قائمة الأدوار بمحدد إنشاء المستخدم `CreateUserDialog.tsx` (sefayv1.0.2)
+  - تحديث نوع `TenantUser['role']` ومحدد الأدوار بـ`UsersSection.tsx` (لوحة السوبر أدمن، sefayv1.0.2)
+  - (لوحة التنقل الجانبي `DashboardSidebar.tsx` كانت تتضمن `inventory_clerk` بالفعل ضمن `INVENTORY_ROLES` — لا تغيير مطلوب هناك)
+- **فجوات توثيق فقط (لا أخطاء كود)**: `SecurityModule` (`core/security/`) و`OutboxModule` (`core/outbox/`) كانا موجودين بالكود وغير مذكورين بجدول الموديولات الفعّالة بـ§3 — أُضيفا الآن.
+
+## التحقق
+- `npx tsc --noEmit` و`npm run build` نظيفان على apiv1.0.2 بعد إضافة `INVENTORY_CLERK`.
+- `npx tsc --noEmit` نظيف على sefayv1.0.2 بعد تحديثات الفرونت إند الثلاثة.
+
+## الحالة النهائية
+الباك إند متزامن بالكامل بين `main`، الـ PRs المدموجة، الـ migrations، والتوثيق. الثغرة الوحيدة الحقيقية المكتشفة (`inventory_clerk` غير قابل للتعيين) أُصلحت بالكامل end-to-end. لا عمل متبقٍ من جلسات سابقة غير مدموج أو منسي. جاهز لبدء مرحلة التطوير التالية.
