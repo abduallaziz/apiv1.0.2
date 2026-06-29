@@ -20,6 +20,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('inventory/warehouses/:warehouseId/locations')
@@ -34,11 +35,17 @@ export class LocationsController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('isActive') isActive?: string,
   ) {
     return this.locationsService.findAll(warehouseId, tenant.tenantId, {
       search,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      sortBy,
+      sortOrder,
+      isActive: isActive === undefined ? undefined : isActive === 'true',
     });
   }
 
@@ -54,6 +61,7 @@ export class LocationsController {
 
   @Post()
   @RequirePermission('inventory.manage')
+  @Audit('location.create')
   create(
     @Param('warehouseId') warehouseId: string,
     @Body() dto: CreateLocationDto,
@@ -64,6 +72,7 @@ export class LocationsController {
 
   @Patch(':id')
   @RequirePermission('inventory.manage')
+  @Audit('location.update')
   update(
     @Param('id') id: string,
     @Param('warehouseId') warehouseId: string,
@@ -75,6 +84,7 @@ export class LocationsController {
 
   @Delete(':id')
   @RequirePermission('inventory.manage')
+  @Audit('location.delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
     @Param('id') id: string,

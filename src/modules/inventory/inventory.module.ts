@@ -119,6 +119,6 @@ import { ReportsRepository } from './repositories/reports.repository';
       inject: [SUPABASE_CLIENT],
     },
   ],
-  exports: [WarehousesService, StockService],
+  exports: [WarehousesService, StockService, LocationsService],
 })
 export class InventoryModule {}

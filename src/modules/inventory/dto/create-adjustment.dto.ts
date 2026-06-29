@@ -27,4 +27,8 @@ export class CreateAdjustmentDto {
   @IsString()
   @IsNotEmpty()
   reason: string;
+
+  @IsUUID()
+  @IsOptional()
+  location_id?: string;
 }

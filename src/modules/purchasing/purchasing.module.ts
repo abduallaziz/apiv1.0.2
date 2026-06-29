@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
+import { InventoryModule } from '../inventory/inventory.module';
 
 import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
@@ -16,7 +17,7 @@ import { GoodsReceiptsService } from './goods-receipts.service';
 import { GoodsReceiptsRepository } from './repositories/goods-receipts.repository';
 
 @Module({
-  imports: [SupabaseModule, PermissionsModule],
+  imports: [SupabaseModule, PermissionsModule, InventoryModule],
   controllers: [SuppliersController, PurchaseOrdersController, GoodsReceiptsController],
   providers: [
     SuppliersService,

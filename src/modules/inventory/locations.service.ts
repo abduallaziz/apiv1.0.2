@@ -14,7 +14,14 @@ export class LocationsService {
   async findAll(
     warehouseId: string,
     tenantId: string,
-    options: { search?: string; page?: number; limit?: number } = {},
+    options: {
+      search?: string;
+      page?: number;
+      limit?: number;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      isActive?: boolean;
+    } = {},
   ) {
     await this.warehousesService.findById(warehouseId, tenantId);
     return this.locationsRepo.findAll(warehouseId, tenantId, options);

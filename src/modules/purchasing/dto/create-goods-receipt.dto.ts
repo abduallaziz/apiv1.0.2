@@ -43,6 +43,10 @@ export class GoodsReceiptLineDto {
   @IsDateString()
   @IsOptional()
   expiration_date?: string;
+
+  @IsUUID()
+  @IsOptional()
+  location_id?: string;
 }
 
 export class CreateGoodsReceiptDto {
