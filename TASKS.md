@@ -475,6 +475,26 @@
 
 ---
 
+## ⏸️ PHASE 14 — Smart Data Import Center (AI-assisted Import Platform) (مؤجّل عمدًا — بعد اكتمال واستقرار ERP الأساسي)
+
+**⚠️ ليست جزءًا من مرحلة المخزون الحالية (Inventory Phase 2/3).** قسم تخطيط فقط — لا تنفيذ بعد. راجع STATUS.md §53 للتصميم الكامل والمنطق الهندسي.
+
+موديول مستقل (`modules/imports` / Import Center) لاستيراد أي كيان (Products، Warehouses، Locations، Customers، Suppliers، إلخ) من ملفات Excel/CSV عبر **إطار مشترك** بدل شاشة استيراد مخصصة لكل كيان.
+
+**المبدأ الأساسي: Heuristics-first** — rules + regex + قواميس مرادفات + محرك تحقق، يعمل بالكامل offline دون أي اتصال AI. **طبقة AI اختيارية فوقه** (تحسين column mapping / entity matching / data cleaning فقط) — ليست شرطًا للعمل الأساسي.
+
+- [ ] Pipeline: Upload → Detect File → Column Mapping → Data Cleaning → Validation → Preview → Import → Report → Rollback
+- [ ] Import History (سجل كل عمليات الاستيراد السابقة)
+- [ ] Rollback support (تراجع كامل عن استيراد سابق)
+- [ ] Entity Matching (تجنّب التكرار، تحديث بدل إنشاء عند التطابق)
+- [ ] Validation Engine (عام، قابل لإعادة الاستخدام بين كل الكيانات)
+- [ ] Import Preview (معاينة قبل التنفيذ الفعلي)
+- [ ] Import Report (تقرير تفصيلي بعد كل استيراد)
+
+**لماذا مؤجَّلة**: تعتمد على schemas/business-rules ناضجة ومستقرة لكل الكيانات المستهدفة. تُبنى فقط بعد اكتمال واستقرار موديولات ERP الأساسية (المخزون، المشتريات، نقاط البيع، العملاء، الفواتير)، تجنّبًا لإعادة العمل المتكررة على أساس متحرك. التصميم المعماري الكامل (موديول/heuristics/AI اختياري/pipeline التفصيلي) موثَّق بـSTATUS.md §53 ولا يُكرَّر هنا.
+
+---
+
 ## Guard Execution Order (إلزامي — لا تغيير)
 JwtAuthGuard → TenantGuard → PermissionGuard → FeatureGuard
 لا تُسجّل أي guard كـ APP_GUARD قبل أن الـ guard قبله مكتمل ومختبر.
