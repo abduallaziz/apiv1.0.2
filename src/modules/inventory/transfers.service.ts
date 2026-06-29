@@ -12,12 +12,7 @@ export class TransfersService {
   ) {}
 
   async findAll(tenantId: string, status?: string) {
-    const transfers = await this.transfersRepo.findAll(tenantId, status);
-    return (transfers ?? []).map((t: any) => ({
-      ...t,
-      from_warehouse_name: t.from?.name ?? null,
-      to_warehouse_name: t.to?.name ?? null,
-    }));
+    return (await this.transfersRepo.findAll(tenantId, status)) ?? [];
   }
 
   async findById(id: string, tenantId: string) {

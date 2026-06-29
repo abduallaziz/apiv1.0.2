@@ -12,12 +12,7 @@ export class GoodsReceiptsService {
   ) {}
 
   async findAll(tenantId: string, status?: string) {
-    const receipts = await this.goodsReceiptsRepo.findAll(tenantId, status);
-    return (receipts ?? []).map((r: any) => ({
-      ...r,
-      warehouse_name: r.warehouses?.name ?? null,
-      purchase_order_number: r.purchase_orders?.order_number ?? null,
-    }));
+    return (await this.goodsReceiptsRepo.findAll(tenantId, status)) ?? [];
   }
 
   async findById(id: string, tenantId: string) {

@@ -9,12 +9,10 @@ export class TransfersRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string, status?: string) {
-    let query = this.supabase
-      .from('stock_transfers')
-      .select('*, from:warehouses!stock_transfers_from_warehouse_id_fkey(name,code), to:warehouses!stock_transfers_to_warehouse_id_fkey(name,code)')
-      .eq('tenant_id', tenantId);
-    if (status) query = query.eq('status', status);
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await this.supabase.rpc('fn_stock_transfers_list_enriched', {
+      p_tenant_id: tenantId,
+      p_status: status ?? null,
+    });
     if (error) throw error;
     return data;
   }
