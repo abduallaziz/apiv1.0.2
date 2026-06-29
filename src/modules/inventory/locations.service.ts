@@ -11,9 +11,13 @@ export class LocationsService {
     private readonly warehousesService: WarehousesService,
   ) {}
 
-  async findAll(warehouseId: string, tenantId: string) {
+  async findAll(
+    warehouseId: string,
+    tenantId: string,
+    options: { search?: string; page?: number; limit?: number } = {},
+  ) {
     await this.warehousesService.findById(warehouseId, tenantId);
-    return this.locationsRepo.findAll(warehouseId, tenantId);
+    return this.locationsRepo.findAll(warehouseId, tenantId, options);
   }
 
   async findById(id: string, warehouseId: string, tenantId: string) {
