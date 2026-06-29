@@ -2,20 +2,7 @@
 nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["npm ci"]
+cmds = ["npm ci --include=dev"]
 
 [phases.build]
-cmds = [
-  "chmod -R +x node_modules",
-  "echo '=== DIAG ls -la .bin/nest ===' && ls -la node_modules/.bin/nest",
-  "echo '=== DIAG file .bin/nest ===' && file node_modules/.bin/nest",
-  "echo '=== DIAG stat .bin/nest ===' && stat node_modules/.bin/nest",
-  "echo '=== DIAG readlink -f ===' && readlink -f node_modules/.bin/nest",
-  "echo '=== DIAG stat target ===' && stat node_modules/@nestjs/cli/bin/nest.js",
-  "echo '=== DIAG head target ===' && head -n 5 node_modules/@nestjs/cli/bin/nest.js | cat -A | head -n 5",
-  "echo '=== DIAG mount ===' && mount | grep -i node_modules || echo 'no node_modules mount entries'",
-  "echo '=== DIAG findmnt on cwd ===' && findmnt -T node_modules/.bin/nest || stat -f node_modules/.bin/nest",
-  "echo '=== DIAG node direct invoke ===' && node node_modules/@nestjs/cli/bin/nest.js --version",
-  "echo '=== DIAG direct exec via symlink ===' && node_modules/.bin/nest --version || echo 'DIRECT EXEC FAILED with status' $?",
-  "npm run build"
-]
+cmds = ["npm run build"]
