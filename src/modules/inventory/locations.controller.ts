@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -27,8 +28,18 @@ export class LocationsController {
 
   @Get()
   @RequirePermission('inventory.view')
-  findAll(@Param('warehouseId') warehouseId: string, @GetTenant() tenant: TenantContext) {
-    return this.locationsService.findAll(warehouseId, tenant.tenantId);
+  findAll(
+    @Param('warehouseId') warehouseId: string,
+    @GetTenant() tenant: TenantContext,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.locationsService.findAll(warehouseId, tenant.tenantId, {
+      search,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   @Get(':id')

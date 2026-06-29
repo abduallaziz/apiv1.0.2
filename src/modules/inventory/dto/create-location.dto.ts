@@ -13,6 +13,10 @@ export class CreateLocationDto {
   @IsOptional()
   zone?: string;
 
+  @IsString()
+  @IsOptional()
+  description?: string;
+
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;

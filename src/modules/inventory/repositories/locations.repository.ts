@@ -8,16 +8,31 @@ export class LocationsRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(warehouseId: string, tenantId: string) {
-    const { data, error } = await this.supabase
+  async findAll(
+    warehouseId: string,
+    tenantId: string,
+    options: { search?: string; page?: number; limit?: number } = {},
+  ) {
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 20;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    let query = this.supabase
       .from('warehouse_locations')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('warehouse_id', warehouseId)
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .order('code');
+      .is('deleted_at', null);
+
+    if (options.search) {
+      const term = options.search.replace(/[%,]/g, '');
+      query = query.or(`code.ilike.%${term}%,name.ilike.%${term}%`);
+    }
+
+    const { data, error, count } = await query.order('code').range(from, to);
     if (error) throw error;
-    return data;
+    return { data, total: count ?? 0, page, limit };
   }
 
   async findById(id: string, warehouseId: string, tenantId: string) {
