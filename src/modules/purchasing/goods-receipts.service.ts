@@ -2,10 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { GoodsReceiptsRepository } from './repositories/goods-receipts.repository';
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
 import { throwFromRpcError } from '../inventory/rpc-error.util';
+import { LocationsService } from '../inventory/locations.service';
 
 @Injectable()
 export class GoodsReceiptsService {
-  constructor(private readonly goodsReceiptsRepo: GoodsReceiptsRepository) {}
+  constructor(
+    private readonly goodsReceiptsRepo: GoodsReceiptsRepository,
+    private readonly locationsService: LocationsService,
+  ) {}
 
   async findAll(tenantId: string, status?: string) {
     const receipts = await this.goodsReceiptsRepo.findAll(tenantId, status);
@@ -32,8 +36,15 @@ export class GoodsReceiptsService {
     };
   }
 
-  create(tenantId: string, dto: CreateGoodsReceiptDto) {
+  async create(tenantId: string, dto: CreateGoodsReceiptDto) {
     const { items, ...header } = dto;
+
+    for (const line of items) {
+      if (line.location_id) {
+        await this.locationsService.findById(line.location_id, header.warehouse_id, tenantId);
+      }
+    }
+
     return this.goodsReceiptsRepo.create(
       tenantId,
       {
@@ -51,6 +62,7 @@ export class GoodsReceiptsService {
         batch_number: line.batch_number ?? null,
         serial_number: line.serial_number ?? null,
         expiration_date: line.expiration_date ?? null,
+        location_id: line.location_id ?? null,
       })),
     );
   }

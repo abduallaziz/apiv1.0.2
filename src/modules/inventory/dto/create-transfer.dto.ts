@@ -16,6 +16,14 @@ export class TransferLineDto {
   @IsNumber()
   @Min(0.0001)
   quantity: number;
+
+  @IsUUID()
+  @IsOptional()
+  from_location_id?: string;
+
+  @IsUUID()
+  @IsOptional()
+  to_location_id?: string;
 }
 
 export class CreateTransferDto {

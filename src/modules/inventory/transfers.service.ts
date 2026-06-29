@@ -2,10 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { TransfersRepository } from './repositories/transfers.repository';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { throwFromRpcError } from './rpc-error.util';
+import { LocationsService } from './locations.service';
 
 @Injectable()
 export class TransfersService {
-  constructor(private readonly transfersRepo: TransfersRepository) {}
+  constructor(
+    private readonly transfersRepo: TransfersRepository,
+    private readonly locationsService: LocationsService,
+  ) {}
 
   async findAll(tenantId: string, status?: string) {
     const transfers = await this.transfersRepo.findAll(tenantId, status);
@@ -30,8 +34,18 @@ export class TransfersService {
     };
   }
 
-  create(tenantId: string, dto: CreateTransferDto) {
+  async create(tenantId: string, dto: CreateTransferDto) {
     const { items, ...header } = dto;
+
+    for (const line of items) {
+      if (line.from_location_id) {
+        await this.locationsService.findById(line.from_location_id, header.from_warehouse_id, tenantId);
+      }
+      if (line.to_location_id) {
+        await this.locationsService.findById(line.to_location_id, header.to_warehouse_id, tenantId);
+      }
+    }
+
     return this.transfersRepo.create(
       tenantId,
       {
@@ -45,6 +59,8 @@ export class TransfersService {
         variant_id: line.variant_id ?? null,
         batch_id: line.batch_id ?? null,
         quantity: line.quantity,
+        from_location_id: line.from_location_id ?? null,
+        to_location_id: line.to_location_id ?? null,
       })),
     );
   }

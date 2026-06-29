@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { AdjustmentsRepository } from './repositories/adjustments.repository';
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto';
 import { throwFromRpcError } from './rpc-error.util';
+import { LocationsService } from './locations.service';
 
 @Injectable()
 export class AdjustmentsService {
@@ -11,6 +12,7 @@ export class AdjustmentsService {
   constructor(
     private readonly adjustmentsRepo: AdjustmentsRepository,
     private readonly config: ConfigService,
+    private readonly locationsService: LocationsService,
   ) {
     this.approvalThreshold = Number(this.config.get<string>('INVENTORY_ADJUSTMENT_APPROVAL_THRESHOLD') ?? '0');
   }
@@ -25,7 +27,11 @@ export class AdjustmentsService {
     return adjustment;
   }
 
-  create(tenantId: string, dto: CreateAdjustmentDto, actorId: string) {
+  async create(tenantId: string, dto: CreateAdjustmentDto, actorId: string) {
+    if (dto.location_id) {
+      await this.locationsService.findById(dto.location_id, dto.warehouse_id, tenantId);
+    }
+
     const movementValue = dto.unit_cost
       ? Math.abs(dto.quantity_delta) * dto.unit_cost
       : Math.abs(dto.quantity_delta);
@@ -39,6 +45,7 @@ export class AdjustmentsService {
       quantity_delta: dto.quantity_delta,
       unit_cost: dto.unit_cost ?? null,
       reason: dto.reason,
+      location_id: dto.location_id ?? null,
       requested_by: actorId,
       requires_approval: requiresApproval,
       status: requiresApproval ? 'pending_approval' : 'approved',
