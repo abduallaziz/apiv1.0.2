@@ -1,2 +1,5 @@
 [phases.setup]
 nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = ["npm ci", "chmod -R +x node_modules/.bin"]
