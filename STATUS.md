@@ -2077,6 +2077,12 @@ Nixpacks يضبط `NODE_ENV=production` تلقائيًا أثناء مرحلة `
 - **Import Preview** — معاينة قبل التنفيذ.
 - **Import Report** — تقرير تفصيلي بعد كل استيراد.
 
+## ملاحظة معمارية إضافية (مُضافة يونيو 29, 2026): Entity-agnostic + Provider-agnostic
+- **Entity-agnostic إلزاميًا**: الموديول **لا يجوز** أن يُربَط (coupled) بمنطق خاص بـProducts أو Warehouses أو Customers أو أي كيان محدد داخل core الـpipeline نفسه. كل كيان جديد (حالي أو مستقبلي) يُسجَّل (register) كـ"importer" عبر تعريف schema/mapping/validation rules خاصة به فقط — بدون لمس أو تعديل pipeline الاستيراد المشترك. الهدف: أي موديول مستقبلي (مثلًا POS Products، Manufacturing BOM إذا نُفِّذت Phase 13، إلخ) يمكنه تسجيل importer خاص به بأقل جهد، دون إعادة بناء أي جزء من الـcore.
+- **Provider-agnostic إلزاميًا لطبقة AI الاختيارية**: طبقة الذكاء الاصطناعي (المذكورة أعلاه كاختيارية فوق الـheuristics) **لا يجوز** أن تعتمد على مزوّد واحد محدد (Claude/OpenAI/Gemini/إلخ) بشكل مباشر داخل الـpipeline. يجب أن تُنفَّذ خلف طبقة تجريد (abstraction interface) عامة — مثل `AiMappingProvider` أو ما شابه — بحيث يمكن إضافة مزوّد جديد، استبدال مزوّد قائم، أو تعطيل الطبقة بالكامل (الرجوع لـheuristics فقط) **دون أي تغيير على pipeline الاستيراد نفسه**.
+- **قابلية التوسّع بمصادر الاستيراد**: التصميم الأساسي (خصوصًا مرحلة "Detect File" و"Upload" بالـpipeline) يجب أن يُبنى من البداية بافتراض أن Excel/CSV هما **أول مصدرين فقط، وليس الوحيدين**. مصادر مستقبلية محتملة يجب أن تتوافق مع نفس الـpipeline دون إعادة تصميمه: Google Sheets، JSON، XML، REST APIs خارجية، Shopify، WooCommerce، Odoo، SAP، أدوات ترحيل ERP أخرى. **Phase 14 عند تنفيذها الفعلي ستبدأ بـExcel/CSV فقط** — لكن البنية المعمارية (واجهة `ImportSource`/`FileAdapter` أو ما يعادلها) يجب أن تُصمَّم بحيث تسمح بإضافة مصدر جديد كـadapter جديد فقط، لا كإعادة بناء.
+- **الخلاصة المعمارية**: ثلاث طبقات تجريد إلزامية بالتصميم منذ البداية — (1) تجريد الكيان (entity/importer registration)، (2) تجريد مزوّد AI (provider abstraction)، (3) تجريد مصدر الملف/البيانات (import source adapter). الثلاثة لا يجوز كتابتها كحلول خاصة (hardcoded) لأول كيان/مزوّد/مصدر يُنفَّذ فعليًا.
+
 ## لماذا مؤجَّلة (وليست مرفوضة)
 تعتمد هذه الميزة على schemas ومنطق تحقق business-rules ناضجة لكل الكيانات المستهدفة (Products، Warehouses، Locations، Customers، Suppliers). تنفيذها قبل استقرار هذه الموديولات الأساسية يعني بناء إطار مطابقة/تحقق على أساس متحرك (moving target)، وإعادة عمل متكررة كل مرة يتغير schema كيان أساسي. **القرار: تُنفَّذ كمرحلة (Phase) مستقلة لاحقة بعد اكتمال واستقرار ERP الأساسي**، لا كجزء من Phase 2/3 الحالية لـInventory.
 
