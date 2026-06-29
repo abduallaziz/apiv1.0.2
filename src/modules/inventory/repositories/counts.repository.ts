@@ -22,7 +22,7 @@ export class CountsRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('stock_counts')
-      .select('*, items:stock_count_items(*, items(name, sku))')
+      .select('*, items:stock_count_items(*, items(name, sku), warehouse_locations(code, name))')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single();

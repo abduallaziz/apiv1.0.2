@@ -25,6 +25,8 @@ export class CountsService {
       items: (count.items ?? []).map((item: any) => ({
         ...item,
         item_name: item.items?.name ?? null,
+        location_code: item.warehouse_locations?.code ?? null,
+        location_name: item.warehouse_locations?.name ?? null,
       })),
     };
   }
