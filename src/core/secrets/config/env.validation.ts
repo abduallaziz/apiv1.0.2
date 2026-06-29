@@ -38,4 +38,10 @@ export const envValidationSchema = Joi.object({
 
   // ── Frontend ─────────────────────────────────────────
   FRONTEND_URL: Joi.string().uri().default('http://localhost:3000'),
+
+  // ── Inventory ────────────────────────────────────────
+  // Minimum |quantity_delta| * unit_cost (or |quantity_delta| when unit_cost
+  // is omitted) above which a stock adjustment requires manager approval
+  // before it can be posted. 0 disables the approval workflow entirely.
+  INVENTORY_ADJUSTMENT_APPROVAL_THRESHOLD: Joi.number().min(0).default(0),
 });

@@ -49,17 +49,33 @@ const permissions = [
   { name: 'superadmin.queue.manage', resource: 'superadmin', action: 'queue.manage', description: 'Manage queues' },
   { name: 'superadmin.health.view', resource: 'superadmin', action: 'health.view', description: 'View health' },
   { name: 'superadmin.backup.view', resource: 'superadmin', action: 'backup.view', description: 'View backup' },
+
+  // Inventory
+  { name: 'inventory.view', resource: 'inventory', action: 'view', description: 'View warehouses, stock levels and movements' },
+  { name: 'inventory.manage', resource: 'inventory', action: 'manage', description: 'Manage warehouses, locations, reorder points' },
+  { name: 'inventory.adjust', resource: 'inventory', action: 'adjust', description: 'Create stock adjustments' },
+  { name: 'inventory.adjust.approve', resource: 'inventory', action: 'adjust.approve', description: 'Approve stock adjustments above threshold' },
+  { name: 'inventory.transfer', resource: 'inventory', action: 'transfer', description: 'Create and process warehouse transfers' },
+  { name: 'inventory.count', resource: 'inventory', action: 'count', description: 'Perform and finalize stock counts' },
+  { name: 'inventory.reserve', resource: 'inventory', action: 'reserve', description: 'Create and release stock reservations' },
+
+  // Purchasing
+  { name: 'purchasing.view', resource: 'purchasing', action: 'view', description: 'View suppliers, purchase orders and goods receipts' },
+  { name: 'purchasing.manage', resource: 'purchasing', action: 'manage', description: 'Create/edit suppliers and purchase orders' },
+  { name: 'purchasing.approve', resource: 'purchasing', action: 'approve', description: 'Approve purchase orders' },
+  { name: 'purchasing.receive', resource: 'purchasing', action: 'receive', description: 'Post goods receipts' },
 ];
 
 const rolePerms: { role: string; permission_key: string; is_granted: boolean }[] = [];
 const add = (role: string, keys: string[]) =>
   keys.forEach(k => rolePerms.push({ role, permission_key: k, is_granted: true }));
 
-add('superadmin', ['analytics.view.all','audit.view.all','invoice.view.all','expense.view.all','expense.approve','expense.reject','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.manage','superadmin.queue.view','superadmin.queue.manage','superadmin.health.view','superadmin.backup.view','invoice.create.own','invoice.view.own','invoice.cancel.branch']);
-add('owner', ['invoice.create.own','invoice.cancel.branch','invoice.view.all','invoice.view','invoice.create','invoice.cancel','expense.approve','expense.reject','expense.view.all','shift.open','shift.close','shift.view.own','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','reports.view.branch','settings.view','settings.manage']);
-add('manager', ['invoice.create.own','invoice.view.branch','invoice.view','invoice.create','expense.view.branch','shift.open','shift.close','shift.view.own','shift.view.branch','users.view','items.manage','items.view','customers.view','customers.manage','expenses.view','reports.view.branch','settings.view']);
-add('cashier', ['invoice.create.own','invoice.view.own','invoice.view','invoice.create','expense.request','expenses.view','shift.open','shift.close','shift.view.own','items.view','customers.view','customers.manage']);
-add('worker', ['invoice.view.own','invoice.view','shift.view.own','items.view']);
+add('superadmin', ['analytics.view.all','audit.view.all','invoice.view.all','expense.view.all','expense.approve','expense.reject','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','settings.manage','superadmin.queue.view','superadmin.queue.manage','superadmin.health.view','superadmin.backup.view','invoice.create.own','invoice.view.own','invoice.cancel.branch','inventory.view','inventory.manage','inventory.adjust','inventory.adjust.approve','inventory.transfer','inventory.count','inventory.reserve','purchasing.view','purchasing.manage','purchasing.approve','purchasing.receive']);
+add('owner', ['invoice.create.own','invoice.cancel.branch','invoice.view.all','invoice.view','invoice.create','invoice.cancel','expense.approve','expense.reject','expense.view.all','shift.open','shift.close','shift.view.own','shift.view.all','users.manage','branches.manage','branches.view','items.manage','items.view','customers.view','customers.manage','expenses.view','expenses.manage','reports.view.all','reports.view.branch','settings.view','settings.manage','inventory.view','inventory.manage','inventory.adjust','inventory.adjust.approve','inventory.transfer','inventory.count','inventory.reserve','purchasing.view','purchasing.manage','purchasing.approve','purchasing.receive']);
+add('manager', ['invoice.create.own','invoice.view.branch','invoice.view','invoice.create','expense.view.branch','shift.open','shift.close','shift.view.own','shift.view.branch','users.view','items.manage','items.view','customers.view','customers.manage','expenses.view','reports.view.branch','settings.view','inventory.view','inventory.manage','inventory.adjust','inventory.adjust.approve','inventory.transfer','inventory.count','inventory.reserve','purchasing.view','purchasing.manage','purchasing.approve','purchasing.receive']);
+add('inventory_clerk', ['items.view','inventory.view','inventory.adjust','inventory.transfer','inventory.count','inventory.reserve','purchasing.view','purchasing.manage','purchasing.receive']);
+add('cashier', ['invoice.create.own','invoice.view.own','invoice.view','invoice.create','expense.request','expenses.view','shift.open','shift.close','shift.view.own','items.view','customers.view','customers.manage','inventory.view','inventory.reserve']);
+add('worker', ['invoice.view.own','invoice.view','shift.view.own','items.view','inventory.view']);
 
 export { permissions, rolePerms };
 

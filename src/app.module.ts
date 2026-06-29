@@ -14,6 +14,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { ItemsModule } from './modules/items/items.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
@@ -26,6 +28,7 @@ import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueueModule } from './core/queue/queue.module';
+import { OutboxModule } from './core/outbox/outbox.module';
 import { NotificationModule } from './core/notification/notification.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { I18nModule } from './core/i18n/i18n.module';
@@ -59,6 +62,8 @@ import { envValidationSchema } from './core/secrets/config/env.validation';
     UsersModule,
     BranchesModule,
     ItemsModule,
+    InventoryModule,
+    PurchasingModule,
     InvoicesModule,
     ShiftsModule,
     ExpensesModule,
@@ -70,6 +75,7 @@ import { envValidationSchema } from './core/secrets/config/env.validation';
     TenantsModule,
     PaymentsModule,
     QueueModule,
+    OutboxModule,
     NotificationModule,
     NotificationsModule,
     I18nModule,
