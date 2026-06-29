@@ -493,6 +493,12 @@
 - [ ] Import Preview (معاينة قبل التنفيذ الفعلي)
 - [ ] Import Report (تقرير تفصيلي بعد كل استيراد)
 
+**⚠️ مبدأ معماري إلزامي (مُضاف يونيو 29, 2026)**: الموديول **entity-agnostic و provider-agnostic** إلزاميًا:
+- لا يُربَط بمنطق خاص بأي كيان محدد (Products/Warehouses/Customers...) — كل كيان يُسجَّل كـ"importer" بتعريف schema/mapping خاص به فوق framework مشترك، دون تعديل الـcore.
+- طبقة AI الاختيارية خلف abstraction عام (provider-agnostic) — لا اعتماد مباشر على Claude/OpenAI/Gemini داخل الـpipeline؛ يمكن إضافة/استبدال/تعطيل أي مزوّد دون تغيير الـpipeline.
+- مصادر الاستيراد قابلة للتوسّع منذ التصميم الأول وراء adapter موحَّد، حتى لو بدأت Phase 14 بـExcel/CSV فقط: Google Sheets، JSON، XML، REST APIs، Shopify، WooCommerce، Odoo، SAP، أدوات ترحيل ERP أخرى.
+- التفاصيل الكاملة بـSTATUS.md §53 (قسم "ملاحظة معمارية إضافية").
+
 **لماذا مؤجَّلة**: تعتمد على schemas/business-rules ناضجة ومستقرة لكل الكيانات المستهدفة. تُبنى فقط بعد اكتمال واستقرار موديولات ERP الأساسية (المخزون، المشتريات، نقاط البيع، العملاء، الفواتير)، تجنّبًا لإعادة العمل المتكررة على أساس متحرك. التصميم المعماري الكامل (موديول/heuristics/AI اختياري/pipeline التفصيلي) موثَّق بـSTATUS.md §53 ولا يُكرَّر هنا.
 
 ---
