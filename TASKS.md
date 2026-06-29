@@ -503,6 +503,26 @@
 
 ---
 
+## ⏸️ PHASE 15 — Storage Infrastructure & Abstraction (مؤجّل عمدًا — حتى اكتمال الموديولات الأساسية)
+
+**⚠️ ليست جزءًا من مرحلة المخزون الحالية (Inventory Phase 2/3) ومستقلة عن PHASE 14.** قسم تخطيط فقط — لا تنفيذ بعد. راجع STATUS.md §56 للتصميم الكامل والمنطق الهندسي.
+
+طبقة تخزين عامة (`core/storage`) تجعل المشروع كاملًا مستقلًا عن مزوّد التخزين — منطق الأعمال لا يعتمد مباشرة على Supabase Storage أو أي مزوّد آخر.
+
+- [ ] `StorageProvider` (interface) + `StorageService` + `StorageModule`
+- [ ] تنفيذ مزوّد Supabase Storage (أول مزوّد فعلي)
+- [ ] تنفيذ مزوّدين مستقبليين خلف نفس الواجهة: AWS S3، Cloudflare R2، MinIO، Azure Blob، Local Storage (اختياري)
+- [ ] دوال الواجهة: `upload()` / `download()` / `delete()` / `exists()` / `move()` / `copy()` / `createSignedUrl()` / `getPublicUrl()`
+- [ ] اختيار المزوّد عبر `STORAGE_DRIVER` (env var) — بلا تعديل كود عند التبديل
+- [ ] مخطط DB لمراجع مستقلة عن المزوّد (`bucket` / `path` / `storage_key`) — بلا تخزين أي رابط خاص بمزوّد
+- [ ] استراتيجية ترحيل بدون توقف خدمة: dual storage mode، background migration jobs، verification، automatic fallback، progressive migration، final cutover
+
+**نطاق التغطية المستهدف (لاحقًا، عند التنفيذ)**: صور المنتجات/العملاء/الموردين، شعارات الشركة، المرفقات، المستندات، العقود، مستندات الشراء/المبيعات/المخزون، التقارير، تصدير PDF، ملفات Import Center (PHASE 14)، النسخ الاحتياطي، وأي نوع ملف مستقبلي — كل ذلك عبر `StorageService` فقط.
+
+**لماذا مؤجَّلة**: بناء طبقة تخزين عامة قبل استقرار الموديولات الأساسية يعني تصميمها على أساس متحرك. تُنفَّذ بعد اكتمال واستقرار ERP الأساسي، كاستثمار بنية تحتية (foundational infrastructure) يمكّن التوسّع المستقبلي والاستقلالية عن المزوّد. التصميم الكامل موثَّق بـSTATUS.md §56 ولا يُكرَّر هنا.
+
+---
+
 ## Guard Execution Order (إلزامي — لا تغيير)
 JwtAuthGuard → TenantGuard → PermissionGuard → FeatureGuard
 لا تُسجّل أي guard كـ APP_GUARD قبل أن الـ guard قبله مكتمل ومختبر.
