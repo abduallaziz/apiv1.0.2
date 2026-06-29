@@ -27,7 +27,7 @@ BEGIN
       FROM item_variants iv
       JOIN items i ON i.id = iv.item_id
      WHERE iv.stock_quantity > 0
-       AND iv.deleted_at IS NULL
+       AND iv.is_active = true
   LOOP
     SELECT id INTO v_warehouse_id
       FROM warehouses
@@ -50,7 +50,7 @@ BEGIN
         JOIN items i ON i.id = iv.item_id
        WHERE i.tenant_id = v_tenant.tenant_id
          AND iv.stock_quantity > 0
-         AND iv.deleted_at IS NULL
+         AND iv.is_active = true
     LOOP
       v_movement := fn_apply_stock_movement(
         v_tenant.tenant_id,
