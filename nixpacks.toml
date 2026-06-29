@@ -5,4 +5,4 @@ nixPkgs = ["nodejs_22"]
 cmds = ["npm ci"]
 
 [phases.build]
-cmds = ["chmod -R +x node_modules/.bin", "npm run build"]
+cmds = ["chmod -R +x node_modules", "npm run build"]
