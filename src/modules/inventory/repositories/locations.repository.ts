@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 
+const SORTABLE_COLUMNS = new Set(['code', 'name', 'zone', 'is_active', 'created_at', 'updated_at']);
+
 @Injectable()
 export class LocationsRepository extends ScopedRepository {
   constructor(supabase: SupabaseClient) {
@@ -11,12 +13,21 @@ export class LocationsRepository extends ScopedRepository {
   async findAll(
     warehouseId: string,
     tenantId: string,
-    options: { search?: string; page?: number; limit?: number } = {},
+    options: {
+      search?: string;
+      page?: number;
+      limit?: number;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      isActive?: boolean;
+    } = {},
   ) {
     const page = options.page && options.page > 0 ? options.page : 1;
     const limit = options.limit && options.limit > 0 ? options.limit : 20;
     const from = (page - 1) * limit;
     const to = from + limit - 1;
+    const sortBy = options.sortBy && SORTABLE_COLUMNS.has(options.sortBy) ? options.sortBy : 'code';
+    const ascending = options.sortOrder !== 'desc';
 
     let query = this.supabase
       .from('warehouse_locations')
@@ -30,7 +41,11 @@ export class LocationsRepository extends ScopedRepository {
       query = query.or(`code.ilike.%${term}%,name.ilike.%${term}%`);
     }
 
-    const { data, error, count } = await query.order('code').range(from, to);
+    if (options.isActive !== undefined) {
+      query = query.eq('is_active', options.isActive);
+    }
+
+    const { data, error, count } = await query.order(sortBy, { ascending }).range(from, to);
     if (error) throw error;
     return { data, total: count ?? 0, page, limit };
   }
