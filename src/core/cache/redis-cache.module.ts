@@ -1,11 +1,12 @@
 import { Module, Global, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { RedisCacheService } from './redis-cache.service';
+import { REDIS_CLIENT } from './redis-client.token';
 
 const redisLogger = new Logger('RedisCache');
-import { RedisCacheService } from './redis-cache.service';
 
-export const REDIS_CLIENT = 'REDIS_CLIENT';
+export { REDIS_CLIENT };
 
 @Global()
 @Module({
@@ -25,6 +26,6 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
     },
     RedisCacheService,
   ],
-  exports: [RedisCacheService],
+  exports: [RedisCacheService, REDIS_CLIENT],
 })
 export class RedisCacheModule {}
