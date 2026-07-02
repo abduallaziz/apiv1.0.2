@@ -3,6 +3,7 @@ import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { TenantContext } from '../../../core/tenant/tenant-context';
+import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
 @Injectable()
 export class InvoicesRepository extends ScopedRepository {
@@ -15,7 +16,9 @@ export class InvoicesRepository extends ScopedRepository {
     discount_amount:discount,
     tax, total,
     payment_method, notes, created_at,
-    cashier_id, customer_id, branch_id
+    cashier_id, customer_id, branch_id,
+    cashier:users!orders_cashier_id_fkey(name),
+    customer:customers!orders_customer_id_fkey(full_name)
   `;
 
   private readonly ORDER_ITEMS_SELECT = `
@@ -28,23 +31,11 @@ export class InvoicesRepository extends ScopedRepository {
 
   private ordersQuery(tenant: TenantContext) {
     const query = this.supabase.from('orders').select('*');
+    // tenantId is null only for superadmin callers — intentional cross-tenant access
     if (tenant.tenantId) {
       return query.eq('tenant_id', tenant.tenantId);
     }
     return query;
-  }
-
-  private async resolveName(
-    table: string,
-    id: string | null,
-  ): Promise<string | null> {
-    if (!id) return null;
-    const { data } = await this.supabase
-      .from(table)
-      .select('name')
-      .eq('id', id)
-      .single();
-    return (data as any)?.name ?? null;
   }
 
   async findAll(
@@ -52,27 +43,30 @@ export class InvoicesRepository extends ScopedRepository {
     branchId?: string,
     dateFrom?: string,
     dateTo?: string,
+    pagination: PaginationDto = new PaginationDto(),
+    status?: string,
   ) {
     let query = this.ordersQuery(tenant).select(this.ORDER_SELECT);
 
     if (branchId) query = query.eq('branch_id', branchId);
     if (dateFrom) query = query.gte('created_at', dateFrom);
     if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59.999Z');
+    if (status) query = query.eq('status', status);
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const [from, to] = pagination.range;
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .range(from, to);
     if (error) throw error;
 
     const orders = data ?? [];
-
-    const resolved = await Promise.all(
-      orders.map(async (o: any) => ({
-        ...o,
-        cashier_name: await this.resolveName('users', o.cashier_id),
-        customer_name: await this.resolveName('customers', o.customer_id),
-      })),
-    );
-
-    return resolved;
+    return orders.map((o: any) => ({
+      ...o,
+      cashier_name: (o.cashier as any)?.name ?? null,
+      customer_name: (o.customer as any)?.full_name ?? null,
+      cashier: undefined,
+      customer: undefined,
+    }));
   }
 
   async findById(tenant: TenantContext, id: string) {
@@ -92,13 +86,12 @@ export class InvoicesRepository extends ScopedRepository {
     if (itemsError) throw itemsError;
 
     const o = order as any;
-    const cashier_name = await this.resolveName('users', o.cashier_id);
-    const customer_name = await this.resolveName('customers', o.customer_id);
-
     return {
       ...o,
-      cashier_name,
-      customer_name,
+      cashier_name: (o.cashier as any)?.name ?? null,
+      customer_name: (o.customer as any)?.full_name ?? null,
+      cashier: undefined,
+      customer: undefined,
       items: items ?? [],
     };
   }
@@ -136,6 +129,7 @@ export class InvoicesRepository extends ScopedRepository {
       .update({ status: 'cancelled' })
       .eq('id', id);
 
+    // tenantId is null only for superadmin callers — intentional cross-tenant access
     if (tenant.tenantId) {
       const { data, error } = await query
         .eq('tenant_id', tenant.tenantId)

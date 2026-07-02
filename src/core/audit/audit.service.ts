@@ -1,10 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { AuditEntry } from './audit-entry.interface';
 
 @Injectable()
 export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
+
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
@@ -27,7 +29,7 @@ export class AuditService {
       });
 
     if (error) {
-      console.error('[AuditService] Failed to write audit log:', error.message);
+      this.logger.error(`Failed to write audit log: ${error.message}`);
     }
   }
 }

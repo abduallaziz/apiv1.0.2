@@ -37,11 +37,14 @@ export class LoggingInterceptor implements NestInterceptor {
       this.asyncContext.run(requestContext, () => {
         const startTime = Date.now();
 
+        const route = (req.route?.path as string | undefined) ?? req.path;
+
         this.logger.info('HTTP Request Started', {
           module: 'http',
           action: 'request_start',
           meta: {
             method: req.method,
+            route,
             path: req.path,
             ip: req.ip,
           },
@@ -57,6 +60,7 @@ export class LoggingInterceptor implements NestInterceptor {
                 action: 'request_end',
                 meta: {
                   method: req.method,
+                  route: (req.route?.path as string | undefined) ?? route,
                   path: req.path,
                   statusCode: res.statusCode,
                   durationMs,
@@ -71,6 +75,7 @@ export class LoggingInterceptor implements NestInterceptor {
                 action: 'request_error',
                 meta: {
                   method: req.method,
+                  route: (req.route?.path as string | undefined) ?? route,
                   path: req.path,
                   statusCode: res.statusCode,
                   durationMs,

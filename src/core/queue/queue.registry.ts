@@ -11,11 +11,13 @@ export class QueueRegistry {
     @InjectQueue(QUEUE_NAMES.DUNNING) private readonly dunningQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AUDIT_CLEANUP) private readonly auditCleanupQueue: Queue,
     @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS) private readonly domainEventsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.AI) private readonly aiQueue: Queue,
   ) {
     this.map = {
       [QUEUE_NAMES.DUNNING]: this.dunningQueue,
       [QUEUE_NAMES.AUDIT_CLEANUP]: this.auditCleanupQueue,
       [QUEUE_NAMES.DOMAIN_EVENTS]: this.domainEventsQueue,
+      [QUEUE_NAMES.AI]: this.aiQueue,
     };
   }
 

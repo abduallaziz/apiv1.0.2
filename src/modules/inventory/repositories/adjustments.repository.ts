@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
 @Injectable()
 export class AdjustmentsRepository extends ScopedRepository {
@@ -8,7 +9,7 @@ export class AdjustmentsRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, status?: string) {
+  async findAll(tenantId: string, status?: string, pagination: PaginationDto = new PaginationDto()) {
     let query = this.supabase
       .from('stock_adjustments')
       .select(
@@ -16,7 +17,8 @@ export class AdjustmentsRepository extends ScopedRepository {
       )
       .eq('tenant_id', tenantId);
     if (status) query = query.eq('status', status);
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const [from, to] = pagination.range;
+    const { data, error } = await query.order('created_at', { ascending: false }).range(from, to);
     if (error) throw error;
     return data;
   }

@@ -1,18 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { TransfersRepository } from './repositories/transfers.repository';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { throwFromRpcError } from './rpc-error.util';
 import { LocationsService } from './locations.service';
+import { StockService } from './stock.service';
 
 @Injectable()
 export class TransfersService {
   constructor(
     private readonly transfersRepo: TransfersRepository,
     private readonly locationsService: LocationsService,
+    private readonly stockService: StockService,
   ) {}
 
-  async findAll(tenantId: string, status?: string) {
-    return (await this.transfersRepo.findAll(tenantId, status)) ?? [];
+  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
+    return (await this.transfersRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
   }
 
   async findById(id: string, tenantId: string) {
@@ -63,7 +66,9 @@ export class TransfersService {
   async dispatch(id: string, tenantId: string, actorId: string) {
     await this.findById(id, tenantId);
     try {
-      return await this.transfersRepo.dispatch(id, actorId);
+      const result = await this.transfersRepo.dispatch(id, actorId);
+      await this.stockService.invalidateStockCache(tenantId);
+      return result;
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
     }
@@ -72,7 +77,9 @@ export class TransfersService {
   async receive(id: string, tenantId: string, actorId: string) {
     await this.findById(id, tenantId);
     try {
-      return await this.transfersRepo.receive(id, actorId);
+      const result = await this.transfersRepo.receive(id, actorId);
+      await this.stockService.invalidateStockCache(tenantId);
+      return result;
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
     }

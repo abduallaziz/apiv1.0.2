@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PurchaseOrdersRepository } from './repositories/purchase-orders.repository';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 
@@ -7,8 +8,8 @@ import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 export class PurchaseOrdersService {
   constructor(private readonly purchaseOrdersRepo: PurchaseOrdersRepository) {}
 
-  async findAll(tenantId: string, status?: string) {
-    return (await this.purchaseOrdersRepo.findAll(tenantId, status)) ?? [];
+  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
+    return (await this.purchaseOrdersRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
   }
 
   async findById(id: string, tenantId: string) {

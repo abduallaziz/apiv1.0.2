@@ -8,6 +8,12 @@ import {
 import { Request, Response } from 'express';
 import { LoggerService } from '../logger.service';
 
+interface JwtUser {
+  sub?: string;
+  tenant_id?: string;
+  role?: string;
+}
+
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   constructor(private readonly logger: LoggerService) {}
@@ -31,13 +37,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const err = this.toError(exception);
 
+    // Extract user context directly from the request so it is always
+    // available even when exceptions originate from guards (which run before
+    // interceptors and therefore before AsyncLocalStorage context is set).
+    const user = (request.user as JwtUser | undefined);
+    const userContext = {
+      tenantId: user?.tenant_id ?? 'unknown',
+      userId: user?.sub ?? 'anonymous',
+      role: user?.role ?? 'unknown',
+    };
+
+    const routeMeta = {
+      method: request.method,
+      route: (request.route?.path as string | undefined) ?? request.path,
+      path: request.path,
+    };
+
     if (status >= 500) {
       this.logger.error('Unhandled Exception', err, {
         module: 'exception_filter',
         action: 'unhandled_exception',
+        ...userContext,
         meta: {
-          method: request.method,
-          path: request.path,
+          ...routeMeta,
           statusCode: status,
           errorName: err.name,
           ...this.extractPostgrestDetails(exception),
@@ -47,10 +69,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       this.logger.warn('Client Error', {
         module: 'exception_filter',
         action: 'client_error',
+        ...userContext,
         meta: {
-          method: request.method,
-          path: request.path,
+          ...routeMeta,
           statusCode: status,
+          errorName: err.name,
           errorMessage,
         },
       });

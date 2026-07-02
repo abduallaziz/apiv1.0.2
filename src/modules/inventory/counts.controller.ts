@@ -18,8 +18,13 @@ export class CountsController {
 
   @Get()
   @RequirePermission('inventory.view')
-  findAll(@Query('status') status: string, @GetTenant() tenant: TenantContext) {
-    return this.countsService.findAll(tenant.tenantId, status);
+  findAll(
+    @Query('status') status: string,
+    @GetTenant() tenant: TenantContext,
+    @Query('page') page?: string,
+    @Query('per_page') perPage?: string,
+  ) {
+    return this.countsService.findAll(tenant.tenantId, status, page, perPage);
   }
 
   @Get(':id')

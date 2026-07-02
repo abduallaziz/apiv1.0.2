@@ -8,5 +8,6 @@ export function createRequestContext(partial?: Partial<RequestLogContext>): Requ
     tenantId: partial?.tenantId ?? 'system',
     userId: partial?.userId ?? 'anonymous',
     role: partial?.role ?? 'unknown',
+    dbQueryCount: partial?.dbQueryCount ?? 0,
   };
 }

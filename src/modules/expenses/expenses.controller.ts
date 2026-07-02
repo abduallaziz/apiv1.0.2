@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -39,10 +40,12 @@ export class ExpensesController {
   findAll(
     @GetTenant() tenant: TenantContext,
     @Query() query: QueryExpensesDto,
-    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('per_page') perPage?: string,
+    @Request() req?: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.expensesService.findAll(tenantId, query);
+    return this.expensesService.findAll(tenantId, query, new PaginationDto(page, perPage));
   }
 
   @Get(':id')

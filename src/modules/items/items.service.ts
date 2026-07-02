@@ -1,16 +1,33 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ItemsRepository } from './repositories/items.repository';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
+import { RedisCacheService } from '../../core/cache/redis-cache.service';
 import { CreateItemDto } from './dto/create-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
 
+const ITEMS_LIST_TTL = 300; // 5 minutes
+const itemsListCacheKey = (tenantId: string, page: number, perPage: number) =>
+  `items:list:tenant:${tenantId}:page:${page}:perPage:${perPage}`;
+
 @Injectable()
 export class ItemsService {
-  constructor(private readonly itemsRepo: ItemsRepository) {}
+  constructor(
+    private readonly itemsRepo: ItemsRepository,
+    private readonly cache: RedisCacheService,
+  ) {}
 
-  async findAll(tenantId: string) {
-    return this.itemsRepo.findAll(tenantId);
+  async findAll(tenantId: string, page?: string, perPage?: string) {
+    const pagination = new PaginationDto(page, perPage);
+    const cacheKey = itemsListCacheKey(tenantId, pagination.page, pagination.perPage);
+
+    const cached = await this.cache.get<Awaited<ReturnType<ItemsRepository['findAll']>>>(cacheKey);
+    if (cached) return cached;
+
+    const data = await this.itemsRepo.findAll(tenantId, pagination);
+    await this.cache.set(cacheKey, data, ITEMS_LIST_TTL);
+    return data;
   }
 
   async findById(id: string, tenantId: string) {
@@ -20,17 +37,26 @@ export class ItemsService {
   }
 
   async create(tenantId: string, dto: CreateItemDto) {
-    return this.itemsRepo.create(tenantId, { ...dto });
+    const item = await this.itemsRepo.create(tenantId, { ...dto });
+    await this.invalidateList(tenantId);
+    return item;
   }
 
   async update(id: string, tenantId: string, dto: UpdateItemDto) {
     await this.findById(id, tenantId);
-    return this.itemsRepo.update(id, tenantId, { ...dto });
+    const item = await this.itemsRepo.update(id, tenantId, { ...dto });
+    await this.invalidateList(tenantId);
+    return item;
   }
 
   async remove(id: string, tenantId: string) {
     await this.findById(id, tenantId);
     await this.itemsRepo.softDelete(id, tenantId);
+    await this.invalidateList(tenantId);
+  }
+
+  private async invalidateList(tenantId: string): Promise<void> {
+    await this.cache.delByPrefix(`items:list:tenant:${tenantId}:`);
   }
 
   // Variants
