@@ -13,6 +13,7 @@ import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
+import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { Audit } from '../../core/audit/audit.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
@@ -27,6 +28,7 @@ export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) {}
 
   @Get('stats')
+  @RequirePermission('expenses.view')
   getStats(
     @GetTenant() tenant: TenantContext,
     @Request() req: any,
@@ -37,6 +39,7 @@ export class ExpensesController {
   }
 
   @Get()
+  @RequirePermission('expenses.view')
   findAll(
     @GetTenant() tenant: TenantContext,
     @Query() query: QueryExpensesDto,
@@ -49,6 +52,7 @@ export class ExpensesController {
   }
 
   @Get(':id')
+  @RequirePermission('expenses.view')
   findOne(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
@@ -60,6 +64,7 @@ export class ExpensesController {
 
   @Post()
   @Audit('expense.request')
+  @RequirePermission('expense.request')
   create(
     @Body() dto: CreateExpenseDto,
     @GetTenant() tenant: TenantContext,
@@ -71,6 +76,7 @@ export class ExpensesController {
 
   @Patch(':id/approve')
   @Audit('expense.approve')
+  @RequirePermission('expense.approve')
   approve(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
@@ -82,6 +88,7 @@ export class ExpensesController {
 
   @Patch(':id/reject')
   @Audit('expense.reject')
+  @RequirePermission('expense.reject')
   reject(
     @Param('id') id: string,
     @Body() dto: RejectExpenseDto,
@@ -94,6 +101,7 @@ export class ExpensesController {
 
   @Patch(':id/cancel')
   @Audit('expense.cancel')
+  @RequirePermission('expense.request')
   cancel(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
