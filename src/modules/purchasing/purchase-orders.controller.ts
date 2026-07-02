@@ -30,8 +30,13 @@ export class PurchaseOrdersController {
 
   @Get()
   @RequirePermission('purchasing.view')
-  findAll(@Query('status') status: string, @GetTenant() tenant: TenantContext) {
-    return this.purchaseOrdersService.findAll(tenant.tenantId, status);
+  findAll(
+    @Query('status') status: string,
+    @GetTenant() tenant: TenantContext,
+    @Query('page') page?: string,
+    @Query('per_page') perPage?: string,
+  ) {
+    return this.purchaseOrdersService.findAll(tenant.tenantId, status, page, perPage);
   }
 
   @Get(':id')

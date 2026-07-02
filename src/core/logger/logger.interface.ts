@@ -14,6 +14,7 @@ export interface RequestLogContext {
   tenantId: string;
   userId: string;
   role: string;
+  dbQueryCount: number;
 }
 
 export interface ILoggerService {

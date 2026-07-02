@@ -46,7 +46,9 @@ export class LoggerService implements ILoggerService {
       entry.error = {
         name: error.name,
         message: error.message,
-        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
+        // Always logged internally for full error context; never exposed
+        // in API responses (GlobalExceptionFilter sends only a generic message).
+        stack: error.stack,
       };
     }
 

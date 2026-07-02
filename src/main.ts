@@ -8,6 +8,7 @@ import { LoggerService } from './core/logger/logger.service';
 import { LoggingInterceptor } from './core/logger/interceptors/logging.interceptor';
 import { GlobalExceptionFilter } from './core/logger/filters/global-exception.filter';
 import { MetricsInterceptor } from './core/metrics/interceptors/metrics.interceptor';
+import { PerfTrackingInterceptor } from './core/perf/interceptors/perf-tracking.interceptor';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
@@ -61,11 +62,36 @@ async function bootstrap(): Promise<void> {
   );
 
   const loggerService = app.get(LoggerService);
+
+  // Capture process-level errors that escape all NestJS exception handling
+  // (e.g. errors in background jobs, non-HTTP async callbacks).
+  // These log only — the process continues running to avoid dropping live requests.
+  process.on('uncaughtException', (error: Error) => {
+    loggerService.error('Uncaught Exception', error, {
+      module: 'process',
+      action: 'uncaught_exception',
+    });
+  });
+
+  process.on('unhandledRejection', (reason: unknown) => {
+    const error =
+      reason instanceof Error
+        ? reason
+        : new Error(typeof reason === 'string' ? reason : JSON.stringify(reason));
+    loggerService.error('Unhandled Promise Rejection', error, {
+      module: 'process',
+      action: 'unhandled_rejection',
+    });
+  });
+
   const loggingInterceptor = app.get(LoggingInterceptor);
   const exceptionFilter = app.get(GlobalExceptionFilter);
   const metricsInterceptor = app.get(MetricsInterceptor);
+  const perfTrackingInterceptor = app.get(PerfTrackingInterceptor);
 
-  app.useGlobalInterceptors(loggingInterceptor, metricsInterceptor);
+  // PerfTrackingInterceptor must run after LoggingInterceptor so the
+  // AsyncLocalStorage request context (and its dbQueryCount counter) exists.
+  app.useGlobalInterceptors(loggingInterceptor, metricsInterceptor, perfTrackingInterceptor);
   app.useGlobalFilters(exceptionFilter);
 
   const port = process.env.PORT ?? 3001;

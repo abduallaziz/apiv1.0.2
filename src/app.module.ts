@@ -1,9 +1,11 @@
 import { Module, MiddlewareConsumer, NestModule, RequestMethod } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { throttlerConfig } from './core/security/throttler.config';
+import { throttlers } from './core/security/throttler.config';
+import { RedisThrottlerStorage } from './core/security/redis-throttler.storage';
+import { TenantThrottlerGuard } from './core/security/tenant-throttler.guard';
 import { IpMiddleware } from './core/security/ip.middleware';
 import { SupabaseModule } from './shared/supabase/supabase.module';
 import { SecurityModule } from './core/security/security.module';
@@ -37,6 +39,10 @@ import { MetricsModule } from './core/metrics/metrics.module';
 import { BackupModule } from './core/backup/backup.module';
 import { SecretsModule } from './core/secrets/secrets.module';
 import { envValidationSchema } from './core/secrets/config/env.validation';
+import { RedisCacheModule, REDIS_CLIENT } from './core/cache/redis-cache.module';
+import { PerfTrackingModule } from './core/perf/perf-tracking.module';
+import { AiUsageTrackingModule } from './core/ai-usage/ai-usage-tracking.module';
+import Redis from 'ioredis';
 
 @Module({
   imports: [
@@ -48,9 +54,19 @@ import { envValidationSchema } from './core/secrets/config/env.validation';
         allowUnknown: true,
       },
     }),
-    ThrottlerModule.forRoot(throttlerConfig),
+    RedisCacheModule,
+    ThrottlerModule.forRootAsync({
+      imports: [RedisCacheModule],
+      inject: [REDIS_CLIENT],
+      useFactory: (redis: Redis) => ({
+        throttlers,
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     ScheduleModule.forRoot(),
     SecretsModule,
+    PerfTrackingModule,
+    AiUsageTrackingModule,
     LoggerModule,
     SupabaseModule,
     SecurityModule,
@@ -85,7 +101,7 @@ import { envValidationSchema } from './core/secrets/config/env.validation';
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: TenantThrottlerGuard,
     },
   ],
 })

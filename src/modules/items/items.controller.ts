@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -29,8 +30,12 @@ export class ItemsController {
 
   @Get()
   @RequirePermission('items.view')
-  findAll(@GetTenant() tenant: TenantContext) {
-    return this.itemsService.findAll(tenant.tenantId);
+  findAll(
+    @GetTenant() tenant: TenantContext,
+    @Query('page') page?: string,
+    @Query('per_page') perPage?: string,
+  ) {
+    return this.itemsService.findAll(tenant.tenantId, page, perPage);
   }
 
   @Get(':id')

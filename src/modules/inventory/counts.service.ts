@@ -1,15 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CountsRepository } from './repositories/counts.repository';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { CreateStockCountDto } from './dto/create-stock-count.dto';
 import { SubmitCountItemDto } from './dto/submit-count-item.dto';
 import { throwFromRpcError } from './rpc-error.util';
+import { StockService } from './stock.service';
 
 @Injectable()
 export class CountsService {
-  constructor(private readonly countsRepo: CountsRepository) {}
+  constructor(
+    private readonly countsRepo: CountsRepository,
+    private readonly stockService: StockService,
+  ) {}
 
-  async findAll(tenantId: string, status?: string) {
-    return (await this.countsRepo.findAll(tenantId, status)) ?? [];
+  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
+    return (await this.countsRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
   }
 
   async findById(id: string, tenantId: string) {
@@ -43,7 +48,9 @@ export class CountsService {
   async finalize(id: string, tenantId: string, actorId: string) {
     await this.findById(id, tenantId);
     try {
-      return await this.countsRepo.finalize(id, actorId);
+      const result = await this.countsRepo.finalize(id, actorId);
+      await this.stockService.invalidateStockCache(tenantId);
+      return result;
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
     }

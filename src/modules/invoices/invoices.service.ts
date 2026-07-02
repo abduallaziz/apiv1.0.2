@@ -3,6 +3,8 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
+import { RedisCacheService } from '../../core/cache/redis-cache.service';
 import { InvoicesRepository } from './repositories/invoices.repository';
 import { PosEngine } from '../../engines/pos-engine/pos.engine';
 import { PaymentEngine } from '../../engines/payment-engine/payment.engine';
@@ -18,6 +20,18 @@ import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CancelInvoiceDto } from './dto/cancel-invoice.dto';
 
+const INVOICES_LIST_TTL = 240; // 4 minutes
+const invoicesListCacheKey = (
+  tenantId: string,
+  branchId: string | undefined,
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  status: string | undefined,
+  page: number,
+  perPage: number,
+) =>
+  `invoices:list:tenant:${tenantId}:branch:${branchId ?? 'all'}:from:${dateFrom ?? 'any'}:to:${dateTo ?? 'any'}:status:${status ?? 'all'}:page:${page}:perPage:${perPage}`;
+
 @Injectable()
 export class InvoicesService {
   constructor(
@@ -28,6 +42,7 @@ export class InvoicesService {
     private readonly metricsService: MetricsService,
     private readonly tenantsRepo: TenantsRepository,
     private readonly notificationService: NotificationService,
+    private readonly cache: RedisCacheService,
   ) {}
 
   async create(
@@ -126,6 +141,8 @@ export class InvoicesService {
       })
       .catch(() => {}); // لا نوقف العملية إذا فشل الإشعار
 
+    await this.invalidateList(tenant.tenantId);
+
     return { id: invoice.id, total: built.total, tax_rate: taxRate };
   }
 
@@ -134,8 +151,31 @@ export class InvoicesService {
     branchId?: string,
     dateFrom?: string,
     dateTo?: string,
+    page?: string,
+    perPage?: string,
+    status?: string,
   ) {
-    return this.repo.findAll(tenant, branchId, dateFrom, dateTo);
+    const pagination = new PaginationDto(page, perPage);
+    const cacheKey = invoicesListCacheKey(
+      tenant.tenantId,
+      branchId,
+      dateFrom,
+      dateTo,
+      status,
+      pagination.page,
+      pagination.perPage,
+    );
+
+    const cached = await this.cache.get<Awaited<ReturnType<InvoicesRepository['findAll']>>>(cacheKey);
+    if (cached) return cached;
+
+    const data = await this.repo.findAll(tenant, branchId, dateFrom, dateTo, pagination, status);
+    await this.cache.set(cacheKey, data, INVOICES_LIST_TTL);
+    return data;
+  }
+
+  private async invalidateList(tenantId: string): Promise<void> {
+    await this.cache.delByPrefix(`invoices:list:tenant:${tenantId}:`);
   }
 
   async findById(tenant: TenantContext, id: string) {
@@ -179,6 +219,8 @@ export class InvoicesService {
     });
 
     this.metricsService.recordInvoice(tenant.tenantId, 'cancelled');
+
+    await this.invalidateList(tenant.tenantId);
 
     return { id, status: 'cancelled' };
   }

@@ -1,10 +1,12 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantContext } from '../../core/tenant/tenant-context';
 
 @Injectable()
 export class BranchesRepository {
+  private readonly logger = new Logger(BranchesRepository.name);
+
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
@@ -58,7 +60,7 @@ export class BranchesRepository {
       .single();
 
     if (error) {
-      console.error('SUPABASE ERROR:', JSON.stringify(error, null, 2));
+      this.logger.error(`Supabase error creating branch: ${JSON.stringify(error)}`);
       throw error;
     }
     return branch;

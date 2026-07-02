@@ -20,16 +20,13 @@ export class PlatformAnalyticsRepository {
       this.supabase.from('tenants').select('*', { count: 'exact', head: true }).is('deleted_at', null),
       this.supabase.from('users').select('*', { count: 'exact', head: true }).is('deleted_at', null),
       this.supabase.from('orders').select('*', { count: 'exact', head: true }),
-      this.supabase.from('orders').select('total').eq('status', 'completed'),
+      this.supabase.rpc('sum_completed_orders_revenue'),
     ]);
-    const totalRevenue = (revenue.data ?? []).reduce(
-      (sum: number, row: any) => sum + Number(row.total ?? 0), 0,
-    );
     return {
       totalTenants: tenants.count ?? 0,
       totalUsers: users.count ?? 0,
       totalOrders: orders.count ?? 0,
-      totalRevenue,
+      totalRevenue: Number(revenue.data ?? 0),
     };
   }
 
@@ -296,28 +293,19 @@ export class PlatformAnalyticsRepository {
     lastActivity: string | null;
   }[]> {
     const range = this.buildRange(period, customFrom, customTo);
-    const { data: tenants } = await this.supabase.from('tenants').select('id, name').is('deleted_at', null).eq('status', 'active');
-    if (!tenants) return [];
-    const results = await Promise.all(
-      (tenants as any[]).map(async (tenant: any) => {
-        const [invoices, shifts, expenses, users, lastInvoice] = await Promise.all([
-          this.supabase.from('orders').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).gte('created_at', range.from.toISOString()),
-          this.supabase.from('shifts').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).gte('opened_at', range.from.toISOString()),
-          this.supabase.from('expenses').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).gte('created_at', range.from.toISOString()),
-          this.supabase.from('users').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).is('deleted_at', null),
-          this.supabase.from('orders').select('created_at').eq('tenant_id', tenant.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-        ]);
-        return {
-          tenantId: tenant.id,
-          tenantName: tenant.name,
-          invoicesCount: invoices.count ?? 0,
-          shiftsCount: shifts.count ?? 0,
-          expensesCount: expenses.count ?? 0,
-          usersCount: users.count ?? 0,
-          lastActivity: (lastInvoice.data as any)?.created_at ?? null,
-        };
-      }),
-    );
-    return results.sort((a, b) => b.invoicesCount - a.invoicesCount);
+    const { data, error } = await this.supabase.rpc('get_tenant_usage_analytics', {
+      p_from: range.from.toISOString(),
+      p_to: range.to.toISOString(),
+    });
+    if (error) return [];
+    return (data ?? []).map((row: any) => ({
+      tenantId: row.tenant_id,
+      tenantName: row.tenant_name,
+      invoicesCount: Number(row.invoices_count ?? 0),
+      shiftsCount: Number(row.shifts_count ?? 0),
+      expensesCount: Number(row.expenses_count ?? 0),
+      usersCount: Number(row.users_count ?? 0),
+      lastActivity: row.last_activity ?? null,
+    }));
   }
 }

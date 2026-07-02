@@ -8,7 +8,10 @@ import { QueueExistsPipe } from './pipes/queue-exists.pipe';
 import { DunningProcessor } from './processors/dunning.processor';
 import { AuditCleanupProcessor } from './processors/audit-cleanup.processor';
 import { AuditCleanupScheduler } from './processors/audit-cleanup.scheduler';
+import { AiProcessor } from './processors/ai.processor';
+import { AiQueueService } from './ai-queue.service';
 import { BillingModule } from '../billing/billing.module';
+import { AiUsageTrackingModule } from '../ai-usage/ai-usage-tracking.module';
 
 @Module({
   imports: [
@@ -42,8 +45,10 @@ import { BillingModule } from '../billing/billing.module';
       { name: QUEUE_NAMES.AUDIT_CLEANUP },
       { name: QUEUE_NAMES.NOTIFICATIONS },
       { name: QUEUE_NAMES.DOMAIN_EVENTS },
+      { name: QUEUE_NAMES.AI },
     ),
     BillingModule,
+    AiUsageTrackingModule,
   ],
   providers: [
     QueueRegistry,
@@ -52,7 +57,9 @@ import { BillingModule } from '../billing/billing.module';
     DunningProcessor,
     AuditCleanupProcessor,
     AuditCleanupScheduler,
+    AiProcessor,
+    AiQueueService,
   ],
-  exports: [BullModule, QueueRegistry, QueueService, QueueExistsPipe],
+  exports: [BullModule, QueueRegistry, QueueService, QueueExistsPipe, AiQueueService],
 })
 export class QueueModule {}

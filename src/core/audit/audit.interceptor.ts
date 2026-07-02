@@ -3,6 +3,7 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
+  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
@@ -12,6 +13,8 @@ import { AUDIT_KEY } from './audit.decorator';
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditInterceptor.name);
+
   constructor(
     private readonly auditService: AuditService,
     private readonly reflector: Reflector,
@@ -58,7 +61,7 @@ export class AuditInterceptor implements NestInterceptor {
             device,
           })
           .catch((err: Error) =>
-            console.error('[AuditInterceptor] log error:', err.message),
+            this.logger.error(`Audit log write failed: ${err.message}`),
           );
       }),
     );

@@ -131,33 +131,39 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async getGlobalStats(tenant: TenantContext) {
-  let query = this.supabase
-    .from('customers')
-    .select('id, created_at')
-    .is('deleted_at', null);
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  if (tenant.tenantId) {
-    query = query.eq('tenant_id', tenant.tenantId);
+    let totalQuery = this.supabase
+      .from('customers')
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null);
+
+    let monthQuery = this.supabase
+      .from('customers')
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .gte('created_at', startOfMonth);
+
+    // tenantId is null only for superadmin callers — intentional cross-tenant access
+    if (tenant.tenantId) {
+      totalQuery = totalQuery.eq('tenant_id', tenant.tenantId);
+      monthQuery = monthQuery.eq('tenant_id', tenant.tenantId);
+    }
+
+    const [{ count: total, error: e1 }, { count: newThisMonth, error: e2 }] = await Promise.all([
+      totalQuery,
+      monthQuery,
+    ]);
+
+    if (e1) throw e1;
+    if (e2) throw e2;
+
+    return {
+      total: total ?? 0,
+      new_this_month: newThisMonth ?? 0,
+    };
   }
-
-  const { data, error } = await query;
-  if (error) throw error;
-
-  const all = data ?? [];
-  const now = new Date();
-  const newThisMonth = all.filter(c => {
-    const d = new Date(c.created_at);
-    return (
-      d.getMonth() === now.getMonth() &&
-      d.getFullYear() === now.getFullYear()
-    );
-  });
-
-  return {
-    total: all.length,
-    new_this_month: newThisMonth.length,
-  };
-}
 
   async getHistory(tenant: TenantContext, customerId: string, limit = 10) {
     const { data, error } = await this.supabase
@@ -173,21 +179,34 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async getStats(tenant: TenantContext, customerId: string) {
-    const { data, error } = await this.supabase
-      .from('orders')
-      .select('total, created_at')
-      .eq('tenant_id', tenant.tenantId)
-      .eq('customer_id', customerId)
-      .eq('status', 'completed');
-    if (error) throw error;
+    const [countRes, aggRes, lastRes] = await Promise.all([
+      this.supabase
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.tenantId)
+        .eq('customer_id', customerId)
+        .eq('status', 'completed'),
+      this.supabase.rpc('customer_order_aggregates', {
+        p_tenant_id: tenant.tenantId,
+        p_customer_id: customerId,
+      }),
+      this.supabase
+        .from('orders')
+        .select('created_at')
+        .eq('tenant_id', tenant.tenantId)
+        .eq('customer_id', customerId)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
-    const orders = data ?? [];
-    const orders_count = orders.length;
-    const total_spent = orders.reduce((sum, o) => sum + (o.total ?? 0), 0);
+    if (countRes.error) throw countRes.error;
+
+    const orders_count = countRes.count ?? 0;
+    const total_spent = Number(aggRes.data?.total_spent ?? 0);
     const avg_order = orders_count > 0 ? Math.round(total_spent / orders_count) : 0;
-    const last_order_at = orders_count > 0
-      ? orders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0].created_at
-      : null;
+    const last_order_at = (lastRes.data as any)?.created_at ?? null;
 
     return { orders_count, total_spent, avg_order, last_order_at };
   }

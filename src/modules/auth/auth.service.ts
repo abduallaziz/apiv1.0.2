@@ -597,11 +597,17 @@ export class AuthService {
     ip: string,
     userAgent: string,
   ) {
-    const { data: session } = await this.supabase
+    let sessionQuery = this.supabase
       .from('device_sessions')
       .select('id, user_id')
-      .eq('id', dto.session_id)
-      .single();
+      .eq('id', dto.session_id);
+
+    // Superadmin can revoke any session cross-tenant; regular users are scoped to their tenant
+    if (actorRole !== 'superadmin' && tenantId) {
+      sessionQuery = sessionQuery.eq('tenant_id', tenantId);
+    }
+
+    const { data: session } = await sessionQuery.single();
 
     if (!session) {
       throw new UnauthorizedException('Session not found');
@@ -638,38 +644,25 @@ export class AuthService {
   async getSessions(userId: string) {
     const { data: sessions, error } = await this.supabase
       .from('device_sessions')
-      .select('id, device_name, device_type, ip_address, last_active_at, is_revoked, created_at, user_id, tenant_id')
+      .select('id, device_name, device_type, ip_address, last_active_at, is_revoked, created_at, user_id, tenant_id, user:users!device_sessions_user_id_fkey(name, email), tenant:tenants!device_sessions_tenant_id_fkey(name)')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    const enriched = await Promise.all(
-      (sessions ?? []).map(async (s: any) => {
-        const [userRes, tenantRes] = await Promise.all([
-          this.supabase
-            .from('users')
-            .select('name, email')
-            .eq('id', s.user_id)
-            .single(),
-          s.tenant_id
-            ? this.supabase
-                .from('tenants')
-                .select('name')
-                .eq('id', s.tenant_id)
-                .single()
-            : Promise.resolve({ data: null }),
-        ]);
-
-        return {
-          ...s,
-          user_name: userRes.data?.name ?? null,
-          user_email: userRes.data?.email ?? null,
-          tenant_name: (tenantRes as any).data?.name ?? null,
-        };
-      }),
-    );
-
-    return enriched;
+    return (sessions ?? []).map((s: any) => ({
+      id: s.id,
+      device_name: s.device_name,
+      device_type: s.device_type,
+      ip_address: s.ip_address,
+      last_active_at: s.last_active_at,
+      is_revoked: s.is_revoked,
+      created_at: s.created_at,
+      user_id: s.user_id,
+      tenant_id: s.tenant_id,
+      user_name: s.user?.name ?? null,
+      user_email: s.user?.email ?? null,
+      tenant_name: s.tenant?.name ?? null,
+    }));
   }
 }

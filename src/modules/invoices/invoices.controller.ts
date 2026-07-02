@@ -55,8 +55,11 @@ export class InvoicesController {
     @Query('branch_id') branchId?: string,
     @Query('date_from') dateFrom?: string,
     @Query('date_to') dateTo?: string,
+    @Query('page') page?: string,
+    @Query('per_page') perPage?: string,
+    @Query('status') status?: string,
   ) {
-    return this.invoicesService.findAll(tenant, branchId, dateFrom, dateTo);
+    return this.invoicesService.findAll(tenant, branchId, dateFrom, dateTo, page, perPage, status);
   }
 
   @Get(':id')

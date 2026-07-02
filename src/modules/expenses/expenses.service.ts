@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   Inject,
+  Logger,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
@@ -14,9 +15,12 @@ import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../core/notificati
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { RejectExpenseDto } from './dto/reject-expense.dto';
 import { QueryExpensesDto } from './dto/query-expenses.dto';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
 
 @Injectable()
 export class ExpensesService {
+  private readonly logger = new Logger(ExpensesService.name);
+
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     private readonly expenseEngine: ExpenseEngine,
@@ -57,7 +61,7 @@ export class ExpensesService {
     };
   }
 
-  async findAll(tenantId: string, query: QueryExpensesDto) {
+  async findAll(tenantId: string, query: QueryExpensesDto, pagination: PaginationDto = new PaginationDto()) {
     let req = this.supabase
       .from('expenses')
       .select(`
@@ -65,7 +69,7 @@ export class ExpensesService {
         category:expense_categories(id, name),
         requester:users!requested_by(id, name, role),
         approver:users!approved_by(id, name, role)
-      `)
+      `, { count: 'exact' })
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -75,9 +79,10 @@ export class ExpensesService {
     if (query.from) req = req.gte('created_at', query.from);
     if (query.to) req = req.lte('created_at', query.to);
 
-    const { data, error } = await req;
+    const [from, to] = pagination.range;
+    const { data, error, count } = await req.range(from, to);
     if (error) throw new Error(error.message);
-    return data;
+    return { data: data ?? [], total: count ?? 0, page: pagination.page, perPage: pagination.perPage };
   }
 
   async findOne(id: string, tenantId: string) {
@@ -278,7 +283,7 @@ export class ExpensesService {
       .select('id');
 
     if (error) {
-      console.error('[ExpenseScheduler] Error expiring expenses:', error.message);
+      this.logger.error(`Error expiring stale expenses: ${error.message}`);
       return 0;
     }
 
@@ -297,7 +302,7 @@ export class ExpensesService {
       .lte('next_run_at', now.toISOString());
 
     if (error) {
-      console.error('[RecurringExpenses] Error fetching templates:', error.message);
+      this.logger.error(`Error fetching recurring expense templates: ${error.message}`);
       return 0;
     }
 
@@ -345,7 +350,7 @@ export class ExpensesService {
           });
 
         if (insertError) {
-          console.error(`[RecurringExpenses] Failed to create expense for template ${template.id}:`, insertError.message);
+          this.logger.error(`Failed to create recurring expense for template ${template.id}: ${insertError.message}`);
           continue;
         }
 
@@ -359,7 +364,7 @@ export class ExpensesService {
         this.metricsService.recordExpense(template.tenant_id, 'requested');
         created++;
       } catch (err) {
-        console.error(`[RecurringExpenses] Unexpected error for template ${template.id}:`, err);
+        this.logger.error(`Unexpected error processing recurring template ${template.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 

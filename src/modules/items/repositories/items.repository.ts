@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
+import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
 @Injectable()
 export class ItemsRepository extends ScopedRepository {
@@ -24,7 +25,8 @@ export class ItemsRepository extends ScopedRepository {
     };
   }
 
-  async findAll(tenantId: string) {
+  async findAll(tenantId: string, pagination: PaginationDto = new PaginationDto()) {
+    const [from, to] = pagination.range;
     const { data, error } = await this.scopedQuery('items', this.ctx(tenantId))
       .select(
         `id, name, type, operation_type, price, has_inventory, has_variants, is_active, created_at,
@@ -32,7 +34,8 @@ export class ItemsRepository extends ScopedRepository {
          item_variants(id)`,
       )
       .eq('is_active', true)
-      .order('name');
+      .order('name')
+      .range(from, to);
     if (error) throw error;
     return (data ?? []).map(this.flattenItem.bind(this));
   }

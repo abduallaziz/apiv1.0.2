@@ -1,9 +1,11 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AdjustmentsRepository } from './repositories/adjustments.repository';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto';
 import { throwFromRpcError } from './rpc-error.util';
 import { LocationsService } from './locations.service';
+import { StockService } from './stock.service';
 
 @Injectable()
 export class AdjustmentsService {
@@ -13,12 +15,13 @@ export class AdjustmentsService {
     private readonly adjustmentsRepo: AdjustmentsRepository,
     private readonly config: ConfigService,
     private readonly locationsService: LocationsService,
+    private readonly stockService: StockService,
   ) {
     this.approvalThreshold = Number(this.config.get<string>('INVENTORY_ADJUSTMENT_APPROVAL_THRESHOLD') ?? '0');
   }
 
-  findAll(tenantId: string, status?: string) {
-    return this.adjustmentsRepo.findAll(tenantId, status);
+  findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
+    return this.adjustmentsRepo.findAll(tenantId, status, new PaginationDto(page, perPage));
   }
 
   async findById(id: string, tenantId: string) {
@@ -68,7 +71,9 @@ export class AdjustmentsService {
       throw new ForbiddenException('Adjustment must be approved before it can be posted');
     }
     try {
-      return await this.adjustmentsRepo.post(id, actorId);
+      const result = await this.adjustmentsRepo.post(id, actorId);
+      await this.stockService.invalidateStockCache(tenantId);
+      return result;
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
     }
