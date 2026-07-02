@@ -1,7 +1,7 @@
 -- =============================================================================
 -- 037 — QUERY PERFORMANCE INDEXES
 -- Adds indexes for patterns identified during query performance audit.
--- All created CONCURRENTLY to avoid table locks on live data.
+-- All created with IF NOT EXISTS to be idempotent.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -9,7 +9,7 @@
 -- Query: .eq('tenant_id').eq('status','completed').in('customer_id', ids)
 -- Existing: idx_orders_customer (customer_id) — forces seq scan on status+tenant
 -- ---------------------------------------------------------------------------
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_tenant_status_customer
+CREATE INDEX IF NOT EXISTS idx_orders_tenant_status_customer
   ON orders(tenant_id, status, customer_id)
   WHERE deleted_at IS NULL;
 
@@ -18,7 +18,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_tenant_status_customer
 -- Query: .eq('tenant_id').eq('branch_id').gte('created_at').order('created_at DESC')
 -- Existing: idx_orders_date (tenant_id, created_at DESC) — doesn't cover branch_id
 -- ---------------------------------------------------------------------------
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_tenant_branch_created
+CREATE INDEX IF NOT EXISTS idx_orders_tenant_branch_created
   ON orders(tenant_id, branch_id, created_at DESC)
   WHERE deleted_at IS NULL;
 
@@ -27,7 +27,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_tenant_branch_created
 -- Query (reports.service.ts getTopItems): join order_items to orders, group by item_id
 -- Existing: idx_order_items_order (order_id) only
 -- ---------------------------------------------------------------------------
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_order_items_item
+CREATE INDEX IF NOT EXISTS idx_order_items_item
   ON order_items(item_id);
 
 -- ---------------------------------------------------------------------------
@@ -37,11 +37,11 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_order_items_item
 -- ---------------------------------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_customers_fullname_trgm
+CREATE INDEX IF NOT EXISTS idx_customers_fullname_trgm
   ON customers USING GIN (full_name gin_trgm_ops)
   WHERE deleted_at IS NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_customers_phone_trgm
+CREATE INDEX IF NOT EXISTS idx_customers_phone_trgm
   ON customers USING GIN (phone gin_trgm_ops)
   WHERE deleted_at IS NULL AND phone IS NOT NULL;
 
@@ -50,7 +50,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_customers_phone_trgm
 -- Existing: idx_sessions_user (user_id) WHERE is_revoked = false
 -- New: without the partial predicate to cover revoked sessions shown in list
 -- ---------------------------------------------------------------------------
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_all
+CREATE INDEX IF NOT EXISTS idx_sessions_user_all
   ON device_sessions(user_id, created_at DESC);
 
 -- ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_all
 -- Existing: idx_tokens_session (session_id), idx_tokens_hash (token_hash)
 -- New: composite for the revocation-by-session update path
 -- ---------------------------------------------------------------------------
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tokens_session_used
+CREATE INDEX IF NOT EXISTS idx_tokens_session_used
   ON refresh_tokens(session_id, is_used)
   WHERE is_used = false;
 
@@ -67,18 +67,18 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tokens_session_used
 -- Query: .eq('tenant_id').eq('warehouse_id').eq('item_id')
 -- No index on stock_levels beyond PK was present in initial schema.
 -- ---------------------------------------------------------------------------
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_stock_levels_tenant_warehouse
+CREATE INDEX IF NOT EXISTS idx_stock_levels_tenant_warehouse
   ON stock_levels(tenant_id, warehouse_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_stock_levels_tenant_item
+CREATE INDEX IF NOT EXISTS idx_stock_levels_tenant_item
   ON stock_levels(tenant_id, item_id);
 
 -- ---------------------------------------------------------------------------
 -- STOCK_MOVEMENTS — for findMovements filtered queries
 -- Query: .eq('tenant_id').eq('warehouse_id').eq('item_id').order('occurred_at DESC')
 -- ---------------------------------------------------------------------------
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_stock_movements_tenant_occurred
+CREATE INDEX IF NOT EXISTS idx_stock_movements_tenant_occurred
   ON stock_movements(tenant_id, occurred_at DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_stock_movements_tenant_warehouse_occurred
+CREATE INDEX IF NOT EXISTS idx_stock_movements_tenant_warehouse_occurred
   ON stock_movements(tenant_id, warehouse_id, occurred_at DESC);
