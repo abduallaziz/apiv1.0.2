@@ -13,6 +13,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { SuperAdminGuard } from './guards/superadmin.guard';
 import { SuperAdminService } from './superadmin.service';
+import { AuthControlService } from './services/auth-control.service';
 import { SuperAdminTenantsQueryDto } from './dto/superadmin-query.dto';
 import { FeatureOverrideDto } from './dto/superadmin-feature-override.dto';
 import { ExtendTrialDto } from './dto/superadmin-extend-trial.dto';
@@ -20,7 +21,17 @@ import { ExtendTrialDto } from './dto/superadmin-extend-trial.dto';
 @Controller('superadmin')
 @UseGuards(JwtAuthGuard, SuperAdminGuard)
 export class SuperAdminController {
-  constructor(private readonly superAdminService: SuperAdminService) {}
+  constructor(
+    private readonly superAdminService: SuperAdminService,
+    private readonly authControlService: AuthControlService,
+  ) {}
+
+  // Must be registered before `tenants/:id` so the literal "options" segment
+  // doesn't get swallowed by the :id param.
+  @Get('tenants/options')
+  getTenantOptions() {
+    return this.authControlService.getTenantOptions();
+  }
 
   @Get('stats')
   getStats() {
