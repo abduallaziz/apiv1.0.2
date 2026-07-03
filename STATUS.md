@@ -470,15 +470,15 @@ Total Migrations: 32 (001–032، تسلسل متصل بلا فجوات — را
 | المقياس | القيمة |
 |---|---|
 | Backend Modules | 42+ (Inventory + Purchasing مضافة) |
-| Database Tables | 40+ (Inventory/Purchasing/Locations مضافة) |
-| API Endpoints | 96+ |
+| Database Tables | 49 (عدّ مباشر لـ `CREATE TABLE` عبر كل الـmigrations 001–038، تحقق بتاريخ 2026-07-03) |
+| API Endpoints | 199 (عدّ مباشر لـ `@Get`/`@Post`/`@Patch`/`@Put`/`@Delete` عبر كل الـcontrollers، تحقق بتاريخ 2026-07-03 — رقم لحظي، بيزيد مع كل endpoint جديد، مش هدف ثابت) |
 | Schema Mismatches Fixed | 28/28 ✅ |
 | Core Domains | 8 (+ Inventory + Purchasing) |
-| Database Migrations | 32 (001–032، راجع §50) |
+| Database Migrations | 38 (001–038) |
 | Inventory/Purchasing Core | ✅ مكتمل ومنشور بالكامل — راجع §50 |
 | Payment Providers | 2 (Stripe + Mock) |
 | Queue Infrastructure | BullMQ + Redis |
-| Queue Processors | 3 (Dunning + AuditCleanup + Notification) |
+| Queue Processors | 6 (Dunning + AuditCleanup + Notification + AI + PlatformAnalytics + Outbox/domain-events) |
 | Notification Channels | 2 (Email + InApp) — Dynamic Registry |
 | i18n Locales | 2 (ar + en) |
 | Logging | Winston — Structured JSON — AsyncLocalStorage context |
@@ -488,11 +488,11 @@ Total Migrations: 32 (001–032، تسلسل متصل بلا فجوات — را
 | Deployment | Railway (API) + Vercel (Web) — auto-deploy on git push |
 | CI/CD | GitHub Actions — TypeScript build check — passing ✅ |
 | Database Migrations Runner | Custom Runner — Supabase Management API — schema_migrations table ✅ |
-| Staging Environment | Railway sefay-api-staging — branch staging — Online ✅ |
+| Staging Environment | محذوفة جزئياً — فرع `staging` وworkflow الخاص بيه على GitHub اتحذفوا (commit `aec829c`)، لكن خدمة `sefay-api-staging-production` على Railway لسه موجودة، بانتظار حذف يدوي من لوحة Railway (راجع TASKS.md) |
 | Security Headers | Helmet — 10 headers مفعّلة — مختبرة على production ✅ |
 | Deployment Targets | 3 (Railway + Vercel + App Stores) |
-| Supported Roles | 5 (superadmin, owner, manager, cashier, worker) |
-| Permissions | 30 |
+| Supported Roles | 6 (superadmin, owner, manager, inventory_clerk, cashier, worker) |
+| Permissions | 50 |
 | Frontend Modules Wired | 7/7 (Auth, Customers, Shifts, Expenses, Orders, Items, SuperAdmin) ✅ |
 | Currency Support | 8 عملات (SAR/USD/EUR/AED/KWD/BHD/QAR/OMR) |
 
