@@ -92,4 +92,16 @@ export class UpdateTenantProfileDto {
   @ValidateNested()
   @Type(() => NotificationPreferencesDto)
   notification_preferences?: NotificationPreferencesDto;
+
+  // Points earned per 1 currency unit spent (e.g. 1 = 1 point per SAR spent).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  loyalty_points_per_currency?: number;
+
+  // Currency value of a single redeemed point (e.g. 0.01 = 100 points worth 1 SAR).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  loyalty_redemption_value?: number;
 }

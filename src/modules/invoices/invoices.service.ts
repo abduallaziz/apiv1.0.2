@@ -11,6 +11,7 @@ import { PaymentEngine } from '../../engines/payment-engine/payment.engine';
 import { AuditService } from '../../core/audit/audit.service';
 import { MetricsService } from '../../core/metrics/metrics.service';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
+import { LoyaltyService } from '../../core/loyalty/loyalty.service';
 import { NotificationService } from '../../core/notification/notification.service';
 import {
   NOTIFICATION_TYPES,
@@ -41,6 +42,7 @@ export class InvoicesService {
     private readonly auditService: AuditService,
     private readonly metricsService: MetricsService,
     private readonly tenantsRepo: TenantsRepository,
+    private readonly loyaltyService: LoyaltyService,
     private readonly notificationService: NotificationService,
     private readonly cache: RedisCacheService,
   ) {}
@@ -59,7 +61,38 @@ export class InvoicesService {
       ? await this.tenantsRepo.getTaxRate(tenant.tenantId)
       : 0;
 
-    const built = this.posEngine.buildInvoice(dto.items, dto.discount, taxRate);
+    const loyaltySettings = await this.loyaltyService.getSettings(tenant.tenantId);
+
+    let loyaltyDiscountAmount = 0;
+    if (dto.redeem_points) {
+      if (!dto.customer_id) {
+        throw new BadRequestException(
+          'customer_id required to redeem loyalty points',
+        );
+      }
+      const balance = await this.loyaltyService.getBalance(dto.customer_id);
+      if (balance < dto.redeem_points) {
+        throw new BadRequestException('Insufficient loyalty points balance');
+      }
+      loyaltyDiscountAmount = this.loyaltyService.calculateRedemptionValue(
+        dto.redeem_points,
+        loyaltySettings,
+      );
+    }
+
+    const manualBuilt = this.posEngine.buildInvoice(dto.items, dto.discount, taxRate);
+    const combinedDiscountAmount = Math.min(
+      manualBuilt.discount_amount + loyaltyDiscountAmount,
+      manualBuilt.subtotal,
+    );
+    const taxAmount = this.posEngine.applyTax(manualBuilt.subtotal, combinedDiscountAmount, taxRate);
+    const built = {
+      items: manualBuilt.items,
+      subtotal: manualBuilt.subtotal,
+      discount_amount: combinedDiscountAmount,
+      tax_amount: taxAmount,
+      total: this.posEngine.calculateTotal(manualBuilt.subtotal, combinedDiscountAmount, taxAmount),
+    };
 
     if (dto.payment_method === 'cash') {
       if (!dto.cash_tendered) {
@@ -129,6 +162,16 @@ export class InvoicesService {
     });
 
     this.metricsService.recordInvoice(tenant.tenantId, 'completed');
+
+    if (dto.customer_id) {
+      if (dto.redeem_points) {
+        await this.loyaltyService.redeemPoints(dto.customer_id, dto.redeem_points);
+      }
+      // نقاط الولاء تُحتسب على المبلغ الفعلي المدفوع (بعد أي خصم، بما فيه استرداد النقاط)
+      // لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط سابقة)
+      const pointsEarned = this.loyaltyService.calculatePointsEarned(built.total, loyaltySettings);
+      this.loyaltyService.awardPoints(dto.customer_id, pointsEarned).catch(() => {});
+    }
 
     // إشعار داخلي للكاشير عند إتمام الفاتورة
     this.notificationService

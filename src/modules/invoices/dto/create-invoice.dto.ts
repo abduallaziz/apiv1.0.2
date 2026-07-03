@@ -117,4 +117,9 @@ export class CreateInvoiceDto {
   @IsNumber()
   @Min(0)
   tax_rate?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  redeem_points?: number;
 }
