@@ -2296,3 +2296,25 @@ Phase 10M مكتمل بالكامل. مدفوع على `claude/analytics-redis-c
 
 ## الحالة النهائية
 Phase 10L مكتمل بالكامل. مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد). **متبقٍ**: migration 040 لم تُطبَّق على production/staging بعد (نفس ملاحظة migration 034 بـ§52).
+
+---
+
+# 59. Phase 10I — التقارير المتقدمة — يوليو 3, 2026
+
+## السياق
+بند من Phase 10: تقارير حسب طريقة الدفع، المخزون، الموظفين، العملاء، ضريبية (ZATCA)، وتصدير Excel/PDF.
+
+## التنفيذ (apiv1.0.2 — commit `f2ca947`)
+- 4 endpoints جديدة بـ`ReportsController`/`ReportsService`: `GET /reports/employees`، `/reports/customers`، `/reports/tax`، `/reports/inventory` (الأخير يعيد استخدام `fn_inventory_stock_levels_enriched` الموجودة من migration 033 بدل بناء منطق مكرر).
+- **باغ حقيقي اكتُشف ومُصلح**: `getPaymentsReport()` (endpoint موجود مسبقًا، `/reports/payments`) كان يتعرّف فقط على قيم `payment_method` الحرفية `'cash'`/`'card'`/`'split'` — أي طلب بقيمة `mada`/`visa`/`mastercard`/`stc_pay`/`apple_pay`/`tab` (قيم صالحة فعليًا منذ migration 006) كان يُستبعَد من كل الحاويات الثلاث بصمت (يبقى محسوبًا فقط بـ`grand_total`/`total_orders`). أُصلح بتجميع صحيح: `card` = card/mada/visa/mastercard، `wallet` = wallet/stc_pay/apple_pay، مع إضافة `by_method` لتفصيل كل قيمة فعلية على حِدة (تقرير `/reports/revenue` المنفصل لم يكن متأثرًا — `by_payment_method` فيه كان يتجمّع ديناميكيًا بالفعل منذ 10B).
+- تصدير Excel (`?format=excel`) أُضيف لكل الـ4 endpoints الجديدة، بنفس نمط `exportToExcel()` الموجود.
+- **قرار نطاق**: تقرير `/reports/tax` ملخص VAT بسيط (ضريبة محصَّلة + تفصيل يومي) فقط — **ليس** امتثال ZATCA الكامل (فوترة إلكترونية/QR/XML/توقيع رقمي)، ذاك يبقى منفصلًا ضمن Phase 10K (لم يبدأ).
+
+## التحقق (سيرفر محلي حقيقي)
+اختُبرت الـ4 endpoints الجديدة + إصلاح `/reports/payments` فعليًا: بيانات صحيحة (تحقّق حسابي: subtotal+tax=total متطابق مع بيانات seed حقيقية، وإن كانت نِسَب الضريبة بالبيانات التجريبية نفسها غير واقعية من اختبارات تحميل سابقة — ليس باغ بالكود)، تصدير Excel صالح (~6KB) حتى لمجموعات بيانات فارغة، و403 صحيح لدور cashier بلا صلاحية `reports.view.branch`.
+
+## Frontend (sefayv1.0.2 — commit `8140434`)
+أُضيفت أقسام "أداء الموظفين" و"ملخص الضريبة" لصفحة التقارير الرئيسية (`ReportsPage.tsx`). تقارير العملاء/المخزون موصولة بـ`reports.api.ts`/`useReports.ts` (types + hooks) لكن بدون واجهة عرض مخصصة بهذه الصفحة بعد — المخزون له لوحة تحكم مخصصة أصلًا (§55)، والعملاء أولوية أقل مقارنة بأداء الموظفين والضريبة.
+
+## الحالة النهائية
+Phase 10I مكتمل (بالنطاق الموصوف أعلاه). مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد). لا migrations جديدة بهذا البند.
