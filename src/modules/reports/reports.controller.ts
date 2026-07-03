@@ -101,6 +101,95 @@ export class ReportsController {
 
     return data;
   }
+  @Get('employees')
+  @RequirePermission('reports.view.branch')
+  async getEmployees(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getEmployeesReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('employees', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="employees-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('customers')
+  @RequirePermission('reports.view.branch')
+  async getCustomers(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getCustomersReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('customers', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="customers-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('tax')
+  @RequirePermission('reports.view.branch')
+  async getTax(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getTaxReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('tax', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="tax-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('inventory')
+  @RequirePermission('reports.view.branch')
+  async getInventory(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId: string,
+    @Query('format') format: ExportFormat,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getInventoryReport(tenant, warehouseId);
+
+    if (format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('inventory', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="inventory-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
   @Get('top-items')
   @RequirePermission('reports.view.branch')
   async getTopItems(

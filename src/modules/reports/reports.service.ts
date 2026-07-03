@@ -179,6 +179,12 @@ export class ReportsService {
     };
   }
 
+  // Card-network and wallet-provider methods settle identically to 'card'/'wallet' today
+  // (no distinct gateway processing yet — see migration 006). Grouped here for the summary
+  // buckets, while by_method below still exposes every exact value individually.
+  private static readonly CARD_NETWORK_METHODS = ['card', 'mada', 'visa', 'mastercard'];
+  private static readonly WALLET_METHODS = ['wallet', 'stc_pay', 'apple_pay'];
+
   async getPaymentsReport(tenant: TenantContext, query: ReportQueryDto) {
     const { from, to } = this.getDateRange(query);
 
@@ -195,19 +201,31 @@ export class ReportsService {
     const { data: orders, error } = await q;
     if (error) throw error;
 
-    const cashOrders = orders.filter(o => o.payment_method === 'cash');
-    const cardOrders = orders.filter(o => o.payment_method === 'card');
-    const splitOrders = orders.filter(o => o.payment_method === 'split');
+    const bucket = (methods: string[]) => {
+      const matched = orders.filter(o => methods.includes(o.payment_method));
+      return { count: matched.length, total: matched.reduce((s, o) => s + (o.total || 0), 0) };
+    };
+
+    const byMethod: Record<string, { count: number; total: number }> = {};
+    for (const o of orders) {
+      const m = o.payment_method || 'unknown';
+      if (!byMethod[m]) byMethod[m] = { count: 0, total: 0 };
+      byMethod[m].count++;
+      byMethod[m].total += o.total || 0;
+    }
 
     return {
       period: { from, to },
       summary: {
         total_orders: orders.length,
         grand_total: orders.reduce((s, o) => s + (o.total || 0), 0),
-        cash: { count: cashOrders.length, total: cashOrders.reduce((s, o) => s + (o.total || 0), 0) },
-        card: { count: cardOrders.length, total: cardOrders.reduce((s, o) => s + (o.total || 0), 0) },
-        split: { count: splitOrders.length, total: splitOrders.reduce((s, o) => s + (o.total || 0), 0) },
+        cash: bucket(['cash']),
+        card: bucket(ReportsService.CARD_NETWORK_METHODS),
+        wallet: bucket(ReportsService.WALLET_METHODS),
+        split: bucket(['split']),
+        tab: bucket(['tab']),
       },
+      by_method: byMethod,
     };
   }
 
@@ -267,6 +285,38 @@ export class ReportsService {
       ];
       sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
       for (const row of rows) sheet.addRow(row);
+    } else if (reportType === 'employees') {
+      const typed = data as { employees: Record<string, unknown>[] };
+      if (typed.employees.length > 0) {
+        const keys = Object.keys(typed.employees[0]);
+        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
+        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        for (const row of typed.employees) sheet.addRow(row);
+      }
+    } else if (reportType === 'customers') {
+      const typed = data as { customers: Record<string, unknown>[] };
+      if (typed.customers.length > 0) {
+        const keys = Object.keys(typed.customers[0]);
+        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
+        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        for (const row of typed.customers) sheet.addRow(row);
+      }
+    } else if (reportType === 'tax') {
+      const typed = data as { daily_breakdown: Record<string, unknown>[] };
+      if (typed.daily_breakdown.length > 0) {
+        const keys = Object.keys(typed.daily_breakdown[0]);
+        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
+        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        for (const row of typed.daily_breakdown) sheet.addRow(row);
+      }
+    } else if (reportType === 'inventory') {
+      const typed = data as { top_by_value: Record<string, unknown>[] };
+      if (typed.top_by_value.length > 0) {
+        const keys = Object.keys(typed.top_by_value[0]);
+        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
+        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        for (const row of typed.top_by_value) sheet.addRow(row);
+      }
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -415,6 +465,198 @@ export class ReportsService {
       orders:    days.map(d => ordersMap[d]),
       customers: days.map(d => customersMap[d]),
       expenses:  days.map(d => expensesMap[d]),
+    };
+  }
+
+  async getEmployeesReport(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+
+    let q = this.supabase
+      .from('orders')
+      .select('id, total, cashier_id, branch_id, created_at')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .not('cashier_id', 'is', null);
+
+    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+
+    const { data: orders, error } = await q;
+    if (error) throw error;
+
+    const cashierIds = [...new Set((orders ?? []).map(o => o.cashier_id))];
+    const namesById: Record<string, string> = {};
+    if (cashierIds.length > 0) {
+      const { data: users } = await this.supabase
+        .from('users')
+        .select('id, name')
+        .in('id', cashierIds);
+      for (const u of users ?? []) namesById[u.id] = u.name;
+    }
+
+    const byCashier: Record<string, { name: string; order_count: number; total_sales: number }> = {};
+    for (const o of orders ?? []) {
+      const id = o.cashier_id as string;
+      if (!byCashier[id]) byCashier[id] = { name: namesById[id] ?? 'Unknown', order_count: 0, total_sales: 0 };
+      byCashier[id].order_count++;
+      byCashier[id].total_sales += o.total || 0;
+    }
+
+    const employees = Object.entries(byCashier)
+      .map(([cashier_id, v]) => ({
+        cashier_id,
+        name: v.name,
+        order_count: v.order_count,
+        total_sales: v.total_sales,
+        avg_order_value: v.order_count > 0 ? v.total_sales / v.order_count : 0,
+      }))
+      .sort((a, b) => b.total_sales - a.total_sales);
+
+    return { period: { from, to }, employees };
+  }
+
+  async getCustomersReport(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+
+    let q = this.supabase
+      .from('orders')
+      .select('id, total, customer_id, branch_id, created_at')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .not('customer_id', 'is', null);
+
+    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+
+    const { data: orders, error } = await q;
+    if (error) throw error;
+
+    const customerIds = [...new Set((orders ?? []).map(o => o.customer_id))];
+    const namesById: Record<string, string> = {};
+    if (customerIds.length > 0) {
+      const { data: customers } = await this.supabase
+        .from('customers')
+        .select('id, full_name')
+        .in('id', customerIds);
+      for (const c of customers ?? []) namesById[c.id] = c.full_name;
+    }
+
+    const byCustomer: Record<string, { name: string; order_count: number; total_spent: number }> = {};
+    for (const o of orders ?? []) {
+      const id = o.customer_id as string;
+      if (!byCustomer[id]) byCustomer[id] = { name: namesById[id] ?? 'Unknown', order_count: 0, total_spent: 0 };
+      byCustomer[id].order_count++;
+      byCustomer[id].total_spent += o.total || 0;
+    }
+
+    const customers = Object.entries(byCustomer)
+      .map(([customer_id, v]) => ({
+        customer_id,
+        name: v.name,
+        order_count: v.order_count,
+        total_spent: v.total_spent,
+        avg_order_value: v.order_count > 0 ? v.total_spent / v.order_count : 0,
+      }))
+      .sort((a, b) => b.total_spent - a.total_spent);
+
+    return {
+      period: { from, to },
+      summary: { unique_customers: customers.length },
+      customers,
+    };
+  }
+
+  async getTaxReport(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+
+    let q = this.supabase
+      .from('orders')
+      .select('id, subtotal, tax, total, branch_id, created_at')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to);
+
+    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+
+    const { data: orders, error } = await q;
+    if (error) throw error;
+
+    const taxRate = await this.getTenantTaxRate(tenant.tenantId);
+
+    const byDay: Record<string, { subtotal: number; tax: number; total: number; order_count: number }> = {};
+    for (const o of orders ?? []) {
+      const day = o.created_at.substring(0, 10);
+      if (!byDay[day]) byDay[day] = { subtotal: 0, tax: 0, total: 0, order_count: 0 };
+      byDay[day].subtotal += o.subtotal || 0;
+      byDay[day].tax += o.tax || 0;
+      byDay[day].total += o.total || 0;
+      byDay[day].order_count++;
+    }
+
+    return {
+      period: { from, to },
+      tax_rate: taxRate,
+      summary: {
+        total_orders: (orders ?? []).length,
+        total_subtotal: (orders ?? []).reduce((s, o) => s + (o.subtotal || 0), 0),
+        total_tax_collected: (orders ?? []).reduce((s, o) => s + (o.tax || 0), 0),
+        grand_total: (orders ?? []).reduce((s, o) => s + (o.total || 0), 0),
+      },
+      daily_breakdown: Object.entries(byDay)
+        .map(([date, v]) => ({ date, ...v }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    };
+  }
+
+  private async getTenantTaxRate(tenantId: string): Promise<number> {
+    const { data } = await this.supabase
+      .from('tenants')
+      .select('tax_rate')
+      .eq('id', tenantId)
+      .single();
+    return data?.tax_rate ?? 0;
+  }
+
+  async getInventoryReport(tenant: TenantContext, warehouseId?: string) {
+    const { data, error } = await this.supabase.rpc('fn_inventory_stock_levels_enriched', {
+      p_tenant_id: tenant.tenantId,
+      p_warehouse_id: warehouseId ?? null,
+      p_item_id: null,
+      p_category_id: null,
+      p_location_id: null,
+      p_batch_id: null,
+      p_supplier_id: null,
+      p_status: null,
+    });
+    if (error) throw error;
+
+    const rows = data ?? [];
+    const totalValue = rows.reduce((s: number, r: any) => s + (r.inventory_value || 0), 0);
+    const lowStockCount = rows.filter((r: any) => r.status === 'low_stock').length;
+    const outOfStockCount = rows.filter((r: any) => r.status === 'out_of_stock').length;
+
+    const topByValue = [...rows]
+      .sort((a: any, b: any) => (b.inventory_value || 0) - (a.inventory_value || 0))
+      .slice(0, 10)
+      .map((r: any) => ({
+        item_name: r.item_name,
+        warehouse_name: r.warehouse_name,
+        quantity_on_hand: r.quantity_on_hand,
+        inventory_value: r.inventory_value,
+        status: r.status,
+      }));
+
+    return {
+      summary: {
+        total_sku_count: rows.length,
+        total_inventory_value: totalValue,
+        low_stock_count: lowStockCount,
+        out_of_stock_count: outOfStockCount,
+      },
+      top_by_value: topByValue,
     };
   }
 }
