@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
 @Injectable()
 export class GoodsReceiptsRepository extends ScopedRepository {
@@ -8,10 +9,12 @@ export class GoodsReceiptsRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, status?: string) {
+  async findAll(tenantId: string, status?: string, pagination: PaginationDto = new PaginationDto()) {
     const { data, error } = await this.supabase.rpc('fn_goods_receipts_list_enriched', {
       p_tenant_id: tenantId,
       p_status: status ?? null,
+      p_limit: pagination.perPage,
+      p_offset: pagination.offset,
     });
     if (error) throw error;
     return data;
