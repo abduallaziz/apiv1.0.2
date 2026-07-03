@@ -568,6 +568,77 @@ export class ReportsService {
     };
   }
 
+  async getDailyReconciliation(tenant: TenantContext, date: string, branchId?: string) {
+    const from = `${date}T00:00:00.000`;
+    const to = `${date}T23:59:59.999`;
+
+    let ordersQ = this.supabase
+      .from('orders')
+      .select('id, total, payment_method, branch_id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to);
+    if (branchId) ordersQ = ordersQ.eq('branch_id', branchId);
+
+    let expensesQ = this.supabase
+      .from('expenses')
+      .select('id, amount, branch_id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'approved')
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .is('deleted_at', null);
+    if (branchId) expensesQ = expensesQ.eq('branch_id', branchId);
+
+    // Shifts are reconciled per-shift by ShiftEngine at close time (expected_cash/discrepancy
+    // already account for cash sales + expenses within that shift) — this aggregates those
+    // already-correct per-shift figures instead of recomputing cash math from scratch.
+    let shiftsQ = this.supabase
+      .from('shifts')
+      .select('id, branch_id, status, opening_cash, closing_cash, expected_cash, discrepancy')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'closed')
+      .gte('closed_at', from)
+      .lte('closed_at', to)
+      .is('deleted_at', null);
+    if (branchId) shiftsQ = shiftsQ.eq('branch_id', branchId);
+
+    const [{ data: orders, error: ordersErr }, { data: expenses, error: expensesErr }, { data: shifts, error: shiftsErr }] =
+      await Promise.all([ordersQ, expensesQ, shiftsQ]);
+    if (ordersErr) throw ordersErr;
+    if (expensesErr) throw expensesErr;
+    if (shiftsErr) throw shiftsErr;
+
+    const byPaymentMethod: Record<string, { count: number; total: number }> = {};
+    for (const o of orders ?? []) {
+      const m = o.payment_method || 'unknown';
+      if (!byPaymentMethod[m]) byPaymentMethod[m] = { count: 0, total: 0 };
+      byPaymentMethod[m].count++;
+      byPaymentMethod[m].total += o.total || 0;
+    }
+
+    return {
+      date,
+      sales: {
+        total_orders: (orders ?? []).length,
+        total_revenue: (orders ?? []).reduce((s, o) => s + (o.total || 0), 0),
+        by_payment_method: byPaymentMethod,
+      },
+      expenses: {
+        approved_count: (expenses ?? []).length,
+        total_approved_amount: (expenses ?? []).reduce((s, e) => s + (e.amount || 0), 0),
+      },
+      cash_shifts: {
+        closed_shift_count: (shifts ?? []).length,
+        total_opening_cash: (shifts ?? []).reduce((s, sh) => s + (sh.opening_cash || 0), 0),
+        total_closing_cash: (shifts ?? []).reduce((s, sh) => s + (sh.closing_cash || 0), 0),
+        total_expected_cash: (shifts ?? []).reduce((s, sh) => s + (sh.expected_cash || 0), 0),
+        total_discrepancy: (shifts ?? []).reduce((s, sh) => s + (sh.discrepancy || 0), 0),
+      },
+    };
+  }
+
   async getTaxReport(tenant: TenantContext, query: ReportQueryDto) {
     const { from, to } = this.getDateRange(query);
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards, BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto, ExportFormat } from './dto/report-query.dto';
@@ -188,6 +188,21 @@ export class ReportsController {
     }
 
     return data;
+  }
+
+  @Get('daily-reconciliation')
+  @RequirePermission('reports.view.branch')
+  async getDailyReconciliation(
+    @GetTenant() tenant: TenantContext,
+    @Query('date') date: string,
+    @Query('branch_id') branchId?: string,
+  ) {
+    if (!date) {
+      date = new Date().toISOString().slice(0, 10);
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('date must be in YYYY-MM-DD format');
+    }
+    return this.reportsService.getDailyReconciliation(tenant, date, branchId);
   }
 
   @Get('comparison')
