@@ -369,8 +369,9 @@
 - [x] Reorder Point (تنبيه نقص المخزون) — schema + reporting RPCs (الحالة: مبني، لا تنبيه push/email تلقائي بعد — فقط ظاهر بالتقارير/الداشبورد)
 - [x] Locations (مواقع فرعية داخل المخزن) — **بند جديد غير مخطَّط أصلاً، أُضيف ونُفِّذ بالكامل**: CRUD + بحث + ترقيم صفحات + audit logging، مربوط end-to-end بالتحويلات/التسويات/استلام البضاعة/أوامر الشراء/الجرد
 - [ ] باركود وطباعة ملصقات — لم يُبنَ
-- [ ] تاريخ انتهاء الصلاحية (batch/lot expiry tracking + تنبيهات) — جدول `batches` موجود بالـ schema لكن لا منطق انتهاء صلاحية/تنبيهات فعلي بعد
-- [ ] COGS (تكلفة المنتج) — `cost_layers` موجودة بالـ schema (FIFO/weighted-avg layers)، لكن لا تقرير COGS مُجمَّع مكشوف بعد كـ endpoint
+- [x] تاريخ انتهاء الصلاحية (batch/lot expiry tracking) — July 3, 2026: `GET /inventory/reports/expiring-batches` (+ مُضاف لـ`overview`) — migration 042، RPC `fn_batches_expiring_soon`. نفس نطاق reorder points تمامًا: تقرير/داشبورد فقط، **لا تنبيه push/email تلقائي** (قرار متعمّد مطابق للسابقة الموثَّقة). اختُبر فعليًا: تصنيف `expired`/`expiring_soon`/`ok` صحيح، فلترة `days_ahead` تعمل، البatches بصفر مخزون تُستبعَد صح
+- [x] **POS ↔ Inventory disconnect** (الاكتشاف الحرج أدناه) ✅ **حُلّ — July 3, 2026**: `InvoicesService.create()` الآن يخصم المخزون فعليًا عند البيع (وأعاد بها الفواتير الملغاة). راجع STATUS.md §64 للتصميم الكامل. **القرار المتّخذ**: `branches.default_warehouse_id` (عمود جديد، اختياري، `NULL` افتراضيًا لكل فرع موجود = **لا تغيير سلوك إطلاقًا** حتى يربط المستأجر فرعًا بمستودع صراحة عبر `PATCH /branches/:id`، مع تحقق أمني من ملكية المستودع لنفس المستأجر) + إعادة استخدام `items.has_inventory` الموجود أصلًا لتحديد أي عنصر يُخصَم (الخدمات/العناصر غير المتتبَّعة تُتخطى بصمت). الخصم **best-effort** — مشكلة مخزون لا توقف بيعًا مكتمِلًا أبدًا (توصية متابعة لاحقة بـSTATUS.md §64 لتفعيل رفض صريح عند نقص المخزون بعد التأكد من جودة بيانات كل مستأجر)
+- [x] COGS (تكلفة المنتج) ✅ **مكتمل — July 3, 2026**: `GET /reports/cogs` — إجمالي تكلفة المبيعات من `stock_movements` (`movement_type='sale'`، مصدر بيانات حقيقي الآن بعد إصلاح §64)، هامش ربح إجمالي، أعلى 10 أصناف تكلفة. **يتضمن `coverage_note` صريح بالرد نفسه**: COGS يعكس فقط العناصر المُتتبَّعة بمخزون مُعدّ فعليًا، بينما الإيراد يشمل كل المبيعات — فالهامش قد يبدو أعلى من الحقيقي حتى يُفعَّل تتبع المخزون بالكامل لكل عناصر المستأجر. اختُبر فعليًا: التكلفة الإجمالية طابقت تمامًا الكمية المباعة × التكلفة الفعلية
 - [ ] Recipe / BOM (وصفات للمطاعم والكافيهات) — لم يُبنَ؛ **لا تخلطه مع Phase 13 (Production/Manufacturing)** أدناه — ذاك نطاق أوسع لمصانع حقيقية، هذا بند مختلف وأصغر لوصفات مطاعم بسيطة، لم يُقرَّر تنفيذه بعد
 
 ### 10E — الموردين والمشتريات ✅ مكتمل بالكامل
@@ -381,56 +382,67 @@
 - [x] استلام البضاعة (Goods Receipts، شامل استلام جزئي) → تحديث المخزون تلقائياً عبر RPC ذرّية
 - Frontend: صفحات أوامر الشراء + تفاصيل الاستلام + تحسينات ملف المورد — كلها منشورة
 
-### 10F — الطاولات والطلبات (مطاعم/كافيهات)
-- [ ] جدول `tables`
-- [ ] جدول `table_orders`
-- [ ] API: إدارة الطاولات
-- [ ] API: طلبات per طاولة
-- [ ] Kitchen Display System (KDS)
-- [ ] حجز طاولة مسبقاً
-- [ ] Waitlist
+### 10F — الطاولات والطلبات (مطاعم/كافيهات) ✅ مكتمل (backend) — July 3, 2026
+- [x] جدول `tables` — مع status (available/occupied/reserved/cleaning)، unique index (tenant+branch+name)
+- [x] **قرار تصميم بدل `table_orders` منفصل**: أُعيد استخدام جدولي `orders`/`order_items` الموجودين (عمود جديد `orders.table_id` + حالة `'pending'` كانت موجودة بالـCHECK constraint منذ البداية لكن غير مستخدَمة) بدل بناء كيان موازٍ بالكامل — طلب الطاولة المفتوح **هو** فعليًا Order يبقى مفتوحًا عبر عدة جولات إضافة قبل التحصيل النهائي، فأعاد استخدام محرك POS/الدفع/خصم المخزون الموجود بالكامل بدل تكراره
+- [x] API: إدارة الطاولات — `GET/POST/PATCH/DELETE /tables` (409 عند تكرار الاسم بنفس الفرع، يمنع حذف طاولة مشغولة)
+- [x] API: طلبات per طاولة — `POST /tables/:id/open`، `POST /tables/:id/items` (إضافة جولة، يعيد حساب subtotal/tax/total كاملًا كل مرة)، `GET /tables/:id/order`، `POST /tables/:id/checkout` (نفس تحقق الدفع كالفواتير العادية، يحرّر الطاولة، يشغّل نفس خصم المخزون best-effort من إصلاح §64)
+- [x] Kitchen Display System (KDS) — عمود جديد `order_items.kitchen_status` (pending/preparing/ready/served)، `GET /kitchen/orders` (كل الطلبات المفتوحة + عناصرها)، `PATCH /kitchen/items/:id`
+- [x] حجز طاولة مسبقاً — جدول `table_reservations` كامل (CRUD)، تحديد حالة "seated" يشغل الطاولة تلقائيًا
+- [x] Waitlist — جدول `waitlist_entries`، إنشاء/إلغاء/تعيين طاولة (يتحقق أن الطاولة متاحة فعليًا قبل القبول)
+- صلاحيتان جديدتان: `tables.manage` (owner/manager/cashier)، `kitchen.manage` (owner/manager/cashier/worker — العامل بالمطبخ قد يكون بدور worker)
+- اختُبر end-to-end بتدفق حقيقي كامل: إنشاء طاولة (+409 عند التكرار)، فتح، جولتا إضافة عناصر (تراكم صحيح تمامًا: 75/11.25/86.25)، KDS يعرض الطلب الحي، تغيير حالة العناصر (+رفض حالة غير صالحة)، تحصيل (خصم مخزون مؤكَّد فعليًا، الطاولة تتحرر)، منع حذف طاولة مشغولة، منع حجز/waitlist لطاولة مشغولة، رفض مرجع طاولة عابر للمستأجرين
+- **لا واجهة frontend بعد** لأي جزء — API فقط، نفس نمط باقي دفعات هذه الجلسة
 
-### 10G — برنامج الولاء والتسويق
-- [ ] Loyalty Points (تجميع + استرداد)
-- [ ] Loyalty Tiers
-- [ ] بطاقات هدايا (Gift Cards)
-- [ ] كوبونات وعروض (موجود جزئياً — مراجعة)
+### 10G — برنامج الولاء والتسويق (جزئي — Loyalty Points فقط، July 3, 2026)
+- [x] Loyalty Points (تجميع + استرداد) — `LoyaltyService` (core/loyalty) جديد + migration 041 (`loyalty_points_per_currency`/`loyalty_redemption_value` على tenants + RPC ذرّي `fn_adjust_loyalty_points` لمنع race condition عند استرداد متزامن). مربوط بـ`InvoicesService.create()`: `redeem_points` اختياري بـ`CreateInvoiceDto` يُطبَّق كخصم (يُتحقق من الرصيد، يُدمَج مع أي خصم يدوي)، والنقاط تُكتسَب على المبلغ **بعد** أي استرداد (لمنع "إعادة تدوير" النقاط). الإعدادات مكشوفة عبر نفس `PATCH /tenant/profile` من 10L. عمود `customers.loyalty_points` كان موجودًا من البداية لكن يبقى صفرًا دائمًا (لا كود كان يحدّثه) — الآن يعكس تراكمًا حقيقيًا. اختُبر end-to-end فعليًا (حساب النقاط/الخصم/الرصيد المتبقي مطابق للحساب اليدوي، رفض استرداد أكبر من الرصيد، رفض بلا customer_id). **لا واجهة استرداد بالـPOS بعد** — القدرة موجودة بالـAPI فقط، عرض النقاط بصفحة العملاء موجود مسبقًا ويعمل الآن بأرقام حقيقية
+- [ ] Loyalty Tiers — لم يُبنَ
+- [ ] بطاقات هدايا (Gift Cards) — لم يُبنَ
+- [ ] كوبونات وعروض — لا جدول `coupons` موجود إطلاقًا (موثَّق كفجوة معروفة بـmigration 001 منذ البداية: "coupons table: pending Phase D") — لم يُبنَ أي كود له بعد رغم ذِكره سابقًا كـ"موجود جزئيًا"، هذا غير دقيق — `DiscountEngine` الموجود دوال حساب خصم يدوي عامة فقط، لا علاقة له بكوبونات
 
-### 10H — الموارد البشرية
-- [ ] حضور وغياب
-- [ ] جدولة الموظفين
-- [ ] عمولات مبيعات للموظفين
+### 10H — الموارد البشرية ✅ مكتمل — July 3, 2026
+- [x] حضور وغياب — `POST /attendance/check-in`/`check-out` (سجل واحد مفتوح لكل مستخدم، محمي بـunique index بمستوى قاعدة البيانات + منطق بمستوى الخدمة)، `GET /attendance/me` (سجل خاص، متاح لكل الأدوار)، `GET /attendance` (الكل، صلاحية جديدة `attendance.view.all` لـowner/manager فقط)
+- [x] جدولة الموظفين — CRUD كامل لـ`work_schedules` (تاريخ + وقت بداية/نهاية لكل موظف/فرع)، صلاحية جديدة `hr.manage` (owner/manager فقط)، تحقق أمني: `user_id`/`branch_id` يجب أن يخصّا نفس المستأجر (نفس نمط تحقق المستودع بـ§64) — اختُبر: محاولة جدولة لمستخدم مستأجر آخر → 400
+- [x] عمولات مبيعات للموظفين — `users.commission_rate` (كسر 0-1، نفس اصطلاح `tax_rate`، اختياري/`null` افتراضيًا = لا عمولة)، قابل للتعديل عبر `PATCH /users/:id` الموجود، ومربوط بتقرير الموظفين (`GET /reports/employees` من 10I) بحقلي `commission_rate`/`commission_earned` — اختُبر: حساب العمولة مطابق تمامًا (2,876,081.52 × 0.05 = 143,804.08)
+- اختُبرت كل السيناريوهات فعليًا: دورة حضور/انصراف كاملة (رفض check-in مزدوج 400، رفض check-out بلا سجل مفتوح 404)، تطبيق الصلاحيات (403 لدور cashier على endpoints الإدارية)، رفض مرجع عابر للمستأجرين
+- **ملاحظة تشغيلية مهمة**: أثناء الاختبار، صلاحيات owner الجديدة (`hr.manage`/`attendance.view.all`) ظهرت مرفوضة رغم صحة السجل بقاعدة البيانات — السبب: cache صلاحيات بـRedis (`permissions:role:*`, مدة 10 دقائق) **يبقى محفوظًا عبر إعادة تشغيل السيرفر** (لأنه بـRedis منفصل لا بذاكرة العملية) من تشغيل سابق قبل إضافة الصلاحيات الجديدة — الحل: تفريغ المفاتيح يدويًا (`redis-cli DEL permissions:role:*`) بعد أي `npm run seed:permissions` أثناء التطوير المحلي. **لا واجهة frontend بعد** لأي من الثلاثة — API فقط حاليًا
 
-### 10I — التقارير المتقدمة
-- [ ] تقارير مبيعات حسب طريقة الدفع (نقد/Mada/Visa/Mastercard/STC Pay/Apple Pay/Split/Tab)
-- [ ] تقارير المخزون
-- [ ] تقارير الموظفين
-- [ ] تقارير العملاء
-- [ ] تقارير ضريبية (ZATCA)
-- [ ] تصدير Excel/PDF
+### 10I — التقارير المتقدمة ✅ مكتمل — July 3, 2026
+- [x] تقارير مبيعات حسب طريقة الدفع — كانت مبنية فعليًا بتقرير `/reports/revenue` (`by_payment_method` ديناميكي منذ 10B)، لكن اكتُشف باغ حقيقي بتقرير `/reports/payments` المنفصل: كان يتعرّف فقط على `'cash'/'card'/'split'` حرفيًا، فتُستبعَد طلبات mada/visa/mastercard/stc_pay/apple_pay/tab من كل الحاويات (لكنها تبقى بـ`grand_total`). أُصلح: تجميع card-network (card/mada/visa/mastercard) وwallet (wallet/stc_pay/apple_pay) بحاويات صحيحة + إضافة `by_method` بتفصيل كل قيمة فعلية
+- [x] تقارير المخزون — `GET /reports/inventory` (جديد) — قيمة إجمالية + عدد نواقص/نفاد + أعلى 10 أصناف قيمة، بإعادة استخدام `fn_inventory_stock_levels_enriched` الموجودة
+- [x] تقارير الموظفين — `GET /reports/employees` (جديد) — أداء كل كاشير (عدد طلبات/إجمالي مبيعات/متوسط الفاتورة)
+- [x] تقارير العملاء — `GET /reports/customers` (جديد) — ترتيب العملاء حسب الإنفاق
+- [x] تقارير ضريبية — `GET /reports/tax` (جديد) — ملخص ضريبة محصَّلة/إجمالي قبل الضريبة، بتفصيل يومي. **ملاحظة نطاق**: هذا ملخص VAT بسيط فقط وليس امتثال ZATCA الكامل (فوترة إلكترونية/QR/XML) — ذاك يبقى ضمن 10K كما هو (لم يُبنَ بعد)
+- [x] تصدير Excel — أُضيف دعم `?format=excel` لكل التقارير الأربعة الجديدة (نمط مطابق للتقارير الموجودة)
+- اختُبر فعليًا على سيرفر محلي: كل endpoint يرجع بيانات صحيحة + تصدير xlsx صالح (بما فيها بيانات فارغة) + 403 لدور بلا `reports.view.branch`
+- Frontend: أقسام "أداء الموظفين" و"ملخص الضريبة" أُضيفت لصفحة التقارير الرئيسية؛ تقارير العملاء/المخزون موصولة على مستوى الـAPI فقط (المخزون له لوحة تحكم مخصصة بالفعل منذ §55)
 
-### 10J — Dashboard تحليلي متقدم
-- [ ] KPIs متقدمة (AOV / Conversion / Churn)
-- [ ] مقارنات فترة vs فترة
-- [ ] مقارنات فرع vs فرع
-- [ ] Drill-down تفاصيل
+### 10J — Dashboard تحليلي متقدم (جزئي — backend فقط، July 3, 2026)
+- [x] AOV — كان موجودًا بالفعل بـ`/reports/revenue` (`avg_order_value`)؛ Churn — `GET /reports/customer-churn` (جديد): عملاء اشتروا بالفترة السابقة لكن لا بالحالية + نسبة churn. "Conversion" لم يُبنَ — لا يوجد تتبّع زوار/عملاء محتملين (leads/traffic) بالمشروع أصلًا لحساب معدّل تحويل حقيقي عليه (مقاس SaaS كلاسيكي بلا مصدر بيانات مناظر هنا)
+- [x] مقارنات فترة vs فترة — `GET /reports/comparison` (جديد): الفترة الحالية مقابل فترة سابقة بنفس الطول (إيراد/طلبات/AOV + نسبة تغيّر). نسبة التغيّر من قاعدة صفرية تُرجَع `null` (غير 0 أو Infinity) لأن النمو غير معرَّف رياضيًا بهذه الحالة
+- [x] مقارنات فرع vs فرع — `GET /reports/by-branch` (جديد): تفصيل الإيراد/الطلبات/AOV لكل فرع، محمي بصلاحية `reports.view.all` (أعلى من `reports.view.branch` العادية لأنه يتخطى حدود الفرع) — اختُبر: مدير (عنده branch فقط) → 403 صح
+- [ ] Drill-down تفاصيل — لم يُبنَ (ميزة UX تفاعلية بالفرونت إند بالأساس، تحتاج تصميم واجهة مخصص)
+- اختُبرت كل الـendpoints فعليًا على سيرفر محلي. **لا واجهة frontend بعد** — الثلاثة API فقط حتى الآن (نفس نطاق دفعة 10I للعملاء/المخزون)
 
-### 10K — المالية والضرائب
-- [ ] VAT إعداد per tenant
-- [ ] عملات متعددة
-- [ ] تسوية يومية
-- [ ] ZATCA فوترة إلكترونية
+### 10K — المالية والضرائب (جزئي — July 3, 2026)
+- [x] VAT إعداد per tenant — كان مكتملًا بالفعل من قبل (لم يُوسَم هنا سابقًا سهوًا): `tenants.tax_rate` قابل للتعديل من كل مستأجر عبر `PATCH /tenant/profile` (راجع 10L/§58)، ويُطبَّق فعليًا بكل فاتورة POS
+- [x] عملات متعددة — كان مكتملًا بالفعل من قبل (نفس الملاحظة): `tenants.currency_code`/`currency_symbol` قابلان للاختيار من 8 عملات بصفحة الإعدادات (SAR/USD/EUR/AED/KWD/BHD/QAR/OMR) — **ملاحظة نطاق**: هذا يعني كل مستأجر يعمل بعملة واحدة يختارها، **ليس** دعم تعدد عملات داخل نفس الفاتورة/المستأجر (تحويل عملات لحظي) — لم يُطلَب هذا النطاق الأوسع أصلًا
+- [x] تسوية يومية — `GET /reports/daily-reconciliation?date=YYYY-MM-DD` (جديد): يجمّع مبيعات اليوم (حسب طريقة الدفع) + مصروفات معتمدة + أرقام كاش الشيفتات المغلقة (يُعيد استخدام `expected_cash`/`discrepancy` المحسوبة بالفعل بشكل صحيح لكل شيفت بدل إعادة حساب منطق الكاش من الصفر). اختُبر فعليًا بيومين مختلفين ببيانات حقيقية — الأرقام مطابقة تمامًا
+- [ ] ZATCA فوترة إلكترونية — لم يُبنَ (مؤجَّل عمدًا، نطاق كبير مستقل: توقيع رقمي/XML/QR/تكامل هيئة الزكاة والضريبة — يبقى بند منفصل تمامًا عن `/reports/tax` البسيط المبني بـ10I)
 
-### 10L — إعدادات المالك
-- [ ] تخصيص الفاتورة (شعار / رقم ضريبي / تذييل)
-- [ ] إعدادات الطابعة
-- [ ] إعدادات التنبيهات
+### 10L — إعدادات المالك ✅ مكتمل — July 3, 2026
+- [x] تخصيص الفاتورة (شعار / رقم ضريبي / تذييل) — `logo_url`/`tax_number` كانا موجودين بالجدول فعلاً لكن غير مكشوفين عبر الـ API؛ أُضيف `invoice_footer` (migration 040) وكُشفت الثلاثة عبر `PATCH /tenant/profile`
+- [x] إعدادات الطابعة — `printer_settings JSONB` (paper_width 58mm/80mm، auto_print، printer_name)
+- [x] إعدادات التنبيهات — `notification_preferences JSONB`، مربوطة فعليًا بـ `NotificationService.notify()` (تُسقط قناة email إن كانت معطّلة). نطاق محدود عمدًا لـ 3 أنواع فقط (`subscription_expired`/`payment_failed`/`payment_success`) — هي الوحيدة التي تُرسَل عبر email فعليًا حاليًا (تدفق dunning)؛ إشعارات expense.*/shift.*/trial_ending in-app فقط أو غير مُفعَّلة أصلاً، فلم تُعرَض كتبديل حتى لا يكون بلا أثر. اختُبر end-to-end (سكربت مباشر يستدعي `NotificationService.notify()` بقناة email+in_app، preference=false → قناة email تُسقَط فقط، preference=true → تُرسَل، نوع أمني/بدون tenant → يُرسَل دائمًا بغض النظر). Frontend: 3 أقسام جديدة بصفحة الإعدادات (تخصيص الفاتورة/الطابعة/التنبيهات). **متبقٍ**: migration 040 لم تُطبَّق على production/staging بعد (نفس ملاحظة migration 034)
+- باغان حقيقيان اكتُشفا ومُصلحا أثناء الاختبار: (1) `logo_url` بـ`@IsUrl({require_tld:false})` كان يقبل نصوصًا عشوائية غير روابط فعلية (مثل "not-a-url") كـhostname صالح — أُزيلت الخيار وأصبح التحقق صارمًا (2) `@IsEnum(['58mm','80mm'])` رسالة الخطأ فارغة (خلل تنسيق cosmetic بـclass-validator عند تمرير array بدل enum حقيقي) — استُبدل بـ`@IsIn`
 
-### 10M — إصلاح SuperAdmin Gaps
-- [ ] endpoint: قائمة subscriptions للـ superadmin
-- [ ] endpoint: إلغاء subscription
-- [ ] endpoint: manual payment
-- [ ] endpoints: Auth Control للـ superadmin
+### 10M — إصلاح SuperAdmin Gaps ✅ مكتمل — July 3, 2026
+- [x] endpoint: قائمة subscriptions للـ superadmin — `GET /superadmin/subscriptions` (فلترة status/search، joins tenant/plan name)
+- [x] endpoint: إلغاء subscription — `DELETE /superadmin/subscriptions/:id/cancel`
+- [x] endpoint: manual payment — `POST /superadmin/subscriptions/manual-payment` (يدعم `customAmount` مخصص بـ`BillingService.activateSubscription`)
+- [x] endpoints: Auth Control للـ superadmin — tenants/options، tenant users، reset-password، change-role، toggle-active، sessions (list/revoke فردي/جماعي)
+- اختُبرت كل الـendpoints فعليًا على سيرفر محلي (نجاح/400 validation/404/403 لغير superadmin/401 بلا توكن) — باغ حقيقي اكتُشف ومُصلح: `cancelSubscriptionById` كان يرجّع `success:true` حتى لو المعرف غير موجود (لا فحص count) — أُصلح ليرجع 404
+- Frontend: `subscriptions.api.ts`/`useSubscriptions.ts` وُصلا بالـendpoints الحقيقية بدل الـstubs (auth-control frontend كان جاهزًا مسبقًا بنفس المسارات تمامًا)
 
 ---
 

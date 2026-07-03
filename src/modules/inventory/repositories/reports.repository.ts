@@ -63,4 +63,13 @@ export class ReportsRepository extends ScopedRepository {
     if (error) throw error;
     return data;
   }
+
+  async batchesExpiringSoon(tenantId: string, daysAhead = 30) {
+    const { data, error } = await this.supabase.rpc('fn_batches_expiring_soon', {
+      p_tenant_id: tenantId,
+      p_days_ahead: daysAhead,
+    });
+    if (error) throw error;
+    return data;
+  }
 }

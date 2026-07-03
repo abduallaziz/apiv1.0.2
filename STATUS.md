@@ -470,15 +470,15 @@ Total Migrations: 32 (001–032، تسلسل متصل بلا فجوات — را
 | المقياس | القيمة |
 |---|---|
 | Backend Modules | 42+ (Inventory + Purchasing مضافة) |
-| Database Tables | 40+ (Inventory/Purchasing/Locations مضافة) |
-| API Endpoints | 96+ |
+| Database Tables | 49 (عدّ مباشر لـ `CREATE TABLE` عبر كل الـmigrations 001–038، تحقق بتاريخ 2026-07-03) |
+| API Endpoints | 199 (عدّ مباشر لـ `@Get`/`@Post`/`@Patch`/`@Put`/`@Delete` عبر كل الـcontrollers، تحقق بتاريخ 2026-07-03 — رقم لحظي، بيزيد مع كل endpoint جديد، مش هدف ثابت) |
 | Schema Mismatches Fixed | 28/28 ✅ |
 | Core Domains | 8 (+ Inventory + Purchasing) |
-| Database Migrations | 32 (001–032، راجع §50) |
+| Database Migrations | 38 (001–038) |
 | Inventory/Purchasing Core | ✅ مكتمل ومنشور بالكامل — راجع §50 |
 | Payment Providers | 2 (Stripe + Mock) |
 | Queue Infrastructure | BullMQ + Redis |
-| Queue Processors | 3 (Dunning + AuditCleanup + Notification) |
+| Queue Processors | 6 (Dunning + AuditCleanup + Notification + AI + PlatformAnalytics + Outbox/domain-events) |
 | Notification Channels | 2 (Email + InApp) — Dynamic Registry |
 | i18n Locales | 2 (ar + en) |
 | Logging | Winston — Structured JSON — AsyncLocalStorage context |
@@ -488,11 +488,11 @@ Total Migrations: 32 (001–032، تسلسل متصل بلا فجوات — را
 | Deployment | Railway (API) + Vercel (Web) — auto-deploy on git push |
 | CI/CD | GitHub Actions — TypeScript build check — passing ✅ |
 | Database Migrations Runner | Custom Runner — Supabase Management API — schema_migrations table ✅ |
-| Staging Environment | Railway sefay-api-staging — branch staging — Online ✅ |
+| Staging Environment | محذوفة جزئياً — فرع `staging` وworkflow الخاص بيه على GitHub اتحذفوا (commit `aec829c`)، لكن خدمة `sefay-api-staging-production` على Railway لسه موجودة، بانتظار حذف يدوي من لوحة Railway (راجع TASKS.md) |
 | Security Headers | Helmet — 10 headers مفعّلة — مختبرة على production ✅ |
 | Deployment Targets | 3 (Railway + Vercel + App Stores) |
-| Supported Roles | 5 (superadmin, owner, manager, cashier, worker) |
-| Permissions | 30 |
+| Supported Roles | 6 (superadmin, owner, manager, inventory_clerk, cashier, worker) |
+| Permissions | 50 |
 | Frontend Modules Wired | 7/7 (Auth, Customers, Shifts, Expenses, Orders, Items, SuperAdmin) ✅ |
 | Currency Support | 8 عملات (SAR/USD/EUR/AED/KWD/BHD/QAR/OMR) |
 
@@ -918,7 +918,9 @@ Total Migrations: 32 (001–032، تسلسل متصل بلا فجوات — را
 | 🟠 عالٍ | 16 ✅ |
 | 🟡 متوسط | 6 ✅ |
 | 🟢 منخفض | 5 ✅ |
-# 22. DESIGN & PROTOTYPING SESSION — June 22, 2026
+# 22B. DESIGN & PROTOTYPING SESSION — June 22, 2026
+
+*(Renumbered from a duplicate "# 22." heading — this section and the "SECURITY & BUG REMEDIATION SESSION" section above it were both accidentally numbered 22. Content unchanged; only the section number was disambiguated, per this file's own rule against altering historical text.)*
 
 ## ما تم إنجازه
 
@@ -2243,3 +2245,277 @@ STORAGE_DRIVER=s3
 
 ## الحالة النهائية لهذا القسم
 وثيقة تخطيط فقط، بدون أي تنفيذ. يُحدَّث هذا القسم (لا يُحذف ولا يُستبدل) عند بدء التنفيذ الفعلي مستقبلًا، مع الإشارة الصريحة لهذا القسم كأساس التصميم المتفَق عليه.
+
+---
+
+# 57. Phase 10M — إصلاح SuperAdmin Gaps — يوليو 3, 2026
+
+## السياق
+آخر بند متبقٍ بـPhase 10 قبل البدء بميزات V1 الأكبر (10D–10L): 4 endpoints مفقودة فعليًا من الـbackend كانت الواجهة الأمامية (`web/src/features/superadmin/subscriptions` و`auth-control`) تتوقعها بالفعل (stubs ترجع "no endpoint available").
+
+## التنفيذ (apiv1.0.2 — commit `dd37bcc`)
+- `BillingService.activateSubscription()`: إضافة معامل `customAmount` اختياري (للدفعات اليدوية بمبلغ مخصّص من السوبر أدمن) + دالة جديدة `cancelSubscriptionById(subscriptionId)` لإلغاء اشتراك عبر معرفه مباشرة (مسار سوبر أدمن، عابر للمستأجرين).
+- `SuperAdminSubscriptionsService`/`SuperAdminSubscriptionsController` (`/superadmin/subscriptions`): `GET` (فلترة status/search + joins tenant/plan name)، `POST manual-payment`، `DELETE :id/cancel`.
+- `AuthControlService`/`AuthControlController`: `GET tenants/options`، `GET tenants/:tenantId/users`، `PATCH users/:id/reset-password` (bcrypt cost 12)، `PATCH users/:id/role`، `PATCH users/:id/active`، `PATCH users/:id/revoke-sessions`، `GET sessions`، `PATCH sessions/:id/revoke`.
+- `superadmin.controller.ts`: أُضيف `GET tenants/options` **قبل** `GET tenants/:id` (قاعدة NestJS: المسارات الثابتة يجب تسجيلها قبل المسارات الديناميكية `:id` وإلا يُبتلَع segment "options" كقيمة `:id`).
+- 4 DTOs جديدة (`ManualPaymentDto`/`ResetPasswordDto`/`ChangeRoleDto`/`ToggleActiveDto`) — `ChangeRoleDto` تستبعد عمدًا دور `superadmin` من القيم المسموحة (لا يمكن ترقية أحد لسوبر أدمن عبر هذا الـendpoint العام)، مطابقة تمامًا لنفس القيد بالفرونت إند.
+
+## التحقق (سيرفر محلي حقيقي — Supabase local stack + Redis)
+اختُبرت كل الـendpoints فعليًا (`curl` مباشر، JWT موقّع محليًا بنفس `JWT_SECRET`): نجاح 200/201 مع بيانات حقيقية (joins صحيحة)، validation 400 (قيم غير صالحة)، 404 (معرف غير موجود)، 403 (دور owner يحاول الوصول)، 401 (بلا توكن).
+
+**باغ حقيقي اكتُشف ومُصلح أثناء الاختبار**: `cancelSubscriptionById` كان يرجّع `{success:true}` حتى عند تمرير معرف اشتراك غير موجود إطلاقًا (لا فحص `count` بعد `.update()`). أُصلح بإضافة `{count:'exact'}` + `NotFoundException` إن كان `count` صفرًا (نفس نمط `AuthControlService` الموجود مسبقًا) — أُعيد الاختبار وتأكّد إرجاع 404 صح.
+
+## Frontend (sefayv1.0.2 — commit `8b32010`)
+`subscriptions.api.ts`/`useSubscriptions.ts`: استُبدلت الـstubs التي كانت ترفض بـ`Promise.reject` بنداءات API حقيقية. ملفات `auth-control` الأمامية كانت جاهزة مسبقًا بنفس المسارات تمامًا — لم تحتج أي تعديل.
+
+## الحالة النهائية
+Phase 10M مكتمل بالكامل. مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد).
+
+---
+
+# 58. Phase 10L — إعدادات المالك (Owner Settings) — يوليو 3, 2026
+
+## السياق
+بند من Phase 10 الجديدة: تخصيص الفاتورة (شعار/رقم ضريبي/تذييل)، إعدادات الطابعة، إعدادات التنبيهات — لم يكن أي منها مبنيًا لا بالـbackend ولا بالـfrontend (لا حتى stubs، بخلاف بند 10M أعلاه).
+
+## التنفيذ (apiv1.0.2 — commit `4e62fc5`)
+- اكتُشف أن `logo_url` و`tax_number` كانا **موجودين فعليًا** بجدول `tenants` منذ البداية لكن غير مكشوفين إطلاقًا عبر أي endpoint — أُضيفا لأول مرة لـ`TenantsRepository`/`UpdateTenantProfileDto`.
+- migration 040: إضافة `invoice_footer TEXT`، `printer_settings JSONB DEFAULT '{}'`، `notification_preferences JSONB DEFAULT '{}'` لجدول `tenants` (الوحيدة الجديدة فعليًا بهذا البند).
+- `NotificationService.notify()`: أصبحت تتحقق من تفضيل المستأجر قبل إرسال قناة email (دالة خاصة `isEmailEnabled()` تقرأ `tenants.notification_preferences`) — قناة in_app والأنواع الأمنية (login/session) غير متأثرة، تُرسَل دائمًا بغض النظر عن التفضيل.
+- **قرار نطاق مهم**: `NotificationPreferencesDto`/`NOTIFICATION_PREFERENCE_KEYS` تغطي فقط 3 أنواع (`subscription_expired`/`payment_failed`/`payment_success`) — هي الوحيدة التي تُرسَل عبر email فعليًا اليوم (تدفق `dunning.service.ts`). تحقّقتُ من كل استدعاءات `notify()` بالمشروع: إشعارات `expense.requested/approved/rejected`/`shift.opened/closed` تُرسَل `IN_APP` فقط بلا email على الإطلاق، و`trial_ending` معرَّف بالكود لكن **لا يوجد أي استدعاء فعلي له بأي مكان** (نوع ميت). عرض تبديل (toggle) لهذه الأنواع بواجهة المستخدم كان سيكون ميزة نصف-منفَّذة (تبدو تعمل لكن بلا أي أثر ملحوظ) — استُبعدت عمدًا حتى يُربَط email فعليًا بتلك المسارات مستقبلًا.
+
+## التحقق
+- اختُبر `PATCH /tenant/profile` فعليًا (سيرفر محلي): كل الحقول الجديدة تُحفَظ وتُقرأ صح (بما فيها نص عربي بالتذييل — تأكّد أن العرض المشوَّه بأول محاولة كان مجرد artifact ترميز بالـshell، لا باغ حقيقي، عبر إعادة الإرسال بملف UTF-8 مباشر).
+- اختُبر منطق تصفية email فعليًا (سكربت مباشر يستدعي `NotificationService.notify()` بـmock queue): `preference=false` → قناة `email` تُسقَط (`notify.in_app` فقط)، `preference=true` → كلتا القناتين تُرسَلان، نوع أمني بلا tenant (`login.new_device`) → يُرسَل دائمًا بغض النظر عن أي تفضيل (كما هو مصمَّم).
+- **باغان حقيقيان اكتُشفا ومُصلحا أثناء الاختبار**:
+  1. `logo_url` بخيار `@IsUrl({require_tld:false})` كان يقبل نصوصًا عشوائية مثل `"not-a-url"` كرابط صالح (لأن `require_tld:false` تجعل أي نص يشبه hostname بدون نقطة يمر كـhost صالح). أُصلح بإزالة الخيار (`@IsUrl()` الافتراضي أكثر صرامة، مناسب لأن الاستخدام الفعلي المتوقع روابط CDN/Supabase Storage حقيقية دائمًا).
+  2. `@IsEnum(['58mm','80mm'])` كانت رسالة الخطأ فارغة بعد "values:" — خلل تنسيق (cosmetic) بـclass-validator عند تمرير array حرفي بدل enum حقيقي (لا يؤثر على صحة الرفض، فقط وضوح الرسالة). استُبدل بـ`@IsIn(['58mm','80mm'])` (نفس نمط مستخدَم بالفعل بـ`ChangeRoleDto`).
+
+## Frontend (sefayv1.0.2 — commit `0a4033e`)
+3 أقسام جديدة بصفحة الإعدادات: تخصيص الفاتورة (شعار/رقم ضريبي/تذييل)، إعدادات الطابعة (عرض ورق 58mm/80mm + طباعة تلقائية)، إعدادات التنبيهات (3 تبديلات فقط، مطابقة لنطاق الـbackend). ترجمات ar/en مضافة بـ`messages/*/settings.json`.
+
+## الحالة النهائية
+Phase 10L مكتمل بالكامل. مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد). **متبقٍ**: migration 040 لم تُطبَّق على production/staging بعد (نفس ملاحظة migration 034 بـ§52).
+
+---
+
+# 59. Phase 10I — التقارير المتقدمة — يوليو 3, 2026
+
+## السياق
+بند من Phase 10: تقارير حسب طريقة الدفع، المخزون، الموظفين، العملاء، ضريبية (ZATCA)، وتصدير Excel/PDF.
+
+## التنفيذ (apiv1.0.2 — commit `f2ca947`)
+- 4 endpoints جديدة بـ`ReportsController`/`ReportsService`: `GET /reports/employees`، `/reports/customers`، `/reports/tax`، `/reports/inventory` (الأخير يعيد استخدام `fn_inventory_stock_levels_enriched` الموجودة من migration 033 بدل بناء منطق مكرر).
+- **باغ حقيقي اكتُشف ومُصلح**: `getPaymentsReport()` (endpoint موجود مسبقًا، `/reports/payments`) كان يتعرّف فقط على قيم `payment_method` الحرفية `'cash'`/`'card'`/`'split'` — أي طلب بقيمة `mada`/`visa`/`mastercard`/`stc_pay`/`apple_pay`/`tab` (قيم صالحة فعليًا منذ migration 006) كان يُستبعَد من كل الحاويات الثلاث بصمت (يبقى محسوبًا فقط بـ`grand_total`/`total_orders`). أُصلح بتجميع صحيح: `card` = card/mada/visa/mastercard، `wallet` = wallet/stc_pay/apple_pay، مع إضافة `by_method` لتفصيل كل قيمة فعلية على حِدة (تقرير `/reports/revenue` المنفصل لم يكن متأثرًا — `by_payment_method` فيه كان يتجمّع ديناميكيًا بالفعل منذ 10B).
+- تصدير Excel (`?format=excel`) أُضيف لكل الـ4 endpoints الجديدة، بنفس نمط `exportToExcel()` الموجود.
+- **قرار نطاق**: تقرير `/reports/tax` ملخص VAT بسيط (ضريبة محصَّلة + تفصيل يومي) فقط — **ليس** امتثال ZATCA الكامل (فوترة إلكترونية/QR/XML/توقيع رقمي)، ذاك يبقى منفصلًا ضمن Phase 10K (لم يبدأ).
+
+## التحقق (سيرفر محلي حقيقي)
+اختُبرت الـ4 endpoints الجديدة + إصلاح `/reports/payments` فعليًا: بيانات صحيحة (تحقّق حسابي: subtotal+tax=total متطابق مع بيانات seed حقيقية، وإن كانت نِسَب الضريبة بالبيانات التجريبية نفسها غير واقعية من اختبارات تحميل سابقة — ليس باغ بالكود)، تصدير Excel صالح (~6KB) حتى لمجموعات بيانات فارغة، و403 صحيح لدور cashier بلا صلاحية `reports.view.branch`.
+
+## Frontend (sefayv1.0.2 — commit `8140434`)
+أُضيفت أقسام "أداء الموظفين" و"ملخص الضريبة" لصفحة التقارير الرئيسية (`ReportsPage.tsx`). تقارير العملاء/المخزون موصولة بـ`reports.api.ts`/`useReports.ts` (types + hooks) لكن بدون واجهة عرض مخصصة بهذه الصفحة بعد — المخزون له لوحة تحكم مخصصة أصلًا (§55)، والعملاء أولوية أقل مقارنة بأداء الموظفين والضريبة.
+
+## الحالة النهائية
+Phase 10I مكتمل (بالنطاق الموصوف أعلاه). مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد). لا migrations جديدة بهذا البند.
+
+---
+
+# 60. Phase 10G (جزئي) — Loyalty Points — يوليو 3, 2026
+
+## السياق
+بند من Phase 10: برنامج الولاء والتسويق (Loyalty Points + Tiers + Gift Cards + Coupons). عمود `customers.loyalty_points` كان موجودًا بالجدول منذ البداية (يُهيَّأ بصفر عند إنشاء عميل) لكن لا كود بالمشروع كان يحدّثه إطلاقًا — تحقق: بحث شامل عن `loyalty_points` بكل الكود أرجع فقط `customers.repository.ts` (القراءة/التهيئة، لا تحديث).
+
+## التنفيذ (apiv1.0.2 — commit `0addc51`)
+- migration 041: `tenants.loyalty_points_per_currency` (افتراضي 1)، `tenants.loyalty_redemption_value` (افتراضي 0.01)، ودالة RPC ذرّية `fn_adjust_loyalty_points(customer_id, delta)` — تُرجع الرصيد الجديد أو لا صف إطلاقًا إن كان التعديل سيجعل الرصيد سالبًا (يُستخدَم هذا لاكتشاف "رصيد غير كافٍ" بدون race condition بين قراءة الرصيد وتحديثه).
+- `LoyaltyService` جديد (`core/loyalty`): `getSettings()`، `calculatePointsEarned()`، `calculateRedemptionValue()`، `awardPoints()` (best-effort، لا يوقف البيع لو فشل)، `redeemPoints()` (يرمي استثناء لو الرصيد غير كافٍ)، `getBalance()`.
+- `InvoicesService.create()`: عند وجود `redeem_points` بالطلب — تحقّق من `customer_id` موجود، تحقّق من الرصيد الحالي كافٍ، احسب قيمة الخصم، ادمجه مع أي خصم يدوي (`DiscountDto`) بحدّ أقصى لا يتجاوز الـsubtotal، أعِد حساب الضريبة/الإجمالي يدويًا (باستخدام دوال `PosEngine` العامة الموجودة أصلًا `applyTax`/`calculateTotal` بدل تعديل الـengine نفسه). بعد إنشاء الفاتورة بنجاح: خصم النقاط فعليًا (RPC ذرّي)، ثم منح نقاط جديدة على المبلغ **النهائي المدفوع** (بعد أي استرداد) — قرار متعمّد لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط قديمة بلا قيمة حقيقية مضافة).
+- إعدادات الولاء (`loyalty_points_per_currency`/`loyalty_redemption_value`) أُضيفت لنفس `UpdateTenantProfileDto`/`PATCH /tenant/profile` من §58 (10L) — إعادة استخدام لنفس نمط "إعدادات المالك" بدل بناء endpoint منفصل.
+
+## التحقق (سيرفر محلي حقيقي)
+اختُبر end-to-end فعليًا: عميل اختباري برصيد 50 نقطة → فاتورة 34.5 ريال بلا استرداد → الرصيد أصبح 84 (50 + floor(34.5×1) = 84 ✅) → فاتورة أخرى تسترد 20 نقطة (خصم 0.20 ريال، subtotal=15 → tax=(15-0.2)×0.15=2.22 → total=17.02 ✅ رياضيًا) → الرصيد النهائي 81 (84-20+floor(17.02×1)=81 ✅). اختُبر أيضًا: استرداد أكبر من الرصيد المتاح → 400 "Insufficient loyalty points balance"، استرداد بلا `customer_id` → 400، تحديث إعدادات الولاء عبر `PATCH /tenant/profile` (تحقق من قيمة سالبة → 400).
+
+## الحالة النهائية
+Phase 10G **جزئي عمدًا** — Loyalty Points فقط (تجميع + استرداد + إعدادات قابلة للتخصيص لكل مستأجر). **لم يُبنَ**: Loyalty Tiers، Gift Cards، Coupons (لا جدول `coupons` موجود إطلاقًا — فجوة موثَّقة منذ migration 001 الأصلية، لم تُبنَ رغم إشارة TASKS.md السابقة لها كـ"موجودة جزئيًا" بشكل غير دقيق). لا واجهة استرداد نقاط بالـPOS frontend بعد — القدرة API فقط؛ عرض النقاط بصفحة العملاء الحالية يعمل الآن بأرقام حقيقية بدل الصفر الدائم السابق. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 041 لم تُطبَّق على production/staging بعد.
+
+---
+
+# 61. Phase 10D (جزئي) — تتبع انتهاء الصلاحية + اكتشاف حرج (POS ↔ Inventory منفصلان) — يوليو 3, 2026
+
+## السياق
+أثناء العمل على بنود 10D المتبقية (باركود، انتهاء الصلاحية، COGS، Recipe/BOM)، بُنيَ تتبع انتهاء الصلاحية بنجاح (schema كان جاهزًا). لكن عند محاولة بناء تقرير COGS، اكتُشفت فجوة معمارية حقيقية وأكبر بكثير من نطاق هذا البند.
+
+## التنفيذ — تتبع انتهاء الصلاحية (apiv1.0.2 — commit `1ee4910`)
+- migration 042: RPC جديد `fn_batches_expiring_soon(tenant_id, days_ahead=30)` — يعيد batches ضمن نافذة الأيام المحدَّدة أو منتهية فعليًا، بربطها مع `stock_levels` لعرض الكمية المتبقية فقط (يستبعد batches بصفر مخزون).
+- `GET /inventory/reports/expiring-batches` (endpoint جديد) + مُضاف لـ`overview()` الموجود (نفس نمط `lowStock`/reorder points تمامًا).
+- **نفس القرار المعماري السابق لـreorder points**: تقرير/داشبورد فقط، لا تنبيه push/email تلقائي — قرار نطاق متعمّد ومتّسق مع السابقة الموثَّقة، وليس نقصًا.
+- اختُبر فعليًا (بيانات اختبار حقيقية أُنشئت يدويًا: warehouse + item_batches + stock_levels): تصنيف `expired` (تاريخ ماضٍ) / `expiring_soon` (ضمن النافذة) / استبعاد batch بصفر مخزون — كلها صحيحة، فلترة `?days_ahead=` تعمل.
+
+## ⚠️ الاكتشاف الحرج — POS لا يلمس المخزون إطلاقًا
+أثناء محاولة بناء تقرير COGS (يحتاج معرفة تكلفة كل عملية بيع)، اكتُشف أن **`InvoicesService.create()` (مسار البيع الفعلي بنقطة البيع) لا يستدعي أي دالة من موديول المخزون إطلاقًا**:
+- لا `stock_movements` يُنشَأ عند البيع — رغم أن قيمة `movement_type = 'sale'` موجودة بالـCHECK constraint منذ التصميم الأول (migration 017)، **لا كود بالمشروع بأكمله ينشئها فعليًا** (تحقّق: بحث شامل `grep` عن `'sale'` كقيمة movement_type بكل ملفات الـmigrations أرجع صفر نتائج إنشاء فعلية).
+- لا خصم من `stock_levels.quantity_on_hand` عند البيع.
+- لا استهلاك من `cost_layers` (طبقات التكلفة FIFO/متوسط مرجّح) عند البيع.
+
+**بمعنى آخر**: بيع 1000 وحدة من صنف معيّن عبر الكاشير الفعلي لا يقلّل مخزونه ولو بوحدة واحدة. موديول "Inventory Core" (موسوم ✅ مكتمل بالكامل بأعلى TASKS.md) وموديول POS/الفواتير **منفصلان تمامًا اليوم فعليًا** رغم وجود بنية بيانات كاملة تربطهما نظريًا (نفس جداول `items`/`stock_levels`).
+
+### لماذا لم يُصلَح تلقائيًا فورًا
+الأدوات الذرّية الجاهزة فعليًا للإصلاح موجودة بالكامل منذ migration 019: `fn_apply_stock_movement` (خصم مخزون + تسجيل حركة، مع حماية `INSUFFICIENT_STOCK`) و`fn_consume_cost_layers` (استهلاك FIFO/متوسط + إرجاع التكلفة الفعلية المستهلَكة). من الناحية التقنية البحتة، الوصل بسيط: استدعاء هاتين الدالتين لكل سطر فاتورة بعد إنشائها.
+
+**لكن** يوجد سؤال معماري حقيقي بلا إجابة واضحة بالكود الحالي: **أي مستودع (`warehouse_id`) يُخصَم منه عند بيع بفرع معيّن؟** `warehouses.branch_id` عمود **اختياري** (`REFERENCES branches(id) ON DELETE SET NULL`) — قد يكون فرع بلا أي مستودع مرتبط، أو مستودع غير مرتبط بأي فرع، أو نظريًا عدة مستودعات لنفس الفرع. لا يوجد افتراض "فرع واحد = مستودع واحد" مضمون بالـschema الحالي. أيضًا: هل كل عنصر يُباع مُتتبَّع بالمخزون إلزاميًا، أم اختياري حسب نوع النشاط (بعض الأنشطة الـ37 المدعومة قد لا تحتاج تتبع مخزون إطلاقًا)؟
+
+ربط هذا تلقائيًا بافتراض غير مؤكَّد يعني المخاطرة بخصم مخزون من مستودع خاطئ (أو رفض بيع صحيح بخطأ `INSUFFICIENT_STOCK` وهميًا لعدد غير معروف من المستأجرين) على **أخطر وأكثر مسار حرج بالنظام كله** — كل عملية بيع حقيقية. هذا **قرار معماري يحتاج موافقة صريحة من المستخدم قبل التنفيذ**، وليس شيئًا يصح افتراضه تلقائيًا أثناء عمل مستقل بدون إشراف مباشر — تم توثيقه هنا وبـTASKS.md 10D بدل تنفيذه بافتراضات غير مؤكَّدة.
+
+## الحالة النهائية
+تتبع انتهاء الصلاحية: مكتمل ومدفوع. COGS/Recipe-BOM: لم يُبنَيا (الأول ينتظر حل مشكلة الربط أعلاه، الثاني لم يُقرَّر تنفيذه أصلًا). الاكتشاف الحرج (POS↔Inventory) موثَّق بالكامل هنا وبTASKS.md لانتظار قرار المستخدم قبل أي محاولة ربط.
+
+---
+
+# 62. Phase 10J (جزئي) — Dashboard تحليلي متقدم — يوليو 3, 2026
+
+## السياق
+بند Phase 10: KPIs متقدمة (AOV/Conversion/Churn)، مقارنات فترة vs فترة، مقارنات فرع vs فرع، Drill-down.
+
+## التنفيذ (apiv1.0.2 — commit `55c6d96`)
+- `GET /reports/comparison` — الفترة الحالية مقابل فترة سابقة مساوية بالطول (تُحسَب تلقائيًا من `getDateRange()` الموجودة)، تُرجع إيراد/عدد طلبات/AOV لكلتا الفترتين + نسبة تغيّر لكل مقياس. نسبة التغيّر من قاعدة صفرية (previous=0) تُرجَع `null` صراحة بدل `0%` أو `Infinity%` المضلِّلَين رياضيًا.
+- `GET /reports/by-branch` — تفصيل نفس المقاييس (إيراد/طلبات/AOV/عملاء فريدون) لكل فرع على حِدة، مرتّبة تنازليًا بالإيراد. محمية بصلاحية `reports.view.all` (أعلى من `reports.view.branch` العادية بقصد — تتخطى حدود الفرع الواحد).
+- `GET /reports/customer-churn` — عدد/نسبة العملاء الذين اشتروا بالفترة السابقة لكن لم يشتروا بالفترة الحالية.
+- **AOV** كان موجودًا بالفعل ضمن `/reports/revenue` (`avg_order_value`) — لم يحتج عملًا جديدًا.
+- **"Conversion"** لم يُبنَ: هذا مقياس SaaS كلاسيكي (visitors→customers) يحتاج تتبّع زوار/عملاء محتملين (leads/traffic funnel) — لا يوجد هذا النوع من التتبّع بالمشروع أصلًا لحساب معدّل تحويل حقيقي عليه. ذُكر بالتساك الأصلي لكن لا مصدر بيانات مناظر له بنظام POS تجزئة تقليدي (بخلاف SaaS onboarding funnel المُتتبَّع فعليًا بلوحة السوبر أدمن المنفصلة).
+- **Drill-down** لم يُبنَ — ميزة تفاعلية بالفرونت إند بالأساس (نقر على KPI لعرض تفاصيله)، تحتاج تصميم واجهة مخصص، خارج نطاق عمل الـbackend وحده.
+
+## التحقق (سيرفر محلي حقيقي)
+اختُبرت الثلاث endpoints فعليًا: حساب صحيح للفترة الحالية/السابقة، `reports.view.all` يرفض دور manager (403 — يملك `reports.view.branch` فقط)، حساب churn صحيح مقابل بيانات طلبات حقيقية.
+
+## الحالة النهائية
+Phase 10J **جزئي عمدًا** (2 من 4 بنود + AOV كان جاهزًا + توضيح لماذا Conversion غير قابل للتنفيذ بمعناه المعتاد). لا واجهة frontend بعد لأي من الثلاثة الجديدة — API فقط (نفس نمط 10I). مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). لا migrations جديدة بهذا البند.
+
+---
+
+# 63. Phase 10K (جزئي) — المالية والضرائب — يوليو 3, 2026
+
+## السياق
+بند Phase 10: VAT إعداد per tenant، عملات متعددة، تسوية يومية، ZATCA فوترة إلكترونية.
+
+## اكتشاف: بندان كانا مكتملين بالفعل بدون تحديث TASKS.md
+عند المراجعة تبيّن أن **VAT إعداد per tenant** و**عملات متعددة** كانا منفَّذين بالكامل فعليًا منذ فترة (`tenants.tax_rate`/`currency_code`/`currency_symbol`، مُعرَّضان عبر `/tenant/profile`، مُستخدَمان فعليًا بكل فاتورة POS) — لكن TASKS.md لم يُحدَّث ليعكس ذلك تحت قسم 10K تحديدًا (رغم ذِكرهما ضمنيًا بأقسام أخرى كـ10L). صُحِّح السجل الآن.
+
+## التنفيذ — تسوية يومية (apiv1.0.2 — commit `70c9f60`)
+- `GET /reports/daily-reconciliation?date=YYYY-MM-DD` (افتراضي اليوم الحالي، `?branch_id=` اختياري): يجمّع لكل يوم عمل واحد عبر كل المستأجر (أو فرع واحد): إجمالي المبيعات مفصّلة حسب طريقة الدفع، عدد/مبلغ المصروفات المعتمدة، وأرقام الشيفتات المغلقة (كاش افتتاحي/إغلاق/متوقَّع/تفاوت).
+- **قرار تصميم مهم**: لا يُعاد حساب منطق تسوية الكاش من الصفر — يُجمَّع فقط `expected_cash`/`discrepancy` الجاهزة مسبقًا لكل شيفت (محسوبة بالفعل بشكل صحيح بواسطة `ShiftEngine` عند إغلاق كل شيفت) لتجنّب ازدواج/تضارب المنطق مع نظام موجود يعمل بشكل صحيح فعلًا.
+
+## التحقق
+اختُبر فعليًا بيومين مختلفين ببيانات طلبات/مصروفات حقيقية بقاعدة البيانات المحلية: مجموع مبيعات اليوم مطابق تمامًا لمجموع الفواتير الفعلية بذلك اليوم (51.52 = 34.5+17.02 من اختبار الولاء بنفس الجلسة)، تنسيق تاريخ غير صالح يُرفَض بـ400.
+
+## الحالة النهائية
+Phase 10K **جزئي عمدًا** — 3 من 4 (VAT وعملات متعددة كانا جاهزين، تسوية يومية جديدة الآن). **متبقٍ**: ZATCA فوترة إلكترونية كاملة (توقيع رقمي/XML/QR/تكامل هيئة الزكاة) — نطاق مستقل وكبير، مؤجَّل عمدًا، **لا علاقة له** بـ`/reports/tax` البسيط المبني بـPhase 10I (§59) والذي هو ملخص VAT فقط لا امتثال فوترة إلكترونية. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). لا migrations جديدة بهذا البند.
+
+---
+
+# 64. حل الاكتشاف الحرج §61 — ربط POS بالمخزون فعليًا — يوليو 3, 2026
+
+## السياق
+متابعة مباشرة لـ§61: بعد توثيق أن `InvoicesService.create()` لا يخصم المخزون إطلاقًا، عاد المستخدم بتاسك صريح لحل هذه المشكلة، مع تفويض لاتخاذ قرار معقول إن لزم. هذا القسم يوثّق القرار المتّخذ والتنفيذ الكامل.
+
+## القرار المعماري المتّخذ
+
+### 1. ربط فرع↔مستودع: عمود صريح اختياري بدل استنتاج تلقائي
+أُضيف `branches.default_warehouse_id UUID REFERENCES warehouses(id) ON DELETE SET NULL` (migration 043). **`NULL` لكل فرع موجود حاليًا افتراضيًا** — يعني الفرع لا يخصم أي مخزون عند البيع حتى يربطه المستأجر صراحة بمستودع عبر `PATCH /branches/:id`. هذا يحل الغموض (فرع بلا مستودع / مستودع بلا فرع / عدة مستودعات لفرع) بجعله **قرار المستأجر الصريح** بدل افتراض تلقائي قد يخطئ. **لا تغيير سلوك إطلاقًا** لأي تينانت حالي حتى يفعّلها بنفسه.
+
+**فحص أمني حرج أُضيف**: `BranchesService.update()` يتحقق أن `default_warehouse_id` المُرسَل يخص فعليًا نفس المستأجر (`BranchesRepository.warehouseBelongsToTenant()`) قبل قبوله — بدونه كان ممكن نظريًا لطلب خبيث ربط فرع مستأجر بمستودع مستأجر آخر (تسريب بيانات/تلاعب مخزون عبر المستأجرين). اختُبر فعليًا: محاولة ربط بمستودع مستأجر آخر → 400 "Warehouse not found"، ربط بمستودع المستأجر نفسه → 200 صح.
+
+### 2. مستوى العنصر: إعادة استخدام `items.has_inventory` الموجود
+لا حاجة لعمود جديد — `items.has_inventory` (موجود منذ migration 001 الأصلية، افتراضي `false`) يحدّد أي عنصر يشارك بالخصم. عناصر الخدمات/غير المتتبَّعة تُتخطى بصمت داخل الدالة الذرّية نفسها.
+
+### 3. تنفيذ الخصم: best-effort، لا يوقف بيعًا أبدًا
+قرار مهم: **نقص المخزون لا يمنع إتمام البيع حاليًا** — فقط يُسجَّل تحذير (`Logger.warn`). السبب: هذا أول ربط فعلي بين المسارين، ولا ضمان أن كل عنصر بـ`has_inventory=true` لدى كل مستأجر له فعليًا رصيد/طبقات تكلفة حقيقية (قد يكون العلم مفعَّلًا استباقيًا بلا إعداد مخزون فعلي بعد). منع بيع حقيقي بسبب بيانات مخزون غير مكتملة كان سيكون رجوعًا خطيرًا على أهم مسار بالنظام. **توصية متابعة**: بعد التأكد من جودة بيانات كل مستأجر يستخدم `has_inventory=true` فعليًا (كل عنصر مُعلَّم له رصيد حقيقي مُدخَل عبر استلام بضاعة)، يمكن التحول لقاعدة صارمة (رفض البيع عند نقص المخزون) — قرار منفصل لاحق، ليس الآن.
+
+## التنفيذ (apiv1.0.2 — commit `1a8bd89`)
+- migration 043: `branches.default_warehouse_id` + دالتان ذرّيتان جديدتان:
+  - `fn_process_sale_stock_deduction(tenant_id, warehouse_id, order_id, actor_id, items JSONB)`: تلف على كل سطر فاتورة، تتخطى غير المتتبَّع، تستهلك طبقات التكلفة FIFO/متوسط (`fn_consume_cost_layers` الموجودة) وتسجّل حركة `'sale'` (`fn_apply_stock_movement` الموجودة) — **الكل أو لا شيء بنداء واحد** (نفس نمط `fn_transfer_dispatch` الموجود تمامًا، معاد استخدامه لا إعادة اختراعه).
+  - `fn_reverse_sale_stock_deduction(tenant_id, order_id, actor_id)`: تعكس أي حركة `'sale'` فعلية سُجِّلت لهذا الطلب (حركة `'sale_return'` عكسية + طبقة تكلفة جديدة بنفس التكلفة المستهلَكة) — لا شيء إن لم يُخصَم أصلًا (مثلًا الفرع بلا مستودع وقت البيع).
+- `InvoicesService.create()`: بعد إنشاء الفاتورة، إن كان للفرع `default_warehouse_id`، تُستدعى دالة الخصم best-effort (`.catch()` يسجّل تحذيرًا فقط).
+- `InvoicesService.cancel()`: بعد الإلغاء، تُستدعى دالة العكس best-effort بنفس النمط.
+- `UpdateBranchDto`/`BranchesRepository`/`BranchesService`: `default_warehouse_id` قابل للتعديل عبر `PATCH /branches/:id` مع التحقق الأمني أعلاه.
+
+## التحقق (سيرفر محلي حقيقي — سيناريوهات كاملة)
+اختُبرت جميع الحالات الحرجة فعليًا:
+1. **بيع عنصر متتبَّع بفرع له مستودع**: خصم صحيح (100→95)، حركة `'sale'` مسجَّلة بتكلفة صحيحة (unit_cost=10 من طبقة التكلفة)، استهلاك طبقة التكلفة صحيح.
+2. **إلغاء نفس الفاتورة**: استرجاع كامل (95→100)، حركة `'sale_return'` مسجَّلة، طبقة تكلفة جديدة بنفس التكلفة (10) تُنشَأ.
+3. **بيع عنصر غير متتبَّع (`has_inventory=false`)**: نجاح البيع، **صفر حركات** مسجَّلة (تخطٍ صحيح).
+4. **بيع كمية أكبر من المتاح (99999 وحدة مقابل 100)**: **الفاتورة تنجح رغم ذلك** (best-effort)، تحذير مسجَّل بالـlog (`INSUFFICIENT_COST_LAYERS`)، **لا خصم جزئي** (تأكد المخزون بقي 100 تمامًا — rollback ذرّي صحيح على مستوى الدالة).
+5. **بيع بفرع بلا `default_warehouse_id`**: **صفر تأثير على المخزون** — تأكيد توافق رجعي كامل مع كل الفروع الموجودة حاليًا.
+6. **محاولة ربط فرع بمستودع مستأجر آخر**: رُفضت بـ400 "Warehouse not found" — لا تسريب عابر للمستأجرين.
+
+## الحالة النهائية
+الاكتشاف الحرج بـ§61 **حُلّ بالكامل**. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 043 لم تُطبَّق على production/staging بعد (نفس ملاحظة migrations 034/040/041/042 السابقة). **لا واجهة frontend بعد** لتعيين `default_warehouse_id` من صفحة إدارة الفروع — الإمكانية API فقط حاليًا (لم يُعثَر على feature مخصص للفروع بالفرونت إند أثناء البحث السريع؛ يحتاج تحديد مكانه الصحيح بواجهة الإعدادات لاحقًا). **توصية متابعة معمارية**: إعادة تقييم قرار "best-effort لا يوقف البيع" إلى قاعدة صارمة بعد فترة مراقبة إنتاجية.
+
+---
+
+# 65. Phase 10D — تقرير COGS — يوليو 3, 2026
+
+## السياق
+كان COGS مؤجَّلًا عمدًا سابقًا بهذه الجلسة (§61/§63) لأنه بلا مصدر بيانات حقيقي (`stock_movements.movement_type='sale'` لم يكن يُسجَّل إطلاقًا). بعد حل الاكتشاف الحرج بـ§64، أصبحت البيانات حقيقية ومتاحة.
+
+## التنفيذ (apiv1.0.2 — commit `230d04b`)
+- `GET /reports/cogs?period=...`: يجمّع `stock_movements` حيث `movement_type='sale'` بالفترة المطلوبة → إجمالي تكلفة المبيعات، أعلى 10 أصناف حسب التكلفة، ومقارنة بإجمالي إيراد نفس الفترة لحساب هامش الربح الإجمالي ونسبته.
+- **شفافية متعمّدة**: الرد يتضمّن حقل `coverage_note` صريح يوضّح أن COGS يعكس فقط العناصر المُفعَّل لها تتبع مخزون فعليًا وبِيعت بفرع له مستودع مُعدّ — بينما الإيراد المُقارَن به يشمل كل المبيعات بلا استثناء. هذا يعني الهامش المعروض قد يكون **أعلى من الحقيقي** لأي مستأجر لم يُفعِّل تتبع المخزون على كل أصنافه القابلة للبيع — تحذير صريح بدل رقم مضلِّل بصمت.
+
+## التحقق
+اختُبر فعليًا: بيع 15 وحدة إجمالًا من صنف بتكلفة 10 لكل وحدة عبر عمليتي بيع منفصلتين → `total_cogs: 150` (15×10 مطابق تمامًا)، `quantity_sold: 15` بقائمة أعلى الأصناف تكلفة.
+
+## الحالة النهائية
+Phase 10D الآن مكتمل بالكامل تقريبًا (تحويل مخزون، جرد، reorder points، locations، انتهاء صلاحية، ربط POS بالمخزون، COGS) — المتبقي فقط: باركود/ملصقات (لم يُبنَ)، Recipe/BOM (غير مقرَّر تنفيذه أصلًا). مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). لا migrations جديدة بهذا البند.
+
+---
+
+# 66. Phase 10H — الموارد البشرية (HR) — يوليو 3, 2026
+
+## السياق
+بند Phase 10: حضور وغياب، جدولة الموظفين، عمولات مبيعات — لم يكن أي منها موجودًا بالمشروع إطلاقًا (بحث شامل عن `attendance`/`commission` أرجع صفر نتائج قبل هذه الدفعة).
+
+## التنفيذ (apiv1.0.2 — commit `04db535`)
+- migration 044: جدول `attendance_records` (check_in_at/check_out_at، unique partial index يضمن سجل مفتوح واحد فقط لكل مستخدم بنفس الوقت)، جدول `work_schedules` (تاريخ/وقت بداية/نهاية لكل موظف)، عمود `users.commission_rate` (كسر 0-1، اختياري).
+- `HrModule` جديد (`modules/hr`): `AttendanceController`/`Service`/`Repository` + `SchedulesController`/`Service`/`Repository`.
+- صلاحيتان جديدتان بـ`permissions.seed.ts`: `attendance.checkin` (كل الأدوار — تسجيل حضور/انصراف/عرض سجل شخصي)، `attendance.view.all` + `hr.manage` (owner/manager فقط).
+- **تحقق أمني مطبَّق بنفس نمط §64**: إنشاء/تعديل جدول عمل يتحقق أن `user_id` و`branch_id` المُرسَلين يخصّان فعليًا نفس المستأجر قبل القبول — يمنع تسريب/ربط عابر للمستأجرين.
+- `GET /reports/employees` (من §59/10I) امتدّ ليشمل `commission_rate`/`commission_earned` محسوبة من `users.commission_rate × total_sales` لكل موظف.
+
+## التحقق (سيرفر محلي حقيقي)
+اختُبرت كل السيناريوهات: دورة حضور كاملة (check-in → منع check-in مزدوج 400 → عرض سجل شخصي → check-out → منع check-out بلا سجل مفتوح 404)، فرض الصلاحيات (403 لـcashier على `attendance.view.all`/`hr.manage`)، رفض جدولة لمستخدم مستأجر آخر (400)، حساب العمولة (2,876,081.52 × 0.05 = 143,804.08 مطابق تمامًا).
+
+## ⚠️ ملاحظة تشغيلية مهمة اكتُشفت أثناء الاختبار — cache صلاحيات Redis
+بعد إضافة الصلاحيات الجديدة وتشغيل `npm run seed:permissions`، ظل owner يُرفَض بـ403 رغم أن السجل بقاعدة البيانات صحيح تمامًا (تأكّد بالاستعلام المباشر). السبب: `PermissionsService` يخزّن صلاحيات كل دور بـRedis (`permissions:role:${role}`، TTL=600 ثانية) — **هذا الـcache محفوظ بـRedis منفصل عن عملية Node، فيبقى صالحًا حتى عبر إعادة تشغيل السيرفر بالكامل**. الحل: `docker exec redis-local redis-cli DEL permissions:role:owner permissions:role:cashier ...` بعد أي تعديل على الصلاحيات أثناء التطوير المحلي (أو الانتظار 10 دقائق). **هذه ملاحظة تشغيلية للتطوير المحلي فقط** — بالإنتاج الفعلي هذا TTL طبيعي ومقبول (10 دقائق كحد أقصى لظهور تغيير صلاحيات).
+
+## الحالة النهائية
+Phase 10H مكتمل بالكامل (بنطاق backend). **لا واجهة frontend بعد** لأي من الثلاث ميزات — API فقط، نفس نمط باقي دفعات هذه الجلسة. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 044 لم تُطبَّق على production/staging بعد.
+
+---
+
+# 67. Phase 10F — الطاولات والطلبات (Tables & Dine-In) — يوليو 3, 2026
+
+## السياق
+أكبر بند متبقٍ بـPhase 10: إدارة طاولات، طلبات لكل طاولة، Kitchen Display System، حجوزات، قائمة انتظار — لأنشطة المطاعم/الكافيهات. لم يكن أي منها موجودًا إطلاقًا قبل هذه الدفعة.
+
+## قرار تصميم رئيسي: لا `table_orders` منفصل
+الوثيقة الأصلية توقّعت جدول `table_orders` مستقل. بدلًا من ذلك، أُعيد استخدام `orders`/`order_items` الموجودين:
+- عمود جديد `orders.table_id` (اختياري) + index فريد يضمن **طلب مفتوح واحد فقط لكل طاولة** بأي وقت (`WHERE table_id IS NOT NULL AND status = 'pending'`).
+- حالة `'pending'` بعمود `orders.status` **كانت موجودة بالفعل بالـCHECK constraint منذ migration 001 الأصلية لكن لم تُستخدَم إطلاقًا بأي كود** — استُخدمت الآن لتمثيل "تاب مفتوح" (جولات إضافة متعددة قبل التحصيل النهائي).
+- السبب: طلب الطاولة المفتوح هو فعليًا Order عادي، بس يبقى مفتوحًا عبر جولات إضافة متعددة (مقبّلات ثم رئيسي ثم حلا) قبل الدفع النهائي — إعادة استخدام محرك POS/الدفع/الولاء/خصم المخزون الموجود بالكامل بدل بناء نسخة موازية بمنطق مكرّر ومخاطر تضارب.
+
+## التنفيذ (apiv1.0.2 — commit `6185ecf`)
+- migration 045: جدول `tables` (status: available/occupied/reserved/cleaning، unique index tenant+branch+name)، `orders.table_id`، `order_items.kitchen_status` (pending/preparing/ready/served — NULL لعناصر غير مرتبطة بمطبخ)، `table_reservations`، `waitlist_entries`.
+- `TablesModule` جديد (`modules/tables`) بـ5 وحدات فرعية:
+  - **Tables**: CRUD كامل، خطأ 409 واضح عند تكرار الاسم بنفس الفرع (نمط `toHttpError()` مطابق لـ`warehouses.repository.ts` الموجود)، يمنع حذف طاولة بحالة "مشغولة".
+  - **Dine-in**: `POST /tables/:id/open` (يتحقق الطاولة متاحة، ينشئ order بحالة pending، يشغّل الطاولة)، `POST /tables/:id/items` (يضيف جولة عناصر جديدة، يعيد حساب subtotal/tax/total **كاملًا** من كل عناصر الطلب عبر `PosEngine` الموجود — لا حساب تراكمي هش)، `GET /tables/:id/order`، `POST /tables/:id/checkout` (نفس تحقق طرق الدفع الموجود بـ`InvoicesService`، يحرّر الطاولة، يشغّل خصم المخزون best-effort **بإعادة استخدام** `InvoicesRepository.getBranchDefaultWarehouse()`/`deductStockForSale()` من إصلاح §64 مباشرة، بلا تكرار منطق).
+  - **Kitchen (KDS)**: `GET /kitchen/orders` (كل الطلبات المفتوحة المرتبطة بطاولة + عناصرها غير المُقدَّمة بعد)، `PATCH /kitchen/items/:id` (تحقق من قيم الحالة الأربع الصحيحة).
+  - **Reservations**: CRUD، الانتقال لحالة "seated" يشغّل الطاولة تلقائيًا.
+  - **Waitlist**: إنشاء/تعيين طاولة (يتحقق فعليًا أن الطاولة "available" قبل القبول، لا افتراض)/إلغاء.
+- صلاحيتان جديدتان (`permissions.seed.ts`): `tables.manage` (owner/manager/cashier)، `kitchen.manage` (owner/manager/cashier/**worker** — بما أن دور "عامل" قد يمثّل موظف مطبخ لا كاشير).
+- **تحقق أمني متّسق مع §64/§66**: كل مرجع (`branch_id`, `table_id`) يُتحقق من انتمائه لنفس المستأجر قبل القبول بكل الخدمات الخمس.
+
+## التحقق (سيرفر محلي حقيقي — تدفق كامل واحد end-to-end)
+تسلسل اختبار حقيقي متكامل: إنشاء طاولة "T1" → محاولة تكرار الاسم (409 ✅) → فتح الطاولة (201، order بحالة pending) → محاولة فتحها مجددًا وهي مشغولة (400 ✅) → إضافة جولة أولى (subtotal=50) → إضافة جولة ثانية (subtotal=75, tax=11.25, total=86.25 — **رياضيًا مطابق تمامًا**) → عرض الطلب الحالي (كلا الجولتين ظاهرتان) → KDS يعرض الطلب حيًّا بعناصره → تحديث حالة عنصر لـ"preparing" ثم "ready" (رفض قيمة غير صالحة بـ400 ✅) → التحصيل بدون `cash_tendered` (400 ✅) → التحصيل الفعلي (201، total=86.25) → التحقق: الطاولة رجعت "available"، KDS فارغ الآن (order اكتمل)، **خصم مخزون فعلي مؤكَّد** (90→87 وحدة، حركتا `sale` منفصلتان لكل جولة إضافة) → إنشاء حجز لنفس الطاولة → إنشاء waitlist entry → تعيينه لنفس الطاولة (متاحة الآن، نجح، الطاولة أصبحت مشغولة) → waitlist entry ثانٍ يحاول نفس الطاولة المشغولة (400 ✅) → محاولة حذف الطاولة المشغولة (400 ✅) → حجز لمعرف طاولة عابر للمستأجرين (400 "Table not found" ✅).
+
+## الحالة النهائية
+Phase 10F مكتمل بالكامل بنطاق backend. **لا واجهة frontend بعد** لأي جزء (طاولات/KDS/حجوزات/waitlist) — API فقط، نفس نمط كل دفعات هذه الجلسة. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 045 لم تُطبَّق على production/staging بعد.

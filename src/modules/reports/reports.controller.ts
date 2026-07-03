@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards, BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto, ExportFormat } from './dto/report-query.dto';
@@ -101,6 +101,159 @@ export class ReportsController {
 
     return data;
   }
+  @Get('employees')
+  @RequirePermission('reports.view.branch')
+  async getEmployees(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getEmployeesReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('employees', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="employees-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('customers')
+  @RequirePermission('reports.view.branch')
+  async getCustomers(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getCustomersReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('customers', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="customers-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('tax')
+  @RequirePermission('reports.view.branch')
+  async getTax(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getTaxReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('tax', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="tax-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('inventory')
+  @RequirePermission('reports.view.branch')
+  async getInventory(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId: string,
+    @Query('format') format: ExportFormat,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getInventoryReport(tenant, warehouseId);
+
+    if (format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('inventory', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="inventory-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('cogs')
+  @RequirePermission('reports.view.branch')
+  async getCogs(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getCogsReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('cogs', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="cogs-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
+  @Get('daily-reconciliation')
+  @RequirePermission('reports.view.branch')
+  async getDailyReconciliation(
+    @GetTenant() tenant: TenantContext,
+    @Query('date') date: string,
+    @Query('branch_id') branchId?: string,
+  ) {
+    if (!date) {
+      date = new Date().toISOString().slice(0, 10);
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('date must be in YYYY-MM-DD format');
+    }
+    return this.reportsService.getDailyReconciliation(tenant, date, branchId);
+  }
+
+  @Get('comparison')
+  @RequirePermission('reports.view.branch')
+  async getComparison(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+  ) {
+    return this.reportsService.getPeriodComparison(tenant, query);
+  }
+
+  @Get('by-branch')
+  @RequirePermission('reports.view.all')
+  async getByBranch(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+  ) {
+    return this.reportsService.getBranchComparison(tenant, query);
+  }
+
+  @Get('customer-churn')
+  @RequirePermission('reports.view.branch')
+  async getCustomerChurn(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+  ) {
+    return this.reportsService.getCustomerChurn(tenant, query);
+  }
+
   @Get('top-items')
   @RequirePermission('reports.view.branch')
   async getTopItems(

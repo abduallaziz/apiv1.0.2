@@ -17,8 +17,13 @@ export class GoodsReceiptsController {
 
   @Get()
   @RequirePermission('purchasing.view')
-  findAll(@Query('status') status: string, @GetTenant() tenant: TenantContext) {
-    return this.goodsReceiptsService.findAll(tenant.tenantId, status);
+  findAll(
+    @Query('status') status: string,
+    @GetTenant() tenant: TenantContext,
+    @Query('page') page?: string,
+    @Query('per_page') perPage?: string,
+  ) {
+    return this.goodsReceiptsService.findAll(tenant.tenantId, status, page, perPage);
   }
 
   @Get(':id')

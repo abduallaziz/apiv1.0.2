@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PlatformAnalyticsRepository } from './platform-analytics.repository';
 import { AnalyticsPeriod } from './dto/analytics-query.dto';
+import { RedisCacheService } from '../../../core/cache/redis-cache.service';
+import {
+  COHORT_ANALYSIS_CACHE_KEY,
+  FALLBACK_CACHE_TTL_SECONDS,
+  buildUsageAnalyticsCacheKey,
+} from './platform-analytics-cache.keys';
 
 export interface RevenuePoint {
   date: string;
@@ -9,7 +15,10 @@ export interface RevenuePoint {
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly repo: PlatformAnalyticsRepository) {}
+  constructor(
+    private readonly repo: PlatformAnalyticsRepository,
+    private readonly cache: RedisCacheService,
+  ) {}
 
   // ─── Existing ─────────────────────────────────────────────────────────────
 
@@ -71,7 +80,15 @@ export class AnalyticsService {
   }
 
   async getCohortAnalysis() {
-    return this.repo.getCohortAnalysis();
+    const cached = await this.cache.get(COHORT_ANALYSIS_CACHE_KEY);
+    if (cached) return cached;
+
+    // Cache miss (e.g. cold start before the first hourly refresh, or a flushed
+    // cache) — compute directly so the endpoint still responds, and warm the
+    // cache so subsequent requests hit it instead of recomputing.
+    const cohort = await this.repo.getCohortAnalysis();
+    await this.cache.set(COHORT_ANALYSIS_CACHE_KEY, cohort, FALLBACK_CACHE_TTL_SECONDS);
+    return cohort;
   }
 
   async getRevenueByPlan() {
@@ -79,7 +96,13 @@ export class AnalyticsService {
   }
 
   async getUsageAnalytics(period: AnalyticsPeriod, from?: string, to?: string) {
-    return this.repo.getUsageAnalytics(period, from, to);
+    const cacheKey = buildUsageAnalyticsCacheKey(period, from, to);
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    const usage = await this.repo.getUsageAnalytics(period, from, to);
+    await this.cache.set(cacheKey, usage, FALLBACK_CACHE_TTL_SECONDS);
+    return usage;
   }
 
   async getAdvancedSummary(period: AnalyticsPeriod, from?: string, to?: string) {

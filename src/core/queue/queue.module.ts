@@ -10,8 +10,11 @@ import { AuditCleanupProcessor } from './processors/audit-cleanup.processor';
 import { AuditCleanupScheduler } from './processors/audit-cleanup.scheduler';
 import { AiProcessor } from './processors/ai.processor';
 import { AiQueueService } from './ai-queue.service';
+import { PlatformAnalyticsProcessor } from './processors/platform-analytics.processor';
+import { PlatformAnalyticsScheduler } from './processors/platform-analytics.scheduler';
 import { BillingModule } from '../billing/billing.module';
 import { AiUsageTrackingModule } from '../ai-usage/ai-usage-tracking.module';
+import { AnalyticsModule } from '../../modules/shared/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -46,9 +49,11 @@ import { AiUsageTrackingModule } from '../ai-usage/ai-usage-tracking.module';
       { name: QUEUE_NAMES.NOTIFICATIONS },
       { name: QUEUE_NAMES.DOMAIN_EVENTS },
       { name: QUEUE_NAMES.AI },
+      { name: QUEUE_NAMES.ANALYTICS },
     ),
     BillingModule,
     AiUsageTrackingModule,
+    AnalyticsModule,
   ],
   providers: [
     QueueRegistry,
@@ -59,6 +64,8 @@ import { AiUsageTrackingModule } from '../ai-usage/ai-usage-tracking.module';
     AuditCleanupScheduler,
     AiProcessor,
     AiQueueService,
+    PlatformAnalyticsProcessor,
+    PlatformAnalyticsScheduler,
   ],
   exports: [BullModule, QueueRegistry, QueueService, QueueExistsPipe, AiQueueService],
 })

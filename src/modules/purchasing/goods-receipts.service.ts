@@ -3,6 +3,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
 import { throwFromRpcError } from '../inventory/rpc-error.util';
 import { LocationsService } from '../inventory/locations.service';
+import { PaginationDto } from '../../shared/dto/pagination.dto';
 
 @Injectable()
 export class GoodsReceiptsService {
@@ -11,8 +12,8 @@ export class GoodsReceiptsService {
     private readonly locationsService: LocationsService,
   ) {}
 
-  async findAll(tenantId: string, status?: string) {
-    return (await this.goodsReceiptsRepo.findAll(tenantId, status)) ?? [];
+  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
+    return (await this.goodsReceiptsRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
   }
 
   async findById(id: string, tenantId: string) {

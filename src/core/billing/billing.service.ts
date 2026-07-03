@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, Inject, Logger } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, Inject, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import {
@@ -180,6 +180,7 @@ export class BillingService {
     cycle: BillingCycle,
     tenantEmail: string,
     tenantName: string,
+    customAmount?: number,
   ): Promise<void> {
     const plan = await this.getPlanById(planId);
     const sub = await this.getActiveSubscription(tenantId);
@@ -229,7 +230,7 @@ export class BillingService {
     }
 
     // Generate invoice
-    const planPrice = cycle === BillingCycle.YEARLY ? plan.price_yearly : plan.price_monthly;
+    const planPrice = customAmount ?? (cycle === BillingCycle.YEARLY ? plan.price_yearly : plan.price_monthly);
     const { invoiceId } = await this.billingInvoiceService.generateInvoice({
       tenantId,
       subscriptionId,
@@ -265,6 +266,24 @@ export class BillingService {
       .eq('id', sub.id);
 
     if (error) throw new Error(error.message);
+  }
+
+  /** Superadmin path: cancel a specific subscription by its own id, regardless of tenant. */
+  async cancelSubscriptionById(subscriptionId: string): Promise<void> {
+    const { error, count } = await this.supabase
+      .from('subscriptions')
+      .update(
+        {
+          status: SubscriptionStatus.CANCELLED,
+          cancelled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { count: 'exact' },
+      )
+      .eq('id', subscriptionId);
+
+    if (error) throw new Error(error.message);
+    if (!count) throw new NotFoundException('Subscription not found');
   }
 
   @Cron(CronExpression.EVERY_HOUR)

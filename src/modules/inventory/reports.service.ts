@@ -14,6 +14,7 @@ export class ReportsService {
       stockCountsVariance,
       warehouseValuation,
       lowStock,
+      expiringBatches,
     ] = await Promise.all([
       this.reportsRepo.purchaseOrdersSummary(tenantId),
       this.reportsRepo.goodsReceiptsSummary(tenantId),
@@ -22,6 +23,7 @@ export class ReportsService {
       this.reportsRepo.stockCountsVarianceSummary(tenantId),
       this.reportsRepo.warehouseValuation(tenantId),
       this.reportsRepo.lowStockBelowReorder(tenantId),
+      this.reportsRepo.batchesExpiringSoon(tenantId),
     ]);
 
     return {
@@ -32,6 +34,11 @@ export class ReportsService {
       stockCountsVariance,
       warehouseValuation,
       lowStock,
+      expiringBatches,
     };
+  }
+
+  expiringBatches(tenantId: string, daysAhead?: number) {
+    return this.reportsRepo.batchesExpiringSoon(tenantId, daysAhead);
   }
 }

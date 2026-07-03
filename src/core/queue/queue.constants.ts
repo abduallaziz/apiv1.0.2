@@ -4,6 +4,7 @@ export const QUEUE_NAMES = {
   NOTIFICATIONS: 'notifications',
   DOMAIN_EVENTS: 'domain-events',
   AI: 'ai',
+  ANALYTICS: 'analytics',
 } as const;
 
 /** Max concurrent AI jobs processed at the same time. */

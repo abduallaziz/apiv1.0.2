@@ -14,7 +14,7 @@ export class BranchesRepository {
   async findAll(tenant: TenantContext) {
     const { data, error } = await this.supabase
       .from('branches')
-      .select('id, name, address, is_active, created_at')
+      .select('id, name, address, is_active, default_warehouse_id, created_at')
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -26,7 +26,7 @@ export class BranchesRepository {
   async findById(id: string, tenant: TenantContext) {
     const { data, error } = await this.supabase
       .from('branches')
-      .select('id, name, address, is_active, created_at')
+      .select('id, name, address, is_active, default_warehouse_id, created_at')
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
@@ -56,7 +56,7 @@ export class BranchesRepository {
         address: data.address ?? null,
         is_active: true,
       })
-      .select('id, name, address, is_active, created_at')
+      .select('id, name, address, is_active, default_warehouse_id, created_at')
       .single();
 
     if (error) {
@@ -66,18 +66,30 @@ export class BranchesRepository {
     return branch;
   }
 
-  async update(id: string, tenant: TenantContext, data: Partial<{ name: string; address: string; is_active: boolean }>) {
+  async update(id: string, tenant: TenantContext, data: Partial<{ name: string; address: string; is_active: boolean; default_warehouse_id: string | null }>) {
     const { data: branch, error } = await this.supabase
       .from('branches')
       .update(data)
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
-      .select('id, name, address, is_active, created_at')
+      .select('id, name, address, is_active, default_warehouse_id, created_at')
       .single();
 
     if (error) throw error;
     return branch;
+  }
+
+  async warehouseBelongsToTenant(warehouseId: string, tenantId: string): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('warehouses')
+      .select('id')
+      .eq('id', warehouseId)
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    return !!data;
   }
 
   async softDelete(id: string, tenant: TenantContext) {

@@ -35,6 +35,17 @@ export class BranchesService {
   async update(id: string, dto: UpdateBranchDto, tenant: TenantContext) {
     const branch = await this.repo.findById(id, tenant);
     if (!branch) throw new NotFoundException('Branch not found');
+
+    if (dto.default_warehouse_id) {
+      const belongsToTenant = await this.repo.warehouseBelongsToTenant(
+        dto.default_warehouse_id,
+        tenant.tenantId,
+      );
+      if (!belongsToTenant) {
+        throw new BadRequestException('Warehouse not found');
+      }
+    }
+
     return this.repo.update(id, tenant, dto);
   }
 

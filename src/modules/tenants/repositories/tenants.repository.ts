@@ -8,10 +8,13 @@ export class TenantsRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
+  private static readonly PROFILE_COLUMNS =
+    'id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled, logo_url, tax_number, invoice_footer, printer_settings, notification_preferences, loyalty_points_per_currency, loyalty_redemption_value';
+
   async findById(tenantId: string) {
     const { data, error } = await this.supabase
       .from('tenants')
-      .select('id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled')
+      .select(TenantsRepository.PROFILE_COLUMNS)
       .eq('id', tenantId)
       .is('deleted_at', null)
       .single();
@@ -40,13 +43,20 @@ export class TenantsRepository {
     tax_rate?: number;
     customer_capture_enabled?: boolean;
     name_field_enabled?: boolean;
+    logo_url?: string;
+    tax_number?: string;
+    invoice_footer?: string;
+    printer_settings?: object;
+    notification_preferences?: object;
+    loyalty_points_per_currency?: number;
+    loyalty_redemption_value?: number;
   }) {
     const { data, error } = await this.supabase
       .from('tenants')
       .update(updates)
       .eq('id', tenantId)
       .is('deleted_at', null)
-      .select('id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled')
+      .select(TenantsRepository.PROFILE_COLUMNS)
       .single();
 
     if (error) throw error;

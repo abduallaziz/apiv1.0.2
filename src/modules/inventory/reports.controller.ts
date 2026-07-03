@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
@@ -16,5 +16,17 @@ export class ReportsController {
   @RequirePermission('inventory.view')
   overview(@GetTenant() tenant: TenantContext) {
     return this.reportsService.overview(tenant.tenantId);
+  }
+
+  @Get('expiring-batches')
+  @RequirePermission('inventory.view')
+  expiringBatches(
+    @GetTenant() tenant: TenantContext,
+    @Query('days_ahead') daysAhead?: string,
+  ) {
+    return this.reportsService.expiringBatches(
+      tenant.tenantId,
+      daysAhead ? parseInt(daysAhead, 10) : undefined,
+    );
   }
 }
