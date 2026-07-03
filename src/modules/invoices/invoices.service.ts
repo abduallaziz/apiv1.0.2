@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
@@ -35,6 +36,8 @@ const invoicesListCacheKey = (
 
 @Injectable()
 export class InvoicesService {
+  private readonly logger = new Logger(InvoicesService.name);
+
   constructor(
     private readonly repo: InvoicesRepository,
     private readonly posEngine: PosEngine,
@@ -163,6 +166,31 @@ export class InvoicesService {
 
     this.metricsService.recordInvoice(tenant.tenantId, 'completed');
 
+    // خصم المخزون: أفضل-محاولة (best-effort) — مشكلة بالمخزون لا توقف بيعًا مكتمِلًا أبدًا.
+    // يُخصَم فقط إن كان للفرع مستودع افتراضي معيَّن (default_warehouse_id)، وفقط للعناصر
+    // المُتتبَّعة فعليًا بالمخزون (items.has_inventory) — كلاهما يُفحَص داخل الدالة الذرّية.
+    // راجع STATUS.md §64 لتفاصيل القرار.
+    const warehouseId = await this.repo.getBranchDefaultWarehouse(branchId);
+    if (warehouseId) {
+      this.repo
+        .deductStockForSale(
+          tenant.tenantId,
+          warehouseId,
+          invoice.id,
+          cashierId,
+          built.items.map((item) => ({
+            item_id: item.item_id,
+            variant_id: item.variant_id ?? null,
+            quantity: item.quantity,
+          })),
+        )
+        .catch((err) => {
+          this.logger.warn(
+            `Stock deduction failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${err?.message ?? err}`,
+          );
+        });
+    }
+
     if (dto.customer_id) {
       if (dto.redeem_points) {
         await this.loyaltyService.redeemPoints(dto.customer_id, dto.redeem_points);
@@ -262,6 +290,11 @@ export class InvoicesService {
     });
 
     this.metricsService.recordInvoice(tenant.tenantId, 'cancelled');
+
+    // يعكس أي خصم مخزون تم فعليًا عند البيع (لا شيء إن لم يُخصَم أصلًا) — best-effort أيضًا
+    this.repo.reverseSaleStockDeduction(tenant.tenantId, id, actorId).catch((err) => {
+      this.logger.warn(`Stock restock failed for cancelled invoice ${id}: ${err?.message ?? err}`);
+    });
 
     await this.invalidateList(tenant.tenantId);
 

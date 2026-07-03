@@ -123,6 +123,42 @@ export class InvoicesRepository extends ScopedRepository {
     if (error) throw error;
   }
 
+  async getBranchDefaultWarehouse(branchId: string): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('branches')
+      .select('default_warehouse_id')
+      .eq('id', branchId)
+      .single();
+    if (error || !data) return null;
+    return data.default_warehouse_id ?? null;
+  }
+
+  async deductStockForSale(
+    tenantId: string,
+    warehouseId: string,
+    orderId: string,
+    actorId: string,
+    items: { item_id: string; variant_id: string | null; quantity: number }[],
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc('fn_process_sale_stock_deduction', {
+      p_tenant_id: tenantId,
+      p_warehouse_id: warehouseId,
+      p_order_id: orderId,
+      p_actor_id: actorId,
+      p_items: items,
+    });
+    if (error) throw error;
+  }
+
+  async reverseSaleStockDeduction(tenantId: string, orderId: string, actorId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('fn_reverse_sale_stock_deduction', {
+      p_tenant_id: tenantId,
+      p_order_id: orderId,
+      p_actor_id: actorId,
+    });
+    if (error) throw error;
+  }
+
   async cancel(tenant: TenantContext, id: string, cancelledBy: string) {
     const query = this.supabase
       .from('orders')
