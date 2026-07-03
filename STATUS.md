@@ -2318,3 +2318,22 @@ Phase 10L مكتمل بالكامل. مدفوع على `claude/analytics-redis-c
 
 ## الحالة النهائية
 Phase 10I مكتمل (بالنطاق الموصوف أعلاه). مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد). لا migrations جديدة بهذا البند.
+
+---
+
+# 60. Phase 10G (جزئي) — Loyalty Points — يوليو 3, 2026
+
+## السياق
+بند من Phase 10: برنامج الولاء والتسويق (Loyalty Points + Tiers + Gift Cards + Coupons). عمود `customers.loyalty_points` كان موجودًا بالجدول منذ البداية (يُهيَّأ بصفر عند إنشاء عميل) لكن لا كود بالمشروع كان يحدّثه إطلاقًا — تحقق: بحث شامل عن `loyalty_points` بكل الكود أرجع فقط `customers.repository.ts` (القراءة/التهيئة، لا تحديث).
+
+## التنفيذ (apiv1.0.2 — commit `0addc51`)
+- migration 041: `tenants.loyalty_points_per_currency` (افتراضي 1)، `tenants.loyalty_redemption_value` (افتراضي 0.01)، ودالة RPC ذرّية `fn_adjust_loyalty_points(customer_id, delta)` — تُرجع الرصيد الجديد أو لا صف إطلاقًا إن كان التعديل سيجعل الرصيد سالبًا (يُستخدَم هذا لاكتشاف "رصيد غير كافٍ" بدون race condition بين قراءة الرصيد وتحديثه).
+- `LoyaltyService` جديد (`core/loyalty`): `getSettings()`، `calculatePointsEarned()`، `calculateRedemptionValue()`، `awardPoints()` (best-effort، لا يوقف البيع لو فشل)، `redeemPoints()` (يرمي استثناء لو الرصيد غير كافٍ)، `getBalance()`.
+- `InvoicesService.create()`: عند وجود `redeem_points` بالطلب — تحقّق من `customer_id` موجود، تحقّق من الرصيد الحالي كافٍ، احسب قيمة الخصم، ادمجه مع أي خصم يدوي (`DiscountDto`) بحدّ أقصى لا يتجاوز الـsubtotal، أعِد حساب الضريبة/الإجمالي يدويًا (باستخدام دوال `PosEngine` العامة الموجودة أصلًا `applyTax`/`calculateTotal` بدل تعديل الـengine نفسه). بعد إنشاء الفاتورة بنجاح: خصم النقاط فعليًا (RPC ذرّي)، ثم منح نقاط جديدة على المبلغ **النهائي المدفوع** (بعد أي استرداد) — قرار متعمّد لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط قديمة بلا قيمة حقيقية مضافة).
+- إعدادات الولاء (`loyalty_points_per_currency`/`loyalty_redemption_value`) أُضيفت لنفس `UpdateTenantProfileDto`/`PATCH /tenant/profile` من §58 (10L) — إعادة استخدام لنفس نمط "إعدادات المالك" بدل بناء endpoint منفصل.
+
+## التحقق (سيرفر محلي حقيقي)
+اختُبر end-to-end فعليًا: عميل اختباري برصيد 50 نقطة → فاتورة 34.5 ريال بلا استرداد → الرصيد أصبح 84 (50 + floor(34.5×1) = 84 ✅) → فاتورة أخرى تسترد 20 نقطة (خصم 0.20 ريال، subtotal=15 → tax=(15-0.2)×0.15=2.22 → total=17.02 ✅ رياضيًا) → الرصيد النهائي 81 (84-20+floor(17.02×1)=81 ✅). اختُبر أيضًا: استرداد أكبر من الرصيد المتاح → 400 "Insufficient loyalty points balance"، استرداد بلا `customer_id` → 400، تحديث إعدادات الولاء عبر `PATCH /tenant/profile` (تحقق من قيمة سالبة → 400).
+
+## الحالة النهائية
+Phase 10G **جزئي عمدًا** — Loyalty Points فقط (تجميع + استرداد + إعدادات قابلة للتخصيص لكل مستأجر). **لم يُبنَ**: Loyalty Tiers، Gift Cards، Coupons (لا جدول `coupons` موجود إطلاقًا — فجوة موثَّقة منذ migration 001 الأصلية، لم تُبنَ رغم إشارة TASKS.md السابقة لها كـ"موجودة جزئيًا" بشكل غير دقيق). لا واجهة استرداد نقاط بالـPOS frontend بعد — القدرة API فقط؛ عرض النقاط بصفحة العملاء الحالية يعمل الآن بأرقام حقيقية بدل الصفر الدائم السابق. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 041 لم تُطبَّق على production/staging بعد.
