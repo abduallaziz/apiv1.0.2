@@ -23,6 +23,7 @@ import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HrModule } from './modules/hr/hr.module';
+import { TablesModule } from './modules/tables/tables.module';
 import { BillingModule } from './core/billing/billing.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
@@ -86,6 +87,7 @@ import Redis from 'ioredis';
     ExpensesModule,
     CustomersModule,
     HrModule,
+    TablesModule,
     PlansModule,
     SubscriptionsModule,
     ReportsModule,
