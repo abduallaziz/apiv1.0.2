@@ -38,6 +38,9 @@ export class HealthService {
     @InjectQueue(QUEUE_NAMES.DUNNING) private readonly dunningQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AUDIT_CLEANUP) private readonly auditQueue: Queue,
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS) private readonly domainEventsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.AI) private readonly aiQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.ANALYTICS) private readonly analyticsQueue: Queue,
   ) {}
 
   async checkDatabase(): Promise<ComponentHealth> {
@@ -81,6 +84,9 @@ export class HealthService {
       { name: QUEUE_NAMES.DUNNING, queue: this.dunningQueue },
       { name: QUEUE_NAMES.AUDIT_CLEANUP, queue: this.auditQueue },
       { name: QUEUE_NAMES.NOTIFICATIONS, queue: this.notificationsQueue },
+      { name: QUEUE_NAMES.DOMAIN_EVENTS, queue: this.domainEventsQueue },
+      { name: QUEUE_NAMES.AI, queue: this.aiQueue },
+      { name: QUEUE_NAMES.ANALYTICS, queue: this.analyticsQueue },
     ];
 
     const results: QueueHealth[] = [];
