@@ -317,6 +317,14 @@ export class ReportsService {
         sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.top_by_value) sheet.addRow(row);
       }
+    } else if (reportType === 'cogs') {
+      const typed = data as { top_by_cost: Record<string, unknown>[] };
+      if (typed.top_by_cost.length > 0) {
+        const keys = Object.keys(typed.top_by_cost[0]);
+        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
+        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        for (const row of typed.top_by_cost) sheet.addRow(row);
+      }
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -689,6 +697,76 @@ export class ReportsService {
       .eq('id', tenantId)
       .single();
     return data?.tax_rate ?? 0;
+  }
+
+  async getCogsReport(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+
+    const { data: movements, error } = await this.supabase
+      .from('stock_movements')
+      .select('item_id, quantity, unit_cost, total_cost')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('movement_type', 'sale')
+      .gte('occurred_at', from)
+      .lte('occurred_at', to);
+    if (error) throw error;
+
+    const totalCogs = (movements ?? []).reduce((s, m) => s + (m.total_cost || 0), 0);
+
+    const byItem: Record<string, { quantity: number; total_cost: number }> = {};
+    for (const m of movements ?? []) {
+      if (!byItem[m.item_id]) byItem[m.item_id] = { quantity: 0, total_cost: 0 };
+      byItem[m.item_id].quantity += m.quantity || 0;
+      byItem[m.item_id].total_cost += m.total_cost || 0;
+    }
+
+    const itemIds = Object.keys(byItem);
+    const namesById: Record<string, string> = {};
+    if (itemIds.length > 0) {
+      const { data: items } = await this.supabase.from('items').select('id, name').in('id', itemIds);
+      for (const i of items ?? []) namesById[i.id] = i.name;
+    }
+
+    const topByCost = Object.entries(byItem)
+      .map(([item_id, v]) => ({
+        item_id,
+        item_name: namesById[item_id] ?? 'Unknown',
+        quantity_sold: v.quantity,
+        total_cost: v.total_cost,
+      }))
+      .sort((a, b) => b.total_cost - a.total_cost)
+      .slice(0, 10);
+
+    let ordersQ = this.supabase
+      .from('orders')
+      .select('total')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to);
+    if (query.branch_id) ordersQ = ordersQ.eq('branch_id', query.branch_id);
+    const { data: orders, error: ordersErr } = await ordersQ;
+    if (ordersErr) throw ordersErr;
+
+    const totalRevenue = (orders ?? []).reduce((s, o) => s + (o.total || 0), 0);
+    const grossProfit = totalRevenue - totalCogs;
+
+    return {
+      period: { from, to },
+      summary: {
+        total_cogs: totalCogs,
+        total_revenue: totalRevenue,
+        gross_profit: grossProfit,
+        gross_margin_pct: totalRevenue > 0 ? parseFloat(((grossProfit / totalRevenue) * 100).toFixed(1)) : 0,
+      },
+      top_by_cost: topByCost,
+      // COGS only reflects items with has_inventory=true sold at a branch with a
+      // default_warehouse_id configured (see STATUS.md §64) — revenue from any other item
+      // is still counted above, so gross_margin_pct understates true margin for tenants who
+      // haven't fully configured inventory tracking on all their sellable items.
+      coverage_note:
+        'COGS only includes items with inventory tracking enabled, sold at a branch with a warehouse configured. Revenue includes all sales, so margin may be understated until inventory tracking is fully configured.',
+    };
   }
 
   async getInventoryReport(tenant: TenantContext, warehouseId?: string) {

@@ -190,6 +190,28 @@ export class ReportsController {
     return data;
   }
 
+  @Get('cogs')
+  @RequirePermission('reports.view.branch')
+  async getCogs(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.reportsService.getCogsReport(tenant, query);
+
+    if (query.format === ExportFormat.EXCEL) {
+      const buffer = await this.reportsService.exportToExcel('cogs', data as Record<string, unknown>);
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="cogs-report.xlsx"',
+      });
+      res.send(buffer);
+      return;
+    }
+
+    return data;
+  }
+
   @Get('daily-reconciliation')
   @RequirePermission('reports.view.branch')
   async getDailyReconciliation(
