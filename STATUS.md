@@ -2489,3 +2489,33 @@ Phase 10D الآن مكتمل بالكامل تقريبًا (تحويل مخزو
 
 ## الحالة النهائية
 Phase 10H مكتمل بالكامل (بنطاق backend). **لا واجهة frontend بعد** لأي من الثلاث ميزات — API فقط، نفس نمط باقي دفعات هذه الجلسة. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 044 لم تُطبَّق على production/staging بعد.
+
+---
+
+# 67. Phase 10F — الطاولات والطلبات (Tables & Dine-In) — يوليو 3, 2026
+
+## السياق
+أكبر بند متبقٍ بـPhase 10: إدارة طاولات، طلبات لكل طاولة، Kitchen Display System، حجوزات، قائمة انتظار — لأنشطة المطاعم/الكافيهات. لم يكن أي منها موجودًا إطلاقًا قبل هذه الدفعة.
+
+## قرار تصميم رئيسي: لا `table_orders` منفصل
+الوثيقة الأصلية توقّعت جدول `table_orders` مستقل. بدلًا من ذلك، أُعيد استخدام `orders`/`order_items` الموجودين:
+- عمود جديد `orders.table_id` (اختياري) + index فريد يضمن **طلب مفتوح واحد فقط لكل طاولة** بأي وقت (`WHERE table_id IS NOT NULL AND status = 'pending'`).
+- حالة `'pending'` بعمود `orders.status` **كانت موجودة بالفعل بالـCHECK constraint منذ migration 001 الأصلية لكن لم تُستخدَم إطلاقًا بأي كود** — استُخدمت الآن لتمثيل "تاب مفتوح" (جولات إضافة متعددة قبل التحصيل النهائي).
+- السبب: طلب الطاولة المفتوح هو فعليًا Order عادي، بس يبقى مفتوحًا عبر جولات إضافة متعددة (مقبّلات ثم رئيسي ثم حلا) قبل الدفع النهائي — إعادة استخدام محرك POS/الدفع/الولاء/خصم المخزون الموجود بالكامل بدل بناء نسخة موازية بمنطق مكرّر ومخاطر تضارب.
+
+## التنفيذ (apiv1.0.2 — commit `6185ecf`)
+- migration 045: جدول `tables` (status: available/occupied/reserved/cleaning، unique index tenant+branch+name)، `orders.table_id`، `order_items.kitchen_status` (pending/preparing/ready/served — NULL لعناصر غير مرتبطة بمطبخ)، `table_reservations`، `waitlist_entries`.
+- `TablesModule` جديد (`modules/tables`) بـ5 وحدات فرعية:
+  - **Tables**: CRUD كامل، خطأ 409 واضح عند تكرار الاسم بنفس الفرع (نمط `toHttpError()` مطابق لـ`warehouses.repository.ts` الموجود)، يمنع حذف طاولة بحالة "مشغولة".
+  - **Dine-in**: `POST /tables/:id/open` (يتحقق الطاولة متاحة، ينشئ order بحالة pending، يشغّل الطاولة)، `POST /tables/:id/items` (يضيف جولة عناصر جديدة، يعيد حساب subtotal/tax/total **كاملًا** من كل عناصر الطلب عبر `PosEngine` الموجود — لا حساب تراكمي هش)، `GET /tables/:id/order`، `POST /tables/:id/checkout` (نفس تحقق طرق الدفع الموجود بـ`InvoicesService`، يحرّر الطاولة، يشغّل خصم المخزون best-effort **بإعادة استخدام** `InvoicesRepository.getBranchDefaultWarehouse()`/`deductStockForSale()` من إصلاح §64 مباشرة، بلا تكرار منطق).
+  - **Kitchen (KDS)**: `GET /kitchen/orders` (كل الطلبات المفتوحة المرتبطة بطاولة + عناصرها غير المُقدَّمة بعد)، `PATCH /kitchen/items/:id` (تحقق من قيم الحالة الأربع الصحيحة).
+  - **Reservations**: CRUD، الانتقال لحالة "seated" يشغّل الطاولة تلقائيًا.
+  - **Waitlist**: إنشاء/تعيين طاولة (يتحقق فعليًا أن الطاولة "available" قبل القبول، لا افتراض)/إلغاء.
+- صلاحيتان جديدتان (`permissions.seed.ts`): `tables.manage` (owner/manager/cashier)، `kitchen.manage` (owner/manager/cashier/**worker** — بما أن دور "عامل" قد يمثّل موظف مطبخ لا كاشير).
+- **تحقق أمني متّسق مع §64/§66**: كل مرجع (`branch_id`, `table_id`) يُتحقق من انتمائه لنفس المستأجر قبل القبول بكل الخدمات الخمس.
+
+## التحقق (سيرفر محلي حقيقي — تدفق كامل واحد end-to-end)
+تسلسل اختبار حقيقي متكامل: إنشاء طاولة "T1" → محاولة تكرار الاسم (409 ✅) → فتح الطاولة (201، order بحالة pending) → محاولة فتحها مجددًا وهي مشغولة (400 ✅) → إضافة جولة أولى (subtotal=50) → إضافة جولة ثانية (subtotal=75, tax=11.25, total=86.25 — **رياضيًا مطابق تمامًا**) → عرض الطلب الحالي (كلا الجولتين ظاهرتان) → KDS يعرض الطلب حيًّا بعناصره → تحديث حالة عنصر لـ"preparing" ثم "ready" (رفض قيمة غير صالحة بـ400 ✅) → التحصيل بدون `cash_tendered` (400 ✅) → التحصيل الفعلي (201، total=86.25) → التحقق: الطاولة رجعت "available"، KDS فارغ الآن (order اكتمل)، **خصم مخزون فعلي مؤكَّد** (90→87 وحدة، حركتا `sale` منفصلتان لكل جولة إضافة) → إنشاء حجز لنفس الطاولة → إنشاء waitlist entry → تعيينه لنفس الطاولة (متاحة الآن، نجح، الطاولة أصبحت مشغولة) → waitlist entry ثانٍ يحاول نفس الطاولة المشغولة (400 ✅) → محاولة حذف الطاولة المشغولة (400 ✅) → حجز لمعرف طاولة عابر للمستأجرين (400 "Table not found" ✅).
+
+## الحالة النهائية
+Phase 10F مكتمل بالكامل بنطاق backend. **لا واجهة frontend بعد** لأي جزء (طاولات/KDS/حجوزات/waitlist) — API فقط، نفس نمط كل دفعات هذه الجلسة. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 045 لم تُطبَّق على production/staging بعد.
