@@ -2245,3 +2245,54 @@ STORAGE_DRIVER=s3
 
 ## الحالة النهائية لهذا القسم
 وثيقة تخطيط فقط، بدون أي تنفيذ. يُحدَّث هذا القسم (لا يُحذف ولا يُستبدل) عند بدء التنفيذ الفعلي مستقبلًا، مع الإشارة الصريحة لهذا القسم كأساس التصميم المتفَق عليه.
+
+---
+
+# 57. Phase 10M — إصلاح SuperAdmin Gaps — يوليو 3, 2026
+
+## السياق
+آخر بند متبقٍ بـPhase 10 قبل البدء بميزات V1 الأكبر (10D–10L): 4 endpoints مفقودة فعليًا من الـbackend كانت الواجهة الأمامية (`web/src/features/superadmin/subscriptions` و`auth-control`) تتوقعها بالفعل (stubs ترجع "no endpoint available").
+
+## التنفيذ (apiv1.0.2 — commit `dd37bcc`)
+- `BillingService.activateSubscription()`: إضافة معامل `customAmount` اختياري (للدفعات اليدوية بمبلغ مخصّص من السوبر أدمن) + دالة جديدة `cancelSubscriptionById(subscriptionId)` لإلغاء اشتراك عبر معرفه مباشرة (مسار سوبر أدمن، عابر للمستأجرين).
+- `SuperAdminSubscriptionsService`/`SuperAdminSubscriptionsController` (`/superadmin/subscriptions`): `GET` (فلترة status/search + joins tenant/plan name)، `POST manual-payment`، `DELETE :id/cancel`.
+- `AuthControlService`/`AuthControlController`: `GET tenants/options`، `GET tenants/:tenantId/users`، `PATCH users/:id/reset-password` (bcrypt cost 12)، `PATCH users/:id/role`، `PATCH users/:id/active`، `PATCH users/:id/revoke-sessions`، `GET sessions`، `PATCH sessions/:id/revoke`.
+- `superadmin.controller.ts`: أُضيف `GET tenants/options` **قبل** `GET tenants/:id` (قاعدة NestJS: المسارات الثابتة يجب تسجيلها قبل المسارات الديناميكية `:id` وإلا يُبتلَع segment "options" كقيمة `:id`).
+- 4 DTOs جديدة (`ManualPaymentDto`/`ResetPasswordDto`/`ChangeRoleDto`/`ToggleActiveDto`) — `ChangeRoleDto` تستبعد عمدًا دور `superadmin` من القيم المسموحة (لا يمكن ترقية أحد لسوبر أدمن عبر هذا الـendpoint العام)، مطابقة تمامًا لنفس القيد بالفرونت إند.
+
+## التحقق (سيرفر محلي حقيقي — Supabase local stack + Redis)
+اختُبرت كل الـendpoints فعليًا (`curl` مباشر، JWT موقّع محليًا بنفس `JWT_SECRET`): نجاح 200/201 مع بيانات حقيقية (joins صحيحة)، validation 400 (قيم غير صالحة)، 404 (معرف غير موجود)، 403 (دور owner يحاول الوصول)، 401 (بلا توكن).
+
+**باغ حقيقي اكتُشف ومُصلح أثناء الاختبار**: `cancelSubscriptionById` كان يرجّع `{success:true}` حتى عند تمرير معرف اشتراك غير موجود إطلاقًا (لا فحص `count` بعد `.update()`). أُصلح بإضافة `{count:'exact'}` + `NotFoundException` إن كان `count` صفرًا (نفس نمط `AuthControlService` الموجود مسبقًا) — أُعيد الاختبار وتأكّد إرجاع 404 صح.
+
+## Frontend (sefayv1.0.2 — commit `8b32010`)
+`subscriptions.api.ts`/`useSubscriptions.ts`: استُبدلت الـstubs التي كانت ترفض بـ`Promise.reject` بنداءات API حقيقية. ملفات `auth-control` الأمامية كانت جاهزة مسبقًا بنفس المسارات تمامًا — لم تحتج أي تعديل.
+
+## الحالة النهائية
+Phase 10M مكتمل بالكامل. مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد).
+
+---
+
+# 58. Phase 10L — إعدادات المالك (Owner Settings) — يوليو 3, 2026
+
+## السياق
+بند من Phase 10 الجديدة: تخصيص الفاتورة (شعار/رقم ضريبي/تذييل)، إعدادات الطابعة، إعدادات التنبيهات — لم يكن أي منها مبنيًا لا بالـbackend ولا بالـfrontend (لا حتى stubs، بخلاف بند 10M أعلاه).
+
+## التنفيذ (apiv1.0.2 — commit `4e62fc5`)
+- اكتُشف أن `logo_url` و`tax_number` كانا **موجودين فعليًا** بجدول `tenants` منذ البداية لكن غير مكشوفين إطلاقًا عبر أي endpoint — أُضيفا لأول مرة لـ`TenantsRepository`/`UpdateTenantProfileDto`.
+- migration 040: إضافة `invoice_footer TEXT`، `printer_settings JSONB DEFAULT '{}'`، `notification_preferences JSONB DEFAULT '{}'` لجدول `tenants` (الوحيدة الجديدة فعليًا بهذا البند).
+- `NotificationService.notify()`: أصبحت تتحقق من تفضيل المستأجر قبل إرسال قناة email (دالة خاصة `isEmailEnabled()` تقرأ `tenants.notification_preferences`) — قناة in_app والأنواع الأمنية (login/session) غير متأثرة، تُرسَل دائمًا بغض النظر عن التفضيل.
+- **قرار نطاق مهم**: `NotificationPreferencesDto`/`NOTIFICATION_PREFERENCE_KEYS` تغطي فقط 3 أنواع (`subscription_expired`/`payment_failed`/`payment_success`) — هي الوحيدة التي تُرسَل عبر email فعليًا اليوم (تدفق `dunning.service.ts`). تحقّقتُ من كل استدعاءات `notify()` بالمشروع: إشعارات `expense.requested/approved/rejected`/`shift.opened/closed` تُرسَل `IN_APP` فقط بلا email على الإطلاق، و`trial_ending` معرَّف بالكود لكن **لا يوجد أي استدعاء فعلي له بأي مكان** (نوع ميت). عرض تبديل (toggle) لهذه الأنواع بواجهة المستخدم كان سيكون ميزة نصف-منفَّذة (تبدو تعمل لكن بلا أي أثر ملحوظ) — استُبعدت عمدًا حتى يُربَط email فعليًا بتلك المسارات مستقبلًا.
+
+## التحقق
+- اختُبر `PATCH /tenant/profile` فعليًا (سيرفر محلي): كل الحقول الجديدة تُحفَظ وتُقرأ صح (بما فيها نص عربي بالتذييل — تأكّد أن العرض المشوَّه بأول محاولة كان مجرد artifact ترميز بالـshell، لا باغ حقيقي، عبر إعادة الإرسال بملف UTF-8 مباشر).
+- اختُبر منطق تصفية email فعليًا (سكربت مباشر يستدعي `NotificationService.notify()` بـmock queue): `preference=false` → قناة `email` تُسقَط (`notify.in_app` فقط)، `preference=true` → كلتا القناتين تُرسَلان، نوع أمني بلا tenant (`login.new_device`) → يُرسَل دائمًا بغض النظر عن أي تفضيل (كما هو مصمَّم).
+- **باغان حقيقيان اكتُشفا ومُصلحا أثناء الاختبار**:
+  1. `logo_url` بخيار `@IsUrl({require_tld:false})` كان يقبل نصوصًا عشوائية مثل `"not-a-url"` كرابط صالح (لأن `require_tld:false` تجعل أي نص يشبه hostname بدون نقطة يمر كـhost صالح). أُصلح بإزالة الخيار (`@IsUrl()` الافتراضي أكثر صرامة، مناسب لأن الاستخدام الفعلي المتوقع روابط CDN/Supabase Storage حقيقية دائمًا).
+  2. `@IsEnum(['58mm','80mm'])` كانت رسالة الخطأ فارغة بعد "values:" — خلل تنسيق (cosmetic) بـclass-validator عند تمرير array حرفي بدل enum حقيقي (لا يؤثر على صحة الرفض، فقط وضوح الرسالة). استُبدل بـ`@IsIn(['58mm','80mm'])` (نفس نمط مستخدَم بالفعل بـ`ChangeRoleDto`).
+
+## Frontend (sefayv1.0.2 — commit `0a4033e`)
+3 أقسام جديدة بصفحة الإعدادات: تخصيص الفاتورة (شعار/رقم ضريبي/تذييل)، إعدادات الطابعة (عرض ورق 58mm/80mm + طباعة تلقائية)، إعدادات التنبيهات (3 تبديلات فقط، مطابقة لنطاق الـbackend). ترجمات ar/en مضافة بـ`messages/*/settings.json`.
+
+## الحالة النهائية
+Phase 10L مكتمل بالكامل. مدفوع على `claude/analytics-redis-cache` بكلا المستودعين (لم يُدمَج على `main` بعد). **متبقٍ**: migration 040 لم تُطبَّق على production/staging بعد (نفس ملاحظة migration 034 بـ§52).
