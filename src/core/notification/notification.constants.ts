@@ -24,3 +24,13 @@ export const NOTIFICATION_TYPES = {
 
 export type NotificationType =
   (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
+
+// Maps a notification type to its key in tenants.notification_preferences.
+// Only covers types that are ever actually sent over email (billing/dunning flow) —
+// expense.*/shift.* are in-app only today, so there's no email toggle to offer for them yet.
+// Security-critical types (login/session) are intentionally excluded — always sent, not user-toggleable.
+export const NOTIFICATION_PREFERENCE_KEYS: Partial<Record<NotificationType, string>> = {
+  [NOTIFICATION_TYPES.SUBSCRIPTION_EXPIRED]: 'subscription_expired',
+  [NOTIFICATION_TYPES.PAYMENT_FAILED]: 'payment_failed',
+  [NOTIFICATION_TYPES.PAYMENT_SUCCESS]: 'payment_success',
+};

@@ -1,5 +1,37 @@
-import { IsString, IsOptional, MinLength, MaxLength, IsEnum, IsBoolean, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsOptional, MinLength, MaxLength, IsEnum, IsIn, IsBoolean, IsNumber, Min, Max, IsUrl, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { BusinessType } from '../../../shared/types/enums';
+
+export class PrinterSettingsDto {
+  @IsOptional()
+  @IsIn(['58mm', '80mm'])
+  paper_width?: '58mm' | '80mm';
+
+  @IsOptional()
+  @IsBoolean()
+  auto_print?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  printer_name?: string;
+}
+
+// Only covers notification types that are actually ever sent over email (dunning/billing flow).
+// expense.*/shift.* types are in-app only today — no toggle exposed for them yet (would be a no-op).
+export class NotificationPreferencesDto {
+  @IsOptional()
+  @IsBoolean()
+  subscription_expired?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  payment_failed?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  payment_success?: boolean;
+}
 
 export class UpdateTenantProfileDto {
   @IsOptional()
@@ -36,4 +68,28 @@ export class UpdateTenantProfileDto {
   @Min(0)
   @Max(1)
   tax_rate?: number;
+
+  @IsOptional()
+  @IsUrl()
+  logo_url?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  tax_number?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  invoice_footer?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PrinterSettingsDto)
+  printer_settings?: PrinterSettingsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => NotificationPreferencesDto)
+  notification_preferences?: NotificationPreferencesDto;
 }
