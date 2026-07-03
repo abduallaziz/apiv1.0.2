@@ -495,12 +495,16 @@ export class ReportsService {
 
     const cashierIds = [...new Set((orders ?? []).map(o => o.cashier_id))];
     const namesById: Record<string, string> = {};
+    const commissionRateById: Record<string, number | null> = {};
     if (cashierIds.length > 0) {
       const { data: users } = await this.supabase
         .from('users')
-        .select('id, name')
+        .select('id, name, commission_rate')
         .in('id', cashierIds);
-      for (const u of users ?? []) namesById[u.id] = u.name;
+      for (const u of users ?? []) {
+        namesById[u.id] = u.name;
+        commissionRateById[u.id] = u.commission_rate ?? null;
+      }
     }
 
     const byCashier: Record<string, { name: string; order_count: number; total_sales: number }> = {};
@@ -512,13 +516,18 @@ export class ReportsService {
     }
 
     const employees = Object.entries(byCashier)
-      .map(([cashier_id, v]) => ({
-        cashier_id,
-        name: v.name,
-        order_count: v.order_count,
-        total_sales: v.total_sales,
-        avg_order_value: v.order_count > 0 ? v.total_sales / v.order_count : 0,
-      }))
+      .map(([cashier_id, v]) => {
+        const commissionRate = commissionRateById[cashier_id] ?? null;
+        return {
+          cashier_id,
+          name: v.name,
+          order_count: v.order_count,
+          total_sales: v.total_sales,
+          avg_order_value: v.order_count > 0 ? v.total_sales / v.order_count : 0,
+          commission_rate: commissionRate,
+          commission_earned: commissionRate !== null ? parseFloat((v.total_sales * commissionRate).toFixed(2)) : null,
+        };
+      })
       .sort((a, b) => b.total_sales - a.total_sales);
 
     return { period: { from, to }, employees };

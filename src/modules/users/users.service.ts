@@ -77,6 +77,7 @@ export class UsersService {
     if (dto.name) updates.name = dto.name;
     if (dto.is_active !== undefined) updates.is_active = dto.is_active;
     if (dto.password) updates.password_hash = await bcrypt.hash(dto.password, 12);
+    if (dto.commission_rate !== undefined) updates.commission_rate = dto.commission_rate;
 
     if (dto.role) throw new BadRequestException('Use PATCH /users/:id/role to change role');
 

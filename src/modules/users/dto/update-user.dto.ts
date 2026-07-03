@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, Max, MinLength } from 'class-validator';
 import { UserRole } from '../../../shared/types/enums';
 
 export class UpdateUserDto {
@@ -22,4 +22,11 @@ export class UpdateUserDto {
   @IsString()
   @IsOptional()
   branch_id?: string;
+
+  // Stored as a fraction (0-1), e.g. 0.05 for 5%. null clears it (no commission).
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  @IsOptional()
+  commission_rate?: number | null;
 }

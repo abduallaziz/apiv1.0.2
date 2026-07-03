@@ -12,13 +12,13 @@ export class UsersRepository extends ScopedRepository {
 
   async findAll(tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
-      .select('id, email, name, role, is_active, created_at')
+      .select('id, email, name, role, is_active, commission_rate, created_at')
       .order('created_at', { ascending: false });
   }
 
   async findById(id: string, tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
-      .select('id, email, name, role, is_active, created_at')
+      .select('id, email, name, role, is_active, commission_rate, created_at')
       .eq('id', id)
       .single();
   }
@@ -26,7 +26,7 @@ export class UsersRepository extends ScopedRepository {
   async findByEmail(email: string, tenantId: string) {
     return this.supabase
       .from('users')
-      .select('id, email, name, role, is_active')
+      .select('id, email, name, role, is_active, commission_rate')
       .eq('email', email)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
@@ -45,7 +45,7 @@ export class UsersRepository extends ScopedRepository {
     return this.supabase
       .from('users')
       .insert(data)
-      .select('id, email, name, role, is_active, created_at')
+      .select('id, email, name, role, is_active, commission_rate, created_at')
       .single();
   }
 
@@ -55,7 +55,7 @@ export class UsersRepository extends ScopedRepository {
       .update(data)
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .select('id, email, name, role, is_active')
+      .select('id, email, name, role, is_active, commission_rate')
       .single();
   }
 
