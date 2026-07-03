@@ -190,6 +190,33 @@ export class ReportsController {
     return data;
   }
 
+  @Get('comparison')
+  @RequirePermission('reports.view.branch')
+  async getComparison(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+  ) {
+    return this.reportsService.getPeriodComparison(tenant, query);
+  }
+
+  @Get('by-branch')
+  @RequirePermission('reports.view.all')
+  async getByBranch(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+  ) {
+    return this.reportsService.getBranchComparison(tenant, query);
+  }
+
+  @Get('customer-churn')
+  @RequirePermission('reports.view.branch')
+  async getCustomerChurn(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: ReportQueryDto,
+  ) {
+    return this.reportsService.getCustomerChurn(tenant, query);
+  }
+
   @Get('top-items')
   @RequirePermission('reports.view.branch')
   async getTopItems(

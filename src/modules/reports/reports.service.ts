@@ -659,4 +659,129 @@ export class ReportsService {
       top_by_value: topByValue,
     };
   }
+
+  private async getOrderMetrics(tenantId: string, from: string, to: string, branchId?: string) {
+    let q = this.supabase
+      .from('orders')
+      .select('id, total, customer_id, branch_id, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to);
+
+    if (branchId) q = q.eq('branch_id', branchId);
+
+    const { data: orders, error } = await q;
+    if (error) throw error;
+
+    const totalRevenue = (orders ?? []).reduce((s, o) => s + (o.total || 0), 0);
+    const orderCount = (orders ?? []).length;
+
+    return {
+      revenue: totalRevenue,
+      order_count: orderCount,
+      avg_order_value: orderCount > 0 ? totalRevenue / orderCount : 0,
+      unique_customers: new Set((orders ?? []).map((o) => o.customer_id).filter(Boolean)).size,
+    };
+  }
+
+  private percentChange(current: number, previous: number): number | null {
+    if (previous === 0) return current === 0 ? 0 : null; // undefined growth from a zero base
+    return parseFloat((((current - previous) / previous) * 100).toFixed(1));
+  }
+
+  async getPeriodComparison(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+    const currentFromMs = new Date(from).getTime();
+    const currentToMs = new Date(to).getTime();
+    const durationMs = currentToMs - currentFromMs;
+
+    const previousFrom = new Date(currentFromMs - durationMs).toISOString();
+    const previousTo = new Date(currentFromMs - 1).toISOString();
+
+    const [current, previous] = await Promise.all([
+      this.getOrderMetrics(tenant.tenantId, from, to, query.branch_id),
+      this.getOrderMetrics(tenant.tenantId, previousFrom, previousTo, query.branch_id),
+    ]);
+
+    return {
+      current_period: { from, to, ...current },
+      previous_period: { from: previousFrom, to: previousTo, ...previous },
+      change: {
+        revenue_pct: this.percentChange(current.revenue, previous.revenue),
+        order_count_pct: this.percentChange(current.order_count, previous.order_count),
+        avg_order_value_pct: this.percentChange(current.avg_order_value, previous.avg_order_value),
+      },
+    };
+  }
+
+  async getBranchComparison(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+
+    const { data: branches, error: branchError } = await this.supabase
+      .from('branches')
+      .select('id, name')
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null);
+    if (branchError) throw branchError;
+
+    const results = await Promise.all(
+      (branches ?? []).map(async (b) => ({
+        branch_id: b.id,
+        branch_name: b.name,
+        ...(await this.getOrderMetrics(tenant.tenantId, from, to, b.id)),
+      })),
+    );
+
+    return {
+      period: { from, to },
+      branches: results.sort((a, b) => b.revenue - a.revenue),
+    };
+  }
+
+  async getCustomerChurn(tenant: TenantContext, query: ReportQueryDto) {
+    const { from, to } = this.getDateRange(query);
+    const currentFromMs = new Date(from).getTime();
+    const durationMs = new Date(to).getTime() - currentFromMs;
+    const previousFrom = new Date(currentFromMs - durationMs).toISOString();
+    const previousTo = new Date(currentFromMs - 1).toISOString();
+
+    const [currentOrders, previousOrders] = await Promise.all([
+      this.supabase
+        .from('orders')
+        .select('customer_id')
+        .eq('tenant_id', tenant.tenantId)
+        .eq('status', 'completed')
+        .gte('created_at', from)
+        .lte('created_at', to)
+        .not('customer_id', 'is', null),
+      this.supabase
+        .from('orders')
+        .select('customer_id')
+        .eq('tenant_id', tenant.tenantId)
+        .eq('status', 'completed')
+        .gte('created_at', previousFrom)
+        .lte('created_at', previousTo)
+        .not('customer_id', 'is', null),
+    ]);
+
+    if (currentOrders.error) throw currentOrders.error;
+    if (previousOrders.error) throw previousOrders.error;
+
+    const currentCustomers = new Set((currentOrders.data ?? []).map((o) => o.customer_id));
+    const previousCustomers = new Set((previousOrders.data ?? []).map((o) => o.customer_id));
+
+    const churnedCustomerIds = [...previousCustomers].filter((id) => !currentCustomers.has(id));
+
+    return {
+      current_period: { from, to },
+      previous_period: { from: previousFrom, to: previousTo },
+      previous_period_customers: previousCustomers.size,
+      current_period_customers: currentCustomers.size,
+      churned_customers: churnedCustomerIds.length,
+      churn_rate_pct: previousCustomers.size > 0
+        ? parseFloat(((churnedCustomerIds.length / previousCustomers.size) * 100).toFixed(1))
+        : 0,
+    };
+  }
 }
