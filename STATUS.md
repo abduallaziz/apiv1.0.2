@@ -2466,3 +2466,26 @@ Phase 10K **جزئي عمدًا** — 3 من 4 (VAT وعملات متعددة ك
 
 ## الحالة النهائية
 Phase 10D الآن مكتمل بالكامل تقريبًا (تحويل مخزون، جرد، reorder points، locations، انتهاء صلاحية، ربط POS بالمخزون، COGS) — المتبقي فقط: باركود/ملصقات (لم يُبنَ)، Recipe/BOM (غير مقرَّر تنفيذه أصلًا). مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). لا migrations جديدة بهذا البند.
+
+---
+
+# 66. Phase 10H — الموارد البشرية (HR) — يوليو 3, 2026
+
+## السياق
+بند Phase 10: حضور وغياب، جدولة الموظفين، عمولات مبيعات — لم يكن أي منها موجودًا بالمشروع إطلاقًا (بحث شامل عن `attendance`/`commission` أرجع صفر نتائج قبل هذه الدفعة).
+
+## التنفيذ (apiv1.0.2 — commit `04db535`)
+- migration 044: جدول `attendance_records` (check_in_at/check_out_at، unique partial index يضمن سجل مفتوح واحد فقط لكل مستخدم بنفس الوقت)، جدول `work_schedules` (تاريخ/وقت بداية/نهاية لكل موظف)، عمود `users.commission_rate` (كسر 0-1، اختياري).
+- `HrModule` جديد (`modules/hr`): `AttendanceController`/`Service`/`Repository` + `SchedulesController`/`Service`/`Repository`.
+- صلاحيتان جديدتان بـ`permissions.seed.ts`: `attendance.checkin` (كل الأدوار — تسجيل حضور/انصراف/عرض سجل شخصي)، `attendance.view.all` + `hr.manage` (owner/manager فقط).
+- **تحقق أمني مطبَّق بنفس نمط §64**: إنشاء/تعديل جدول عمل يتحقق أن `user_id` و`branch_id` المُرسَلين يخصّان فعليًا نفس المستأجر قبل القبول — يمنع تسريب/ربط عابر للمستأجرين.
+- `GET /reports/employees` (من §59/10I) امتدّ ليشمل `commission_rate`/`commission_earned` محسوبة من `users.commission_rate × total_sales` لكل موظف.
+
+## التحقق (سيرفر محلي حقيقي)
+اختُبرت كل السيناريوهات: دورة حضور كاملة (check-in → منع check-in مزدوج 400 → عرض سجل شخصي → check-out → منع check-out بلا سجل مفتوح 404)، فرض الصلاحيات (403 لـcashier على `attendance.view.all`/`hr.manage`)، رفض جدولة لمستخدم مستأجر آخر (400)، حساب العمولة (2,876,081.52 × 0.05 = 143,804.08 مطابق تمامًا).
+
+## ⚠️ ملاحظة تشغيلية مهمة اكتُشفت أثناء الاختبار — cache صلاحيات Redis
+بعد إضافة الصلاحيات الجديدة وتشغيل `npm run seed:permissions`، ظل owner يُرفَض بـ403 رغم أن السجل بقاعدة البيانات صحيح تمامًا (تأكّد بالاستعلام المباشر). السبب: `PermissionsService` يخزّن صلاحيات كل دور بـRedis (`permissions:role:${role}`، TTL=600 ثانية) — **هذا الـcache محفوظ بـRedis منفصل عن عملية Node، فيبقى صالحًا حتى عبر إعادة تشغيل السيرفر بالكامل**. الحل: `docker exec redis-local redis-cli DEL permissions:role:owner permissions:role:cashier ...` بعد أي تعديل على الصلاحيات أثناء التطوير المحلي (أو الانتظار 10 دقائق). **هذه ملاحظة تشغيلية للتطوير المحلي فقط** — بالإنتاج الفعلي هذا TTL طبيعي ومقبول (10 دقائق كحد أقصى لظهور تغيير صلاحيات).
+
+## الحالة النهائية
+Phase 10H مكتمل بالكامل (بنطاق backend). **لا واجهة frontend بعد** لأي من الثلاث ميزات — API فقط، نفس نمط باقي دفعات هذه الجلسة. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 044 لم تُطبَّق على production/staging بعد.
