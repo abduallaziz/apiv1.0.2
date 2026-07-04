@@ -71,21 +71,29 @@ export class SchedulesService {
     const to = parseYMD(dto.date_to);
     if (to < from) throw new BadRequestException('date_to must be on or after date_from');
 
-    const dates: string[] = [];
+    const overrideByDay = new Map((dto.day_overrides ?? []).map((o) => [o.day, o]));
+
+    const dates: { scheduled_date: string; start_time: string; end_time: string }[] = [];
     for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
-      if (!dto.days_of_week || dto.days_of_week.includes(d.getUTCDay())) {
-        dates.push(d.toISOString().substring(0, 10));
+      const dayOfWeek = d.getUTCDay();
+      if (!dto.days_of_week || dto.days_of_week.includes(dayOfWeek)) {
+        const override = overrideByDay.get(dayOfWeek);
+        dates.push({
+          scheduled_date: d.toISOString().substring(0, 10),
+          start_time: override?.start_time ?? dto.start_time,
+          end_time: override?.end_time ?? dto.end_time,
+        });
       }
     }
     if (dates.length === 0) return [];
 
     const rows = dto.user_ids.flatMap((user_id) =>
-      dates.map((scheduled_date) => ({
+      dates.map((d) => ({
         user_id,
         branch_id: dto.branch_id,
-        scheduled_date,
-        start_time: dto.start_time,
-        end_time: dto.end_time,
+        scheduled_date: d.scheduled_date,
+        start_time: d.start_time,
+        end_time: d.end_time,
       })),
     );
 
