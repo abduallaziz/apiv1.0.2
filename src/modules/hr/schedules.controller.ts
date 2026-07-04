@@ -15,6 +15,7 @@ import { Request } from 'express';
 import { SchedulesService } from './schedules.service';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
+import { BulkCreateScheduleDto } from './dto/bulk-create-schedule.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -55,6 +56,12 @@ export class SchedulesController {
   @RequirePermission('hr.manage')
   create(@GetTenant() tenant: TenantContext, @Body() dto: CreateScheduleDto) {
     return this.service.create(tenant, dto);
+  }
+
+  @Post('bulk')
+  @RequirePermission('hr.manage')
+  bulkCreate(@GetTenant() tenant: TenantContext, @Body() dto: BulkCreateScheduleDto) {
+    return this.service.bulkCreate(tenant, dto);
   }
 
   @Patch(':id')

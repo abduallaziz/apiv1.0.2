@@ -924,6 +924,131 @@ export class ReportsService {
     };
   }
 
+  // month: 'YYYY-MM'. Computes each payroll-tracked employee's net salary for that month,
+  // using work_schedules as the source of truth for which days they were scheduled to
+  // work (see migration 044/046) — a scheduled day with no matching attendance record is
+  // an absence unless excused via attendance_exceptions.
+  async getPayrollReport(tenant: TenantContext, month: string) {
+    const [year, mon] = month.split('-').map(Number);
+    const monthStart = `${month}-01`;
+    const monthEnd = new Date(year, mon, 0).toISOString().substring(0, 10); // last day of month
+
+    const { data: employees, error: empErr } = await this.supabase
+      .from('users')
+      .select('id, name, base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value')
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
+      .not('base_salary', 'is', null);
+    if (empErr) throw empErr;
+    if (!employees || employees.length === 0) return { month, employees: [] };
+
+    const userIds = employees.map((e) => e.id);
+
+    const { data: schedules, error: schedErr } = await this.supabase
+      .from('work_schedules')
+      .select('user_id, scheduled_date, start_time')
+      .eq('tenant_id', tenant.tenantId)
+      .in('user_id', userIds)
+      .gte('scheduled_date', monthStart)
+      .lte('scheduled_date', monthEnd);
+    if (schedErr) throw schedErr;
+
+    const { data: attendance, error: attErr } = await this.supabase
+      .from('attendance_records')
+      .select('user_id, check_in_at')
+      .eq('tenant_id', tenant.tenantId)
+      .in('user_id', userIds)
+      .gte('check_in_at', `${monthStart}T00:00:00`)
+      .lte('check_in_at', `${monthEnd}T23:59:59.999`);
+    if (attErr) throw attErr;
+
+    const { data: exceptions, error: excErr } = await this.supabase
+      .from('attendance_exceptions')
+      .select('user_id, date')
+      .eq('tenant_id', tenant.tenantId)
+      .in('user_id', userIds)
+      .gte('date', monthStart)
+      .lte('date', monthEnd);
+    if (excErr) throw excErr;
+
+    const schedulesByUser: Record<string, { scheduled_date: string; start_time: string }[]> = {};
+    for (const s of schedules ?? []) (schedulesByUser[s.user_id] ??= []).push(s);
+
+    // First attendance record per (user, date) — later punches that same day are ignored
+    // for lateness purposes, only the initial check-in matters.
+    const attendanceByUserDate: Record<string, Record<string, string>> = {};
+    for (const a of attendance ?? []) {
+      const date = a.check_in_at.substring(0, 10);
+      const byDate = (attendanceByUserDate[a.user_id] ??= {});
+      if (!byDate[date] || a.check_in_at < byDate[date]) byDate[date] = a.check_in_at;
+    }
+
+    const excusedByUser: Record<string, Set<string>> = {};
+    for (const e of exceptions ?? []) (excusedByUser[e.user_id] ??= new Set()).add(e.date);
+
+    const results = employees.map((emp) => {
+      const scheduledDays = schedulesByUser[emp.id] ?? [];
+      const dayRate = scheduledDays.length > 0 ? emp.base_salary / scheduledDays.length : 0;
+      const excused = excusedByUser[emp.id] ?? new Set();
+      const attendanceDates = attendanceByUserDate[emp.id] ?? {};
+
+      let absenceCount = 0;
+      let absenceDeduction = 0;
+      let lateCount = 0;
+      let lateDeduction = 0;
+
+      for (const s of scheduledDays) {
+        const checkInAt = attendanceDates[s.scheduled_date];
+        if (!checkInAt) {
+          if (!excused.has(s.scheduled_date)) {
+            absenceCount++;
+            absenceDeduction += dayRate;
+          }
+          continue;
+        }
+
+        // check_in_at is stored as timestamptz (effectively UTC); parsing the schedule's
+        // start_time without a 'Z' suffix would parse as server-local time instead, which
+        // skewed lateness by the server's UTC offset (same class of bug as the bulk
+        // scheduling date shift above).
+        const scheduledStart = new Date(`${s.scheduled_date}T${s.start_time}Z`);
+        const actualStart = new Date(checkInAt);
+        const minutesLate = Math.max(0, (actualStart.getTime() - scheduledStart.getTime()) / 60000);
+        const minutesBeyondGrace = Math.max(0, minutesLate - emp.grace_period_minutes);
+
+        if (minutesBeyondGrace > 0 && emp.late_deduction_mode && emp.late_deduction_value) {
+          lateCount++;
+          if (emp.late_deduction_mode === 'fixed') {
+            lateDeduction += emp.late_deduction_value;
+          } else if (emp.late_deduction_mode === 'per_minute') {
+            lateDeduction += emp.late_deduction_value * minutesBeyondGrace;
+          } else if (emp.late_deduction_mode === 'percentage_of_daily_rate') {
+            lateDeduction += dayRate * emp.late_deduction_value;
+          }
+        }
+      }
+
+      absenceDeduction = this.round2(absenceDeduction);
+      lateDeduction = this.round2(lateDeduction);
+      const netSalary = this.round2(emp.base_salary - absenceDeduction - lateDeduction);
+
+      return {
+        user_id: emp.id,
+        name: emp.name,
+        base_salary: this.round2(emp.base_salary),
+        scheduled_days: scheduledDays.length,
+        day_rate: this.round2(dayRate),
+        absence_count: absenceCount,
+        absence_deduction: absenceDeduction,
+        late_count: lateCount,
+        late_deduction: lateDeduction,
+        net_salary: netSalary,
+      };
+    });
+
+    return { month, employees: results };
+  }
+
   async getCustomerChurn(tenant: TenantContext, query: ReportQueryDto) {
     const { from, to } = this.getDateRange(query);
     const currentFromMs = new Date(from).getTime();

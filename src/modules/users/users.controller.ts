@@ -71,4 +71,16 @@ export class UsersController {
   ) {
     return this.usersService.remove(id, tenant, req.user.sub);
   }
+
+  @Post(':id/attendance-link')
+  @RequirePermission('hr.manage')
+  generateAttendanceLink(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.usersService.generateAttendanceLink(id, tenant);
+  }
+
+  @Post(':id/attendance-link/unbind-device')
+  @RequirePermission('hr.manage')
+  unbindAttendanceDevice(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.usersService.unbindAttendanceDevice(id, tenant);
+  }
 }

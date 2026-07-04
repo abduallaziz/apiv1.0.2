@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { randomBytes } from 'crypto';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant.context';
@@ -10,15 +11,18 @@ export class UsersRepository extends ScopedRepository {
     super(supabase);
   }
 
+  private static readonly PAYROLL_FIELDS =
+    'base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value, attendance_token';
+
   async findAll(tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
-      .select('id, email, name, role, is_active, commission_rate, created_at')
+      .select(`id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`)
       .order('created_at', { ascending: false });
   }
 
   async findById(id: string, tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
-      .select('id, email, name, role, is_active, commission_rate, created_at')
+      .select(`id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`)
       .eq('id', id)
       .single();
   }
@@ -55,8 +59,49 @@ export class UsersRepository extends ScopedRepository {
       .update(data)
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .select('id, email, name, role, is_active, commission_rate')
+      .select(`id, email, name, role, is_active, commission_rate, ${UsersRepository.PAYROLL_FIELDS}`)
       .single();
+  }
+
+  async generateAttendanceToken(id: string, tenantId: string) {
+    const token = randomBytes(24).toString('base64url');
+    const { data, error } = await this.supabase
+      .from('users')
+      .update({ attendance_token: token, attendance_device_fingerprint: null })
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .select('id, attendance_token')
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async unbindAttendanceDevice(id: string, tenantId: string) {
+    const { error } = await this.supabase
+      .from('users')
+      .update({ attendance_device_fingerprint: null })
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+    if (error) throw error;
+  }
+
+  async findByAttendanceToken(token: string) {
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('id, tenant_id, name, attendance_device_fingerprint')
+      .eq('attendance_token', token)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  async bindAttendanceDevice(id: string, fingerprint: string) {
+    const { error } = await this.supabase
+      .from('users')
+      .update({ attendance_device_fingerprint: fingerprint })
+      .eq('id', id);
+    if (error) throw error;
   }
 
   async softDelete(id: string, tenantId: string) {

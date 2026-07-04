@@ -76,6 +76,15 @@ export class SchedulesRepository {
     return this.map(data);
   }
 
+  async bulkCreate(tenantId: string, rows: { user_id: string; branch_id?: string; scheduled_date: string; start_time: string; end_time: string }[]) {
+    const { data, error } = await this.supabase
+      .from('work_schedules')
+      .insert(rows.map((r) => ({ ...r, tenant_id: tenantId })))
+      .select(SELECT);
+    if (error) throw error;
+    return (data ?? []).map((r) => this.map(r));
+  }
+
   async remove(id: string, tenantId: string) {
     const { error } = await this.supabase
       .from('work_schedules')

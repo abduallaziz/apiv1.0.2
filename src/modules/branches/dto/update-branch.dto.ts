@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsUUID, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsUUID, IsNumber, Min, MaxLength } from 'class-validator';
 
 export class UpdateBranchDto {
   @IsOptional()
@@ -20,4 +20,19 @@ export class UpdateBranchDto {
   @IsOptional()
   @IsUUID()
   default_warehouse_id?: string | null;
+
+  // Attendance geofence — center + radius in meters. All three null disables geofencing
+  // for this branch (attendance check-ins are allowed from anywhere).
+  @IsOptional()
+  @IsNumber()
+  geofence_lat?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  geofence_lng?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  geofence_radius_m?: number | null;
 }
