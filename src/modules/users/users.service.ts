@@ -78,6 +78,10 @@ export class UsersService {
     if (dto.is_active !== undefined) updates.is_active = dto.is_active;
     if (dto.password) updates.password_hash = await bcrypt.hash(dto.password, 12);
     if (dto.commission_rate !== undefined) updates.commission_rate = dto.commission_rate;
+    if (dto.base_salary !== undefined) updates.base_salary = dto.base_salary;
+    if (dto.grace_period_minutes !== undefined) updates.grace_period_minutes = dto.grace_period_minutes;
+    if (dto.late_deduction_mode !== undefined) updates.late_deduction_mode = dto.late_deduction_mode;
+    if (dto.late_deduction_value !== undefined) updates.late_deduction_value = dto.late_deduction_value;
 
     if (dto.role) throw new BadRequestException('Use PATCH /users/:id/role to change role');
 
@@ -141,5 +145,16 @@ export class UsersService {
     });
 
     return { message: 'User deleted successfully' };
+  }
+
+  async generateAttendanceLink(id: string, tenant: TenantContext) {
+    await this.findOne(id, tenant);
+    return this.usersRepository.generateAttendanceToken(id, tenant.tenantId);
+  }
+
+  async unbindAttendanceDevice(id: string, tenant: TenantContext) {
+    await this.findOne(id, tenant);
+    await this.usersRepository.unbindAttendanceDevice(id, tenant.tenantId);
+    return { message: 'Device unbound — the link can now be used from a new device.' };
   }
 }

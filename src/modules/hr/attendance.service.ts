@@ -32,4 +32,12 @@ export class AttendanceService {
   ) {
     return this.repo.findAll(tenant, filters);
   }
+
+  async createException(tenant: TenantContext, userId: string, date: string, reason: string, createdBy: string) {
+    return this.repo.createException(tenant.tenantId, userId, date, reason, createdBy);
+  }
+
+  async findExceptions(tenant: TenantContext, filters: { userId?: string; from?: string; to?: string }) {
+    return this.repo.findExceptions(tenant.tenantId, filters);
+  }
 }

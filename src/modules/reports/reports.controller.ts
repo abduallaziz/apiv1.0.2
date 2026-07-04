@@ -274,4 +274,17 @@ export class ReportsController {
   async getSparklines(@GetTenant() tenant: TenantContext) {
     return this.reportsService.getSparklines(tenant);
   }
+
+  @Get('payroll')
+  @RequirePermission('hr.manage')
+  async getPayroll(
+    @GetTenant() tenant: TenantContext,
+    @Query('month') month?: string,
+  ) {
+    if (!month) month = new Date().toISOString().substring(0, 7);
+    else if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException('month must be in YYYY-MM format');
+    }
+    return this.reportsService.getPayrollReport(tenant, month);
+  }
 }

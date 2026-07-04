@@ -31,20 +31,41 @@ export class AttendanceRepository {
     return !!data;
   }
 
-  async checkIn(tenantId: string, userId: string, branchId: string | null) {
+  async checkIn(
+    tenantId: string,
+    userId: string,
+    branchId: string | null,
+    location?: { lat: number; lng: number; code: string },
+  ) {
     const { data, error } = await this.supabase
       .from('attendance_records')
-      .insert({ tenant_id: tenantId, user_id: userId, branch_id: branchId })
+      .insert({
+        tenant_id: tenantId,
+        user_id: userId,
+        branch_id: branchId,
+        check_in_lat: location?.lat ?? null,
+        check_in_lng: location?.lng ?? null,
+        check_in_code: location?.code ?? null,
+      })
       .select('id, check_in_at, branch_id')
       .single();
     if (error) throw error;
     return data;
   }
 
-  async checkOut(tenantId: string, recordId: string) {
+  async checkOut(
+    tenantId: string,
+    recordId: string,
+    location?: { lat: number; lng: number; code: string },
+  ) {
     const { data, error } = await this.supabase
       .from('attendance_records')
-      .update({ check_out_at: new Date().toISOString() })
+      .update({
+        check_out_at: new Date().toISOString(),
+        check_out_lat: location?.lat ?? null,
+        check_out_lng: location?.lng ?? null,
+        check_out_code: location?.code ?? null,
+      })
       .eq('tenant_id', tenantId)
       .eq('id', recordId)
       .select('id, check_in_at, check_out_at, branch_id')
@@ -81,6 +102,40 @@ export class AttendanceRepository {
       hours_worked: r.check_out_at
         ? parseFloat(((new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 3600000).toFixed(2))
         : null,
+    }));
+  }
+
+  async createException(tenantId: string, userId: string, date: string, reason: string, createdBy: string) {
+    const { data, error } = await this.supabase
+      .from('attendance_exceptions')
+      .upsert(
+        { tenant_id: tenantId, user_id: userId, date, reason, created_by: createdBy },
+        { onConflict: 'tenant_id,user_id,date' },
+      )
+      .select('id, user_id, date, reason, created_at')
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async findExceptions(tenantId: string, filters: { userId?: string; from?: string; to?: string }) {
+    let q = this.supabase
+      .from('attendance_exceptions')
+      .select('id, user_id, date, reason, created_at, users!attendance_exceptions_user_id_fkey(name)')
+      .eq('tenant_id', tenantId)
+      .order('date', { ascending: false });
+    if (filters.userId) q = q.eq('user_id', filters.userId);
+    if (filters.from) q = q.gte('date', filters.from);
+    if (filters.to) q = q.lte('date', filters.to);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      user_id: r.user_id,
+      user_name: r.users?.name ?? null,
+      date: r.date,
+      reason: r.reason,
+      created_at: r.created_at,
     }));
   }
 }

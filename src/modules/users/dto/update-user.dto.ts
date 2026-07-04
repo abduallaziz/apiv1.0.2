@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, Max, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, Max, MinLength } from 'class-validator';
 import { UserRole } from '../../../shared/types/enums';
 
 export class UpdateUserDto {
@@ -29,4 +29,24 @@ export class UpdateUserDto {
   @Max(1)
   @IsOptional()
   commission_rate?: number | null;
+
+  // Monthly base salary. null means this employee isn't tracked in payroll.
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  base_salary?: number | null;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  grace_period_minutes?: number;
+
+  @IsIn(['fixed', 'per_minute', 'percentage_of_daily_rate'])
+  @IsOptional()
+  late_deduction_mode?: 'fixed' | 'per_minute' | 'percentage_of_daily_rate' | null;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  late_deduction_value?: number | null;
 }
