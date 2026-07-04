@@ -140,7 +140,7 @@ export class ReportsService {
 
     let q = this.supabase
       .from('expenses')
-      .select('id, amount, status, notes, created_at, branch_id, template_id, requested_by, approved_by, resolved_at')
+      .select('id, amount, status, notes, created_at, branch_id, template_id, requested_by, approved_by, resolved_at, category:expense_categories(id, name)')
       .eq('tenant_id', tenant.tenantId)
       .gte('created_at', from)
       .lte('created_at', to)
@@ -156,6 +156,15 @@ export class ReportsService {
     const pending = expenses.filter(e => e.status === 'pending');
     const totalApproved = approved.reduce((s, e) => s + (e.amount || 0), 0);
 
+    const byCategory: Record<string, { category: string; count: number; total: number }> = {};
+    for (const e of approved) {
+      const cat = (e.category as unknown as { id: string; name: string } | null);
+      const key = cat?.id ?? 'uncategorized';
+      if (!byCategory[key]) byCategory[key] = { category: cat?.name ?? 'Uncategorized', count: 0, total: 0 };
+      byCategory[key].count++;
+      byCategory[key].total += e.amount || 0;
+    }
+
     return {
       period: { from, to },
       summary: {
@@ -165,6 +174,7 @@ export class ReportsService {
         pending_count: pending.length,
         total_approved_amount: totalApproved,
       },
+      by_category: Object.values(byCategory).sort((a, b) => b.total - a.total),
       expenses: expenses.map(e => ({
         id: e.id,
         amount: e.amount,
