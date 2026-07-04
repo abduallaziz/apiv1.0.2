@@ -105,17 +105,16 @@ export class AttendanceRepository {
     }));
   }
 
-  async createException(tenantId: string, userId: string, date: string, reason: string, createdBy: string) {
+  async createExceptions(tenantId: string, userId: string, dates: string[], reason: string, createdBy: string) {
     const { data, error } = await this.supabase
       .from('attendance_exceptions')
       .upsert(
-        { tenant_id: tenantId, user_id: userId, date, reason, created_by: createdBy },
+        dates.map((date) => ({ tenant_id: tenantId, user_id: userId, date, reason, created_by: createdBy })),
         { onConflict: 'tenant_id,user_id,date' },
       )
-      .select('id, user_id, date, reason, created_at')
-      .single();
+      .select('id, user_id, date, reason, created_at');
     if (error) throw error;
-    return data;
+    return data ?? [];
   }
 
   async findExceptions(tenantId: string, filters: { userId?: string; from?: string; to?: string }) {

@@ -33,8 +33,22 @@ export class AttendanceService {
     return this.repo.findAll(tenant, filters);
   }
 
-  async createException(tenant: TenantContext, userId: string, date: string, reason: string, createdBy: string) {
-    return this.repo.createException(tenant.tenantId, userId, date, reason, createdBy);
+  async createException(tenant: TenantContext, userId: string, dateFrom: string, dateTo: string, reason: string, createdBy: string) {
+    // Parsed/iterated in UTC — see the identical note in SchedulesService.bulkCreate.
+    const parseYMD = (s: string) => {
+      const [y, m, d] = s.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, d));
+    };
+    const from = parseYMD(dateFrom);
+    const to = parseYMD(dateTo);
+    if (to < from) throw new BadRequestException('date_to must be on or after date_from');
+
+    const dates: string[] = [];
+    for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+      dates.push(d.toISOString().substring(0, 10));
+    }
+
+    return this.repo.createExceptions(tenant.tenantId, userId, dates, reason, createdBy);
   }
 
   async findExceptions(tenant: TenantContext, filters: { userId?: string; from?: string; to?: string }) {

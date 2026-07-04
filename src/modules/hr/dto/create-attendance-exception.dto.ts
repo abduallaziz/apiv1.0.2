@@ -5,7 +5,11 @@ export class CreateAttendanceExceptionDto {
   user_id: string;
 
   @IsDateString()
-  date: string;
+  date_from: string;
+
+  // Same as date_from for a single day.
+  @IsDateString()
+  date_to: string;
 
   @IsString()
   @MinLength(3)

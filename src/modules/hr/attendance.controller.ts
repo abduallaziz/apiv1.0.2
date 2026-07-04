@@ -64,7 +64,7 @@ export class AttendanceController {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.createException(tenant, dto.user_id, dto.date, dto.reason, user.sub);
+    return this.service.createException(tenant, dto.user_id, dto.date_from, dto.date_to, dto.reason, user.sub);
   }
 
   @Get('exceptions')
