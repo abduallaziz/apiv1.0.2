@@ -11,6 +11,13 @@ export class ReportsService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
+  // Summing many already-rounded 2-decimal floats (e.g. order totals) accumulates
+  // IEEE-754 drift (289.79999999999995 instead of 289.8) — round every monetary
+  // aggregate to 2 decimals before it leaves this service.
+  private round2(n: number): number {
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
   private getDateRange(query: ReportQueryDto): { from: string; to: string } {
     const now = new Date();
     const to = now.toISOString();
@@ -69,6 +76,7 @@ export class ReportsService {
       byPaymentMethod[m].count++;
       byPaymentMethod[m].total += o.total || 0;
     }
+    for (const m of Object.keys(byPaymentMethod)) byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
 
     const byDay: Record<string, number> = {};
     for (const o of orders) {
@@ -79,15 +87,15 @@ export class ReportsService {
     return {
       period: { from, to },
       summary: {
-        total_revenue: totalRevenue,
+        total_revenue: this.round2(totalRevenue),
         total_orders: orders.length,
-        total_discount: totalDiscount,
-        total_tax: totalTax,
-        avg_order_value: orders.length > 0 ? totalRevenue / orders.length : 0,
+        total_discount: this.round2(totalDiscount),
+        total_tax: this.round2(totalTax),
+        avg_order_value: orders.length > 0 ? this.round2(totalRevenue / orders.length) : 0,
       },
       by_payment_method: byPaymentMethod,
       daily_breakdown: Object.entries(byDay)
-        .map(([date, total]) => ({ date, total }))
+        .map(([date, total]) => ({ date, total: this.round2(total) }))
         .sort((a, b) => a.date.localeCompare(b.date)),
     };
   }
@@ -117,8 +125,8 @@ export class ReportsService {
         total_shifts: shifts.length,
         closed_shifts: closed.length,
         open_shifts: shifts.filter(s => s.status === 'open').length,
-        total_discrepancy: totalDiscrepancy,
-        avg_discrepancy: closed.length > 0 ? totalDiscrepancy / closed.length : 0,
+        total_discrepancy: this.round2(totalDiscrepancy),
+        avg_discrepancy: closed.length > 0 ? this.round2(totalDiscrepancy / closed.length) : 0,
       },
       shifts: shifts.map(s => ({
         id: s.id,
@@ -164,6 +172,7 @@ export class ReportsService {
       byCategory[key].count++;
       byCategory[key].total += e.amount || 0;
     }
+    for (const key of Object.keys(byCategory)) byCategory[key].total = this.round2(byCategory[key].total);
 
     return {
       period: { from, to },
@@ -172,7 +181,7 @@ export class ReportsService {
         approved_count: approved.length,
         rejected_count: rejected.length,
         pending_count: pending.length,
-        total_approved_amount: totalApproved,
+        total_approved_amount: this.round2(totalApproved),
       },
       by_category: Object.values(byCategory).sort((a, b) => b.total - a.total),
       expenses: expenses.map(e => ({
@@ -213,7 +222,7 @@ export class ReportsService {
 
     const bucket = (methods: string[]) => {
       const matched = orders.filter(o => methods.includes(o.payment_method));
-      return { count: matched.length, total: matched.reduce((s, o) => s + (o.total || 0), 0) };
+      return { count: matched.length, total: this.round2(matched.reduce((s, o) => s + (o.total || 0), 0)) };
     };
 
     const byMethod: Record<string, { count: number; total: number }> = {};
@@ -223,12 +232,13 @@ export class ReportsService {
       byMethod[m].count++;
       byMethod[m].total += o.total || 0;
     }
+    for (const m of Object.keys(byMethod)) byMethod[m].total = this.round2(byMethod[m].total);
 
     return {
       period: { from, to },
       summary: {
         total_orders: orders.length,
-        grand_total: orders.reduce((s, o) => s + (o.total || 0), 0),
+        grand_total: this.round2(orders.reduce((s, o) => s + (o.total || 0), 0)),
         cash: bucket(['cash']),
         card: bucket(ReportsService.CARD_NETWORK_METHODS),
         wallet: bucket(ReportsService.WALLET_METHODS),
@@ -371,7 +381,7 @@ export class ReportsService {
       items: items.map(i => ({
         name:     i.name,
         quantity: i.quantity,
-        total:    i.total,
+        total:    this.round2(i.total),
         pct:      Math.round((i.total / maxTotal) * 100),
       })),
     };
@@ -401,7 +411,7 @@ export class ReportsService {
         type:   o.status === 'cancelled' ? 'refund' : 'order',
         title:  `فاتورة #${o.id.slice(-4).toUpperCase()}`,
         sub:    o.payment_method ?? 'cash',
-        amount: o.status === 'cancelled' ? -(o.total ?? 0) : (o.total ?? 0),
+        amount: this.round2(o.status === 'cancelled' ? -(o.total ?? 0) : (o.total ?? 0)),
         time:   o.created_at,
       });
     }
@@ -479,10 +489,10 @@ export class ReportsService {
     }
 
     return {
-      sales:     days.map(d => salesMap[d]),
+      sales:     days.map(d => this.round2(salesMap[d])),
       orders:    days.map(d => ordersMap[d]),
       customers: days.map(d => customersMap[d]),
-      expenses:  days.map(d => expensesMap[d]),
+      expenses:  days.map(d => this.round2(expensesMap[d])),
     };
   }
 
@@ -532,10 +542,10 @@ export class ReportsService {
           cashier_id,
           name: v.name,
           order_count: v.order_count,
-          total_sales: v.total_sales,
-          avg_order_value: v.order_count > 0 ? v.total_sales / v.order_count : 0,
+          total_sales: this.round2(v.total_sales),
+          avg_order_value: v.order_count > 0 ? this.round2(v.total_sales / v.order_count) : 0,
           commission_rate: commissionRate,
-          commission_earned: commissionRate !== null ? parseFloat((v.total_sales * commissionRate).toFixed(2)) : null,
+          commission_earned: commissionRate !== null ? this.round2(v.total_sales * commissionRate) : null,
         };
       })
       .sort((a, b) => b.total_sales - a.total_sales);
@@ -583,8 +593,8 @@ export class ReportsService {
         customer_id,
         name: v.name,
         order_count: v.order_count,
-        total_spent: v.total_spent,
-        avg_order_value: v.order_count > 0 ? v.total_spent / v.order_count : 0,
+        total_spent: this.round2(v.total_spent),
+        avg_order_value: v.order_count > 0 ? this.round2(v.total_spent / v.order_count) : 0,
       }))
       .sort((a, b) => b.total_spent - a.total_spent);
 
@@ -644,24 +654,25 @@ export class ReportsService {
       byPaymentMethod[m].count++;
       byPaymentMethod[m].total += o.total || 0;
     }
+    for (const m of Object.keys(byPaymentMethod)) byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
 
     return {
       date,
       sales: {
         total_orders: (orders ?? []).length,
-        total_revenue: (orders ?? []).reduce((s, o) => s + (o.total || 0), 0),
+        total_revenue: this.round2((orders ?? []).reduce((s, o) => s + (o.total || 0), 0)),
         by_payment_method: byPaymentMethod,
       },
       expenses: {
         approved_count: (expenses ?? []).length,
-        total_approved_amount: (expenses ?? []).reduce((s, e) => s + (e.amount || 0), 0),
+        total_approved_amount: this.round2((expenses ?? []).reduce((s, e) => s + (e.amount || 0), 0)),
       },
       cash_shifts: {
         closed_shift_count: (shifts ?? []).length,
-        total_opening_cash: (shifts ?? []).reduce((s, sh) => s + (sh.opening_cash || 0), 0),
-        total_closing_cash: (shifts ?? []).reduce((s, sh) => s + (sh.closing_cash || 0), 0),
-        total_expected_cash: (shifts ?? []).reduce((s, sh) => s + (sh.expected_cash || 0), 0),
-        total_discrepancy: (shifts ?? []).reduce((s, sh) => s + (sh.discrepancy || 0), 0),
+        total_opening_cash: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.opening_cash || 0), 0)),
+        total_closing_cash: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.closing_cash || 0), 0)),
+        total_expected_cash: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.expected_cash || 0), 0)),
+        total_discrepancy: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.discrepancy || 0), 0)),
       },
     };
   }
@@ -699,12 +710,18 @@ export class ReportsService {
       tax_rate: taxRate,
       summary: {
         total_orders: (orders ?? []).length,
-        total_subtotal: (orders ?? []).reduce((s, o) => s + (o.subtotal || 0), 0),
-        total_tax_collected: (orders ?? []).reduce((s, o) => s + (o.tax || 0), 0),
-        grand_total: (orders ?? []).reduce((s, o) => s + (o.total || 0), 0),
+        total_subtotal: this.round2((orders ?? []).reduce((s, o) => s + (o.subtotal || 0), 0)),
+        total_tax_collected: this.round2((orders ?? []).reduce((s, o) => s + (o.tax || 0), 0)),
+        grand_total: this.round2((orders ?? []).reduce((s, o) => s + (o.total || 0), 0)),
       },
       daily_breakdown: Object.entries(byDay)
-        .map(([date, v]) => ({ date, ...v }))
+        .map(([date, v]) => ({
+          date,
+          subtotal: this.round2(v.subtotal),
+          tax: this.round2(v.tax),
+          total: this.round2(v.total),
+          order_count: v.order_count,
+        }))
         .sort((a, b) => a.date.localeCompare(b.date)),
     };
   }
@@ -751,7 +768,7 @@ export class ReportsService {
         item_id,
         item_name: namesById[item_id] ?? 'Unknown',
         quantity_sold: v.quantity,
-        total_cost: v.total_cost,
+        total_cost: this.round2(v.total_cost),
       }))
       .sort((a, b) => b.total_cost - a.total_cost)
       .slice(0, 10);
@@ -773,9 +790,9 @@ export class ReportsService {
     return {
       period: { from, to },
       summary: {
-        total_cogs: totalCogs,
-        total_revenue: totalRevenue,
-        gross_profit: grossProfit,
+        total_cogs: this.round2(totalCogs),
+        total_revenue: this.round2(totalRevenue),
+        gross_profit: this.round2(grossProfit),
         gross_margin_pct: totalRevenue > 0 ? parseFloat(((grossProfit / totalRevenue) * 100).toFixed(1)) : 0,
       },
       top_by_cost: topByCost,
@@ -820,11 +837,11 @@ export class ReportsService {
     return {
       summary: {
         total_sku_count: rows.length,
-        total_inventory_value: totalValue,
+        total_inventory_value: this.round2(totalValue),
         low_stock_count: lowStockCount,
         out_of_stock_count: outOfStockCount,
       },
-      top_by_value: topByValue,
+      top_by_value: topByValue.map((r: any) => ({ ...r, inventory_value: this.round2(r.inventory_value || 0) })),
     };
   }
 
@@ -846,9 +863,9 @@ export class ReportsService {
     const orderCount = (orders ?? []).length;
 
     return {
-      revenue: totalRevenue,
+      revenue: this.round2(totalRevenue),
       order_count: orderCount,
-      avg_order_value: orderCount > 0 ? totalRevenue / orderCount : 0,
+      avg_order_value: orderCount > 0 ? this.round2(totalRevenue / orderCount) : 0,
       unique_customers: new Set((orders ?? []).map((o) => o.customer_id).filter(Boolean)).size,
     };
   }
