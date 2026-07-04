@@ -19,10 +19,13 @@ import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 
 const REFRESH_COOKIE = 'sefay_refresh';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'none' as const,
+  secure: IS_PRODUCTION,
+  // SameSite=None requires Secure, which browsers reject over plain HTTP.
+  // Cross-site (Vercel <-> Railway) needs 'none' in prod; same-origin localhost uses 'lax'.
+  sameSite: (IS_PRODUCTION ? 'none' : 'lax') as 'none' | 'lax',
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
