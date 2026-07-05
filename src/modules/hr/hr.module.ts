@@ -7,6 +7,9 @@ import { AttendanceLinkService } from './attendance-link.service';
 import { SchedulesController } from './schedules.controller';
 import { SchedulesService } from './schedules.service';
 import { SchedulesRepository } from './repositories/schedules.repository';
+import { ShiftPatternsController } from './shift-patterns.controller';
+import { ShiftPatternsService } from './shift-patterns.service';
+import { ShiftPatternsRepository } from './repositories/shift-patterns.repository';
 import { EmployeeGeofencesController } from './employee-geofences.controller';
 import { EmployeeGeofencesService } from './employee-geofences.service';
 import { EmployeeGeofencesRepository } from './repositories/employee-geofences.repository';
@@ -17,13 +20,15 @@ import { GeofenceService } from '../../shared/geo/geofence.service';
 
 @Module({
   imports: [PermissionsModule, CoreAuthModule, UsersModule],
-  controllers: [AttendanceController, AttendanceLinkController, SchedulesController, EmployeeGeofencesController],
+  controllers: [AttendanceController, AttendanceLinkController, SchedulesController, ShiftPatternsController, EmployeeGeofencesController],
   providers: [
     AttendanceService,
     AttendanceRepository,
     AttendanceLinkService,
     SchedulesService,
     SchedulesRepository,
+    ShiftPatternsService,
+    ShiftPatternsRepository,
     EmployeeGeofencesService,
     EmployeeGeofencesRepository,
     GeofenceService,

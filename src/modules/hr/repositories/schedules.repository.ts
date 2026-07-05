@@ -85,6 +85,19 @@ export class SchedulesRepository {
     return (data ?? []).map((r) => this.map(r));
   }
 
+  // Clears future rows before regenerating (pattern edit, reassignment) —
+  // never touches scheduled_date < fromDate so historical payroll/attendance
+  // data already computed against past schedule rows is left untouched.
+  async deleteFrom(tenantId: string, userIds: string[], fromDate: string) {
+    const { error } = await this.supabase
+      .from('work_schedules')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .in('user_id', userIds)
+      .gte('scheduled_date', fromDate);
+    if (error) throw error;
+  }
+
   async remove(id: string, tenantId: string) {
     const { error } = await this.supabase
       .from('work_schedules')
