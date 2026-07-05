@@ -71,24 +71,25 @@ export class SchedulesService {
     const to = parseYMD(dto.date_to);
     if (to < from) throw new BadRequestException('date_to must be on or after date_from');
 
-    const overrideByDay = new Map((dto.day_overrides ?? []).map((o) => [o.day, o]));
+    const overrideByDay = new Map((dto.day_overrides ?? []).map((o) => [o.day, o.shifts]));
 
-    const dates: { scheduled_date: string; start_time: string; end_time: string }[] = [];
+    // A day with a split shift (e.g. 08:00-12:00 + 14:00-00:00) produces one
+    // row per shift segment, not one row per date.
+    const dateShifts: { scheduled_date: string; start_time: string; end_time: string }[] = [];
     for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
       const dayOfWeek = d.getUTCDay();
       if (!dto.days_of_week || dto.days_of_week.includes(dayOfWeek)) {
-        const override = overrideByDay.get(dayOfWeek);
-        dates.push({
-          scheduled_date: d.toISOString().substring(0, 10),
-          start_time: override?.start_time ?? dto.start_time,
-          end_time: override?.end_time ?? dto.end_time,
-        });
+        const shifts = overrideByDay.get(dayOfWeek) ?? dto.shifts;
+        const scheduled_date = d.toISOString().substring(0, 10);
+        for (const shift of shifts) {
+          dateShifts.push({ scheduled_date, start_time: shift.start_time, end_time: shift.end_time });
+        }
       }
     }
-    if (dates.length === 0) return [];
+    if (dateShifts.length === 0) return [];
 
     const rows = dto.user_ids.flatMap((user_id) =>
-      dates.map((d) => ({
+      dateShifts.map((d) => ({
         user_id,
         branch_id: dto.branch_id,
         scheduled_date: d.scheduled_date,

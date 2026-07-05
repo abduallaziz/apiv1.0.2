@@ -57,8 +57,7 @@ export class ShiftPatternsService {
     if (userIds.length > 0) {
       await this.regenerate(tenant, userIds, {
         days_of_week: updated.days_of_week,
-        start_time: updated.start_time,
-        end_time: updated.end_time,
+        shifts: updated.shifts,
         day_overrides: updated.day_overrides,
       });
     }
@@ -92,7 +91,7 @@ export class ShiftPatternsService {
       if (!ok) throw new BadRequestException(`User not found: ${userId}`);
     }
 
-    let resolved: { days_of_week: number[]; start_time: string; end_time: string; day_overrides?: object[] };
+    let resolved: { days_of_week: number[]; shifts: object[]; day_overrides?: object[] };
     let userFields: Record<string, any>;
 
     if (dto.shift_pattern_id) {
@@ -101,8 +100,7 @@ export class ShiftPatternsService {
       userFields = {
         shift_pattern_id: pattern.id,
         custom_days_of_week: null,
-        custom_start_time: null,
-        custom_end_time: null,
+        custom_shifts: null,
         custom_day_overrides: null,
         schedule_start_date: dto.schedule_start_date,
       };
@@ -111,8 +109,7 @@ export class ShiftPatternsService {
       userFields = {
         shift_pattern_id: null,
         custom_days_of_week: dto.custom!.days_of_week,
-        custom_start_time: dto.custom!.start_time,
-        custom_end_time: dto.custom!.end_time,
+        custom_shifts: dto.custom!.shifts,
         custom_day_overrides: dto.custom!.day_overrides ?? [],
         schedule_start_date: dto.schedule_start_date,
       };
@@ -127,7 +124,7 @@ export class ShiftPatternsService {
   private async regenerate(
     tenant: TenantContext,
     userIds: string[],
-    pattern: { days_of_week: number[]; start_time: string; end_time: string; day_overrides?: object[] },
+    pattern: { days_of_week: number[]; shifts: object[]; day_overrides?: object[] },
     scheduleStartDate?: string,
   ) {
     const now = today();
@@ -139,8 +136,7 @@ export class ShiftPatternsService {
       date_from: from,
       date_to: addDays(now, ROLLING_WINDOW_DAYS),
       days_of_week: pattern.days_of_week,
-      start_time: pattern.start_time,
-      end_time: pattern.end_time,
+      shifts: pattern.shifts,
       day_overrides: (pattern.day_overrides as any) ?? [],
     } as any);
   }

@@ -1,8 +1,7 @@
-import { IsString, IsOptional, IsArray, IsInt, Min, Max, Matches, ValidateNested, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsArray, ArrayMinSize, IsInt, Min, Max, ValidateNested, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DayOverrideDto } from './bulk-create-schedule.dto';
-
-const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+import { ShiftDto } from './shift.dto';
 
 export class CreateShiftPatternDto {
   @IsString()
@@ -15,13 +14,14 @@ export class CreateShiftPatternDto {
   @Max(6, { each: true })
   days_of_week: number[];
 
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'start_time must be in HH:MM 24h format' })
-  start_time: string;
-
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'end_time must be in HH:MM 24h format' })
-  end_time: string;
+  // One or more shift segments per matching day — a single entry is a
+  // regular shift (e.g. 09:00-17:00); two entries is a split shift (e.g.
+  // 08:00-12:00 + 14:00-00:00).
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ShiftDto)
+  shifts: ShiftDto[];
 
   @IsOptional()
   @IsArray()
@@ -44,14 +44,11 @@ export class UpdateShiftPatternDto {
   days_of_week?: number[];
 
   @IsOptional()
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'start_time must be in HH:MM 24h format' })
-  start_time?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'end_time must be in HH:MM 24h format' })
-  end_time?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ShiftDto)
+  shifts?: ShiftDto[];
 
   @IsOptional()
   @IsArray()

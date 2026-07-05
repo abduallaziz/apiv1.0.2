@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
-const SELECT = 'id, tenant_id, name, days_of_week, start_time, end_time, day_overrides, created_at, updated_at';
+const SELECT = 'id, tenant_id, name, days_of_week, shifts, day_overrides, created_at, updated_at';
 
 @Injectable()
 export class ShiftPatternsRepository {

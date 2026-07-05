@@ -1,7 +1,6 @@
-import { IsUUID, IsOptional, IsDateString, IsString, IsArray, ArrayMinSize, IsInt, Min, Max, Matches, ValidateNested } from 'class-validator';
+import { IsUUID, IsOptional, IsDateString, IsArray, ArrayMinSize, IsInt, Min, Max, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-
-const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+import { ShiftDto } from './shift.dto';
 
 export class DayOverrideDto {
   @IsInt()
@@ -9,13 +8,12 @@ export class DayOverrideDto {
   @Max(6)
   day: number;
 
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'start_time must be in HH:MM 24h format' })
-  start_time: string;
-
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'end_time must be in HH:MM 24h format' })
-  end_time: string;
+  // Replaces the base `shifts` array entirely for this weekday — e.g. every
+  // selected day works two shifts except Friday, which overrides to one.
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ShiftDto)
+  shifts: ShiftDto[];
 }
 
 export class BulkCreateScheduleDto {
@@ -43,16 +41,14 @@ export class BulkCreateScheduleDto {
   @Max(6, { each: true })
   days_of_week?: number[];
 
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'start_time must be in HH:MM 24h format' })
-  start_time: string;
+  // One or more shift segments applied to every matching date (e.g. a split
+  // shift: 08:00-12:00 and 14:00-00:00) unless overridden for that weekday.
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ShiftDto)
+  shifts: ShiftDto[];
 
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'end_time must be in HH:MM 24h format' })
-  end_time: string;
-
-  // Per-weekday time overrides — e.g. every selected day uses start_time/end_time above,
-  // except Friday which uses its own hours here instead.
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

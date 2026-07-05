@@ -1,8 +1,7 @@
-import { IsUUID, IsOptional, IsArray, ArrayMinSize, IsInt, Min, Max, IsString, Matches, IsDateString, ValidateNested } from 'class-validator';
+import { IsUUID, IsOptional, IsArray, ArrayMinSize, IsInt, Min, Max, IsDateString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DayOverrideDto } from './bulk-create-schedule.dto';
-
-const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+import { ShiftDto } from './shift.dto';
 
 export class CustomScheduleDto {
   @IsArray()
@@ -11,13 +10,11 @@ export class CustomScheduleDto {
   @Max(6, { each: true })
   days_of_week: number[];
 
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'start_time must be in HH:MM 24h format' })
-  start_time: string;
-
-  @IsString()
-  @Matches(TIME_PATTERN, { message: 'end_time must be in HH:MM 24h format' })
-  end_time: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ShiftDto)
+  shifts: ShiftDto[];
 
   @IsOptional()
   @IsArray()
