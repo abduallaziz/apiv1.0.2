@@ -27,6 +27,14 @@ export class UpdateUserDto {
   @IsOptional()
   department?: string | null;
 
+  @IsString()
+  @IsOptional()
+  job_title?: string | null;
+
+  @IsString()
+  @IsOptional()
+  avatar_url?: string | null;
+
   // Stored as a fraction (0-1), e.g. 0.05 for 5%. null clears it (no commission).
   @IsNumber()
   @Min(0)

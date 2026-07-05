@@ -83,6 +83,8 @@ export class UsersService {
     if (dto.late_deduction_mode !== undefined) updates.late_deduction_mode = dto.late_deduction_mode;
     if (dto.late_deduction_value !== undefined) updates.late_deduction_value = dto.late_deduction_value;
     if (dto.department !== undefined) updates.department = dto.department;
+    if (dto.job_title !== undefined) updates.job_title = dto.job_title;
+    if (dto.avatar_url !== undefined) updates.avatar_url = dto.avatar_url;
 
     if (dto.role) throw new BadRequestException('Use PATCH /users/:id/role to change role');
 
