@@ -23,6 +23,10 @@ export class UpdateUserDto {
   @IsOptional()
   branch_id?: string;
 
+  @IsString()
+  @IsOptional()
+  department?: string | null;
+
   // Stored as a fraction (0-1), e.g. 0.05 for 5%. null clears it (no commission).
   @IsNumber()
   @Min(0)

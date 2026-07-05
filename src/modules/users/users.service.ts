@@ -82,6 +82,7 @@ export class UsersService {
     if (dto.grace_period_minutes !== undefined) updates.grace_period_minutes = dto.grace_period_minutes;
     if (dto.late_deduction_mode !== undefined) updates.late_deduction_mode = dto.late_deduction_mode;
     if (dto.late_deduction_value !== undefined) updates.late_deduction_value = dto.late_deduction_value;
+    if (dto.department !== undefined) updates.department = dto.department;
 
     if (dto.role) throw new BadRequestException('Use PATCH /users/:id/role to change role');
 
