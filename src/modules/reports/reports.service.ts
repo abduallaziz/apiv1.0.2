@@ -971,8 +971,17 @@ export class ReportsService {
       .lte('date', monthEnd);
     if (excErr) throw excErr;
 
-    const schedulesByUser: Record<string, { scheduled_date: string; start_time: string }[]> = {};
-    for (const s of schedules ?? []) (schedulesByUser[s.user_id] ??= []).push(s);
+    // A split-shift day now produces multiple work_schedules rows for the same
+    // scheduled_date (one per shift segment — see the shift-patterns feature), so
+    // "days scheduled" must count distinct dates, not rows. Lateness is checked
+    // against the earliest shift's start_time on that date (HH:MM:SS sorts
+    // correctly as a string), since that's when the employee is first expected in.
+    const schedulesByUser: Record<string, Map<string, string>> = {};
+    for (const s of schedules ?? []) {
+      const byDate = (schedulesByUser[s.user_id] ??= new Map());
+      const existing = byDate.get(s.scheduled_date);
+      if (!existing || s.start_time < existing) byDate.set(s.scheduled_date, s.start_time);
+    }
 
     // First attendance record per (user, date) — later punches that same day are ignored
     // for lateness purposes, only the initial check-in matters.
@@ -987,8 +996,8 @@ export class ReportsService {
     for (const e of exceptions ?? []) (excusedByUser[e.user_id] ??= new Set()).add(e.date);
 
     const results = employees.map((emp) => {
-      const scheduledDays = schedulesByUser[emp.id] ?? [];
-      const dayRate = scheduledDays.length > 0 ? emp.base_salary / scheduledDays.length : 0;
+      const scheduledDates = schedulesByUser[emp.id] ?? new Map<string, string>();
+      const dayRate = scheduledDates.size > 0 ? emp.base_salary / scheduledDates.size : 0;
       const excused = excusedByUser[emp.id] ?? new Set();
       const attendanceDates = attendanceByUserDate[emp.id] ?? {};
 
@@ -997,10 +1006,10 @@ export class ReportsService {
       let lateCount = 0;
       let lateDeduction = 0;
 
-      for (const s of scheduledDays) {
-        const checkInAt = attendanceDates[s.scheduled_date];
+      for (const [scheduledDate, earliestStartTime] of scheduledDates) {
+        const checkInAt = attendanceDates[scheduledDate];
         if (!checkInAt) {
-          if (!excused.has(s.scheduled_date)) {
+          if (!excused.has(scheduledDate)) {
             absenceCount++;
             absenceDeduction += dayRate;
           }
@@ -1011,7 +1020,7 @@ export class ReportsService {
         // start_time without a 'Z' suffix would parse as server-local time instead, which
         // skewed lateness by the server's UTC offset (same class of bug as the bulk
         // scheduling date shift above).
-        const scheduledStart = new Date(`${s.scheduled_date}T${s.start_time}Z`);
+        const scheduledStart = new Date(`${scheduledDate}T${earliestStartTime}Z`);
         const actualStart = new Date(checkInAt);
         const minutesLate = Math.max(0, (actualStart.getTime() - scheduledStart.getTime()) / 60000);
         const minutesBeyondGrace = Math.max(0, minutesLate - emp.grace_period_minutes);
@@ -1036,7 +1045,7 @@ export class ReportsService {
         user_id: emp.id,
         name: emp.name,
         base_salary: this.round2(emp.base_salary),
-        scheduled_days: scheduledDays.length,
+        scheduled_days: scheduledDates.size,
         day_rate: this.round2(dayRate),
         absence_count: absenceCount,
         absence_deduction: absenceDeduction,
