@@ -35,6 +35,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const errorMessage =
       typeof message === 'string' ? message : message.message ?? 'Unknown error';
 
+    // Some exceptions (e.g. LEAVE_BALANCE_EXCEEDED) throw a structured body with
+    // extra machine-readable fields beyond `message` — pass those through as-is so
+    // clients can branch on them, without changing the response shape for every
+    // other exception in the app (which only ever had these four fields).
+    const extraFields =
+      typeof message === 'object' && message !== null && !Array.isArray(message)
+        ? Object.fromEntries(
+            Object.entries(message).filter(([key]) => !['statusCode', 'message', 'timestamp', 'path'].includes(key)),
+          )
+        : {};
+
     const err = this.toError(exception);
 
     // Extract user context directly from the request so it is always
@@ -84,6 +95,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message: errorMessage,
       timestamp: new Date().toISOString(),
       path: request.path,
+      ...extraFields,
     });
   }
 
