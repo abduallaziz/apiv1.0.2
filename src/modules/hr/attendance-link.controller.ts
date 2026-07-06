@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { AttendanceLinkService } from './attendance-link.service';
 import { AttendanceCheckDto } from './dto/attendance-check.dto';
+import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
 
 // Deliberately unauthenticated — this is the personal punch-in/out link an employee opens
 // on their own phone. Identity comes from the unguessable token in the URL; the geofence
@@ -24,6 +25,11 @@ export class AttendanceLinkController {
   @Get(':token/dashboard')
   getDashboard(@Param('token') token: string) {
     return this.service.getDashboard(token);
+  }
+
+  @Post(':token/leaves')
+  createLeaveRequest(@Param('token') token: string, @Body() dto: CreateLeaveRequestDto) {
+    return this.service.createLeaveRequest(token, dto);
   }
 
   @Get(':token/log')

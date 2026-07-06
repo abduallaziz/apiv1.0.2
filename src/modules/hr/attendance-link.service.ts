@@ -119,6 +119,19 @@ export class AttendanceLinkService {
     };
   }
 
+  async createLeaveRequest(
+    token: string,
+    dto: { leave_type: string; date_from: string; date_to: string; reason?: string },
+  ) {
+    const user = await this.usersRepo.findByAttendanceToken(token);
+    if (!user) throw new NotFoundException('Invalid attendance link');
+    if (dto.date_to < dto.date_from) {
+      throw new BadRequestException('date_to must not be before date_from');
+    }
+
+    return this.leaveRequestsRepo.create(user.tenant_id, user.id, dto);
+  }
+
   async getLog(token: string, range: 'day' | 'week' | 'month', date: string) {
     const user = await this.usersRepo.findByAttendanceToken(token);
     if (!user) throw new NotFoundException('Invalid attendance link');
