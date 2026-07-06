@@ -641,6 +641,32 @@ export class AuthService {
     return { message: 'Session revoked' };
   }
 
+  // Used when an employee is disabled/deleted (see UsersService) — revokes every
+  // active session for that user in one go, tenant-scoped, same mechanics as
+  // revokeSession above (mark device_sessions revoked + refresh_tokens used) so a
+  // disabled employee's existing tokens stop working on their next refresh.
+  async revokeAllSessionsForUser(userId: string, tenantId: string) {
+    const { data: sessions } = await this.supabase
+      .from('device_sessions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('tenant_id', tenantId)
+      .eq('is_revoked', false);
+
+    const sessionIds = (sessions ?? []).map((s) => s.id);
+    if (sessionIds.length === 0) return;
+
+    await this.supabase
+      .from('device_sessions')
+      .update({ is_revoked: true })
+      .in('id', sessionIds);
+
+    await this.supabase
+      .from('refresh_tokens')
+      .update({ is_used: true })
+      .in('session_id', sessionIds);
+  }
+
   async getSessions(userId: string) {
     const { data: sessions, error } = await this.supabase
       .from('device_sessions')

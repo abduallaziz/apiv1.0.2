@@ -90,10 +90,23 @@ export class UsersRepository extends ScopedRepository {
       .from('users')
       .select('id, tenant_id, name, job_title, annual_leave_balance, attendance_device_fingerprint, tenants(name, logo_url)')
       .eq('attendance_token', token)
+      .eq('is_active', true)
       .is('deleted_at', null)
       .maybeSingle();
     if (error) throw error;
     return data;
+  }
+
+  // Disabling or soft-deleting an employee must immediately cut off their personal
+  // attendance link and force any bound device to re-bind — clears both in one
+  // write so a disabled employee can't check in even if their token leaks.
+  async revokeAttendanceAccess(id: string, tenantId: string) {
+    const { error } = await this.supabase
+      .from('users')
+      .update({ attendance_token: null, attendance_device_fingerprint: null })
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+    if (error) throw error;
   }
 
   async bindAttendanceDevice(id: string, fingerprint: string) {

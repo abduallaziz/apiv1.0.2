@@ -14,6 +14,7 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 import { AuditService } from '../../core/audit/audit.service';
 import { UserRole } from '../../shared/types/enums';
 import { BillingService } from '../../core/billing/billing.service';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class UsersService {
@@ -21,7 +22,18 @@ export class UsersService {
     private readonly usersRepository: UsersRepository,
     private readonly auditService: AuditService,
     private readonly billingService: BillingService,
+    private readonly authService: AuthService,
   ) {}
+
+  // Disabling or deleting an employee must immediately cut them off, not just at
+  // their next login: revoke the personal attendance link/device binding and kill
+  // any live sessions so an already-issued token stops working on its next refresh.
+  private async revokeAccess(id: string, tenantId: string) {
+    await Promise.all([
+      this.usersRepository.revokeAttendanceAccess(id, tenantId),
+      this.authService.revokeAllSessionsForUser(id, tenantId),
+    ]);
+  }
 
   async findAll(tenant: TenantContext) {
     const { data, error } = await this.usersRepository.findAll(tenant);
@@ -91,6 +103,14 @@ export class UsersService {
     const { data, error } = await this.usersRepository.update(id, tenant.tenantId, updates);
     if (error) throw new BadRequestException(error.message);
 
+    // Being disabled (active → inactive) must immediately revoke attendance access
+    // and kill live sessions — re-enabling does NOT restore the old link/device on
+    // its own; the admin generates a fresh attendance link if needed (matches the
+    // existing "generate/regenerate" flow, no auto-restore of stale credentials).
+    if (dto.is_active === false && existing.is_active !== false) {
+      await this.revokeAccess(id, tenant.tenantId);
+    }
+
     await this.auditService.log({
       tenant_id: tenant.tenantId,
       actor_id: actorId,
@@ -137,6 +157,8 @@ export class UsersService {
 
     const { error } = await this.usersRepository.softDelete(id, tenant.tenantId);
     if (error) throw new BadRequestException(error.message);
+
+    await this.revokeAccess(id, tenant.tenantId);
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
