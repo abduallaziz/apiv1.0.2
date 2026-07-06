@@ -2,19 +2,22 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
-const SELECT = 'id, title, body, created_at, read_at';
+// Reuses the existing `notifications` table (already used for billing/payment
+// notifications — columns: id, tenant_id, user_id, type, title, body, data,
+// channel, is_read, read_at, created_at). Do NOT create a new table with this
+// name — an earlier attempt collided with it and aborted a migration.
+const SELECT = 'id, title, body, created_at, is_read, read_at';
 
 @Injectable()
 export class NotificationsRepository {
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
-  // Personal (user_id match) + broadcast (user_id null) notifications for this tenant.
   async findRecentForUser(tenantId: string, userId: string, limit = 3) {
     const { data, error } = await this.supabase
       .from('notifications')
       .select(SELECT)
       .eq('tenant_id', tenantId)
-      .or(`user_id.eq.${userId},user_id.is.null`)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;

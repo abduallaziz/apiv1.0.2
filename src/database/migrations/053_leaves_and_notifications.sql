@@ -1,6 +1,13 @@
--- Minimal leave-tracking and notifications, needed for the employee
--- dashboard shown on the personal attendance-link page: leave balance,
--- recent leaves, recent notifications.
+-- Minimal leave-tracking, needed for the employee dashboard shown on the
+-- personal attendance-link page: leave balance, recent leaves.
+--
+-- NOTE: this migration originally also tried to CREATE TABLE notifications,
+-- but a `notifications` table already exists (used for billing/payment
+-- notifications — see its columns: id, tenant_id, user_id, type, title,
+-- body, data, channel, is_read, read_at, created_at). That CREATE TABLE
+-- collided with it and aborted this entire migration on every deploy
+-- attempt (repository code was updated separately to read the existing
+-- table instead of creating a new one).
 
 CREATE TABLE leave_requests (
   id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -17,17 +24,6 @@ CREATE TABLE leave_requests (
 );
 CREATE INDEX idx_leave_requests_tenant_user ON leave_requests(tenant_id, user_id, date_from);
 
-CREATE TABLE notifications (
-  id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-  tenant_id     UUID        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  user_id       UUID        REFERENCES users(id) ON DELETE CASCADE, -- NULL = broadcast to whole tenant
-  title         TEXT        NOT NULL,
-  body          TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  read_at       TIMESTAMPTZ
-);
-CREATE INDEX idx_notifications_tenant_user ON notifications(tenant_id, user_id, created_at);
-
 -- Annual leave allowance in days. Nullable — NULL means not tracked for this
 -- employee (existing users unaffected); remaining balance is computed as
 -- this minus approved leave_requests.days_count within the current year.
@@ -35,4 +31,3 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS annual_leave_balance INTEGER;
 
 GRANT ALL ON public.leave_requests TO service_role;
-GRANT ALL ON public.notifications TO service_role;
