@@ -971,6 +971,29 @@ export class ReportsService {
       .lte('date', monthEnd);
     if (excErr) throw excErr;
 
+    // Approved leave overlapping the month — unpaid leave reduces salary like an
+    // absence (but reported separately as "leave_deduction"), paid leave (annual/
+    // sick/other) covers the day with no deduction and no absence penalty.
+    const { data: leaves, error: leaveErr } = await this.supabase
+      .from('leave_requests')
+      .select('user_id, leave_type, date_from, date_to')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'approved')
+      .in('user_id', userIds)
+      .lte('date_from', monthEnd)
+      .gte('date_to', monthStart);
+    if (leaveErr) throw leaveErr;
+
+    const leaveDatesByUser: Record<string, Map<string, string>> = {};
+    for (const l of leaves ?? []) {
+      const byDate = (leaveDatesByUser[l.user_id] ??= new Map());
+      const from = l.date_from < monthStart ? monthStart : l.date_from;
+      const to = l.date_to > monthEnd ? monthEnd : l.date_to;
+      for (let d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)) {
+        byDate.set(d.toISOString().substring(0, 10), l.leave_type);
+      }
+    }
+
     // A split-shift day now produces multiple work_schedules rows for the same
     // scheduled_date (one per shift segment — see the shift-patterns feature), so
     // "days scheduled" must count distinct dates, not rows. Lateness is checked
@@ -1000,13 +1023,28 @@ export class ReportsService {
       const dayRate = scheduledDates.size > 0 ? emp.base_salary / scheduledDates.size : 0;
       const excused = excusedByUser[emp.id] ?? new Set();
       const attendanceDates = attendanceByUserDate[emp.id] ?? {};
+      const leaveDates = leaveDatesByUser[emp.id] ?? new Map<string, string>();
 
       let absenceCount = 0;
       let absenceDeduction = 0;
       let lateCount = 0;
       let lateDeduction = 0;
+      let leavePaidDays = 0;
+      let leaveUnpaidDays = 0;
+      let leaveDeduction = 0;
 
       for (const [scheduledDate, earliestStartTime] of scheduledDates) {
+        const leaveType = leaveDates.get(scheduledDate);
+        if (leaveType) {
+          if (leaveType === 'unpaid') {
+            leaveUnpaidDays++;
+            leaveDeduction += dayRate;
+          } else {
+            leavePaidDays++;
+          }
+          continue;
+        }
+
         const checkInAt = attendanceDates[scheduledDate];
         if (!checkInAt) {
           if (!excused.has(scheduledDate)) {
@@ -1039,7 +1077,8 @@ export class ReportsService {
 
       absenceDeduction = this.round2(absenceDeduction);
       lateDeduction = this.round2(lateDeduction);
-      const netSalary = this.round2(emp.base_salary - absenceDeduction - lateDeduction);
+      leaveDeduction = this.round2(leaveDeduction);
+      const netSalary = this.round2(emp.base_salary - absenceDeduction - lateDeduction - leaveDeduction);
 
       return {
         user_id: emp.id,
@@ -1051,11 +1090,97 @@ export class ReportsService {
         absence_deduction: absenceDeduction,
         late_count: lateCount,
         late_deduction: lateDeduction,
+        leave_paid_days: leavePaidDays,
+        leave_unpaid_days: leaveUnpaidDays,
+        leave_deduction: leaveDeduction,
         net_salary: netSalary,
       };
     });
 
     return { month, employees: results };
+  }
+
+  async getHrSummary(tenant: TenantContext) {
+    const today = new Date().toISOString().substring(0, 10);
+    const monthStart = `${today.substring(0, 7)}-01`;
+    const monthEnd = new Date(Number(today.substring(0, 4)), Number(today.substring(5, 7)), 0)
+      .toISOString()
+      .substring(0, 10);
+
+    const { data: employees, error: empErr } = await this.supabase
+      .from('users')
+      .select('id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('is_active', true)
+      .is('deleted_at', null);
+    if (empErr) throw empErr;
+    const userIds = (employees ?? []).map((e) => e.id);
+    const totalEmployees = userIds.length;
+
+    if (totalEmployees === 0) {
+      return { total_employees: 0, present_today: 0, absent_today: 0, pending_leaves: 0, approved_leaves_this_month: 0 };
+    }
+
+    const [scheduleRes, attendanceRes, leaveTodayRes, pendingRes, approvedMonthRes] = await Promise.all([
+      this.supabase
+        .from('work_schedules')
+        .select('user_id')
+        .eq('tenant_id', tenant.tenantId)
+        .in('user_id', userIds)
+        .eq('scheduled_date', today),
+      this.supabase
+        .from('attendance_records')
+        .select('user_id, check_out_at')
+        .eq('tenant_id', tenant.tenantId)
+        .in('user_id', userIds)
+        .gte('check_in_at', `${today}T00:00:00`)
+        .lte('check_in_at', `${today}T23:59:59.999`),
+      this.supabase
+        .from('leave_requests')
+        .select('user_id')
+        .eq('tenant_id', tenant.tenantId)
+        .eq('status', 'approved')
+        .in('user_id', userIds)
+        .lte('date_from', today)
+        .gte('date_to', today),
+      this.supabase
+        .from('leave_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.tenantId)
+        .eq('status', 'pending'),
+      this.supabase
+        .from('leave_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.tenantId)
+        .eq('status', 'approved')
+        .lte('date_from', monthEnd)
+        .gte('date_to', monthStart),
+    ]);
+    if (scheduleRes.error) throw scheduleRes.error;
+    if (attendanceRes.error) throw attendanceRes.error;
+    if (leaveTodayRes.error) throw leaveTodayRes.error;
+    if (pendingRes.error) throw pendingRes.error;
+    if (approvedMonthRes.error) throw approvedMonthRes.error;
+
+    const scheduledToday = new Set((scheduleRes.data ?? []).map((s) => s.user_id));
+    const onLeaveToday = new Set((leaveTodayRes.data ?? []).map((l) => l.user_id));
+    const presentToday = new Set(
+      (attendanceRes.data ?? []).filter((a) => !a.check_out_at).map((a) => a.user_id),
+    ).size;
+
+    let absentToday = 0;
+    const checkedInToday = new Set((attendanceRes.data ?? []).map((a) => a.user_id));
+    for (const userId of scheduledToday) {
+      if (!checkedInToday.has(userId) && !onLeaveToday.has(userId)) absentToday++;
+    }
+
+    return {
+      total_employees: totalEmployees,
+      present_today: presentToday,
+      absent_today: absentToday,
+      pending_leaves: pendingRes.count ?? 0,
+      approved_leaves_this_month: approvedMonthRes.count ?? 0,
+    };
   }
 
   async getCustomerChurn(tenant: TenantContext, query: ReportQueryDto) {

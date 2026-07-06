@@ -47,13 +47,14 @@ export class LeaveRequestsRepository {
     return row;
   }
 
-  async findAllForTenant(tenantId: string, status?: 'pending' | 'approved' | 'rejected') {
+  async findAllForTenant(tenantId: string, status?: 'pending' | 'approved' | 'rejected', userId?: string) {
     let query = this.supabase
       .from('leave_requests')
       .select(SELECT_WITH_USER)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
+    if (userId) query = query.eq('user_id', userId);
     const { data, error } = await query;
     if (error) throw error;
     return data ?? [];

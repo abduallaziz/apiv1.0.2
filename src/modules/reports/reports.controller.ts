@@ -275,6 +275,12 @@ export class ReportsController {
     return this.reportsService.getSparklines(tenant);
   }
 
+  @Get('hr-summary')
+  @RequirePermission('attendance.view.all')
+  async getHrSummary(@GetTenant() tenant: TenantContext) {
+    return this.reportsService.getHrSummary(tenant);
+  }
+
   @Get('payroll')
   @RequirePermission('hr.manage')
   async getPayroll(

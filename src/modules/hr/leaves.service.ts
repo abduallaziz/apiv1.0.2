@@ -6,8 +6,8 @@ import { TenantContext } from '../../core/tenant/tenant-context';
 export class LeavesService {
   constructor(private readonly leaveRequestsRepo: LeaveRequestsRepository) {}
 
-  findAll(tenant: TenantContext, status?: 'pending' | 'approved' | 'rejected') {
-    return this.leaveRequestsRepo.findAllForTenant(tenant.tenantId, status);
+  findAll(tenant: TenantContext, status?: 'pending' | 'approved' | 'rejected', userId?: string) {
+    return this.leaveRequestsRepo.findAllForTenant(tenant.tenantId, status, userId);
   }
 
   async updateStatus(id: string, tenant: TenantContext, status: 'approved' | 'rejected') {

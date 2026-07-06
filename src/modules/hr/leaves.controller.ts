@@ -14,8 +14,12 @@ export class LeavesController {
 
   @Get()
   @RequirePermission('hr.manage')
-  findAll(@GetTenant() tenant: TenantContext, @Query('status') status?: 'pending' | 'approved' | 'rejected') {
-    return this.service.findAll(tenant, status);
+  findAll(
+    @GetTenant() tenant: TenantContext,
+    @Query('status') status?: 'pending' | 'approved' | 'rejected',
+    @Query('user_id') userId?: string,
+  ) {
+    return this.service.findAll(tenant, status, userId);
   }
 
   @Patch(':id/approve')
