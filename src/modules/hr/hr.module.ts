@@ -15,6 +15,8 @@ import { EmployeeGeofencesService } from './employee-geofences.service';
 import { EmployeeGeofencesRepository } from './repositories/employee-geofences.repository';
 import { LeaveRequestsRepository } from './repositories/leave-requests.repository';
 import { NotificationsRepository } from './repositories/notifications.repository';
+import { LeavesController } from './leaves.controller';
+import { LeavesService } from './leaves.service';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { CoreAuthModule } from '../../core/auth/auth.module';
 import { UsersModule } from '../users/users.module';
@@ -22,7 +24,7 @@ import { GeofenceService } from '../../shared/geo/geofence.service';
 
 @Module({
   imports: [PermissionsModule, CoreAuthModule, UsersModule],
-  controllers: [AttendanceController, AttendanceLinkController, SchedulesController, ShiftPatternsController, EmployeeGeofencesController],
+  controllers: [AttendanceController, AttendanceLinkController, SchedulesController, ShiftPatternsController, EmployeeGeofencesController, LeavesController],
   providers: [
     AttendanceService,
     AttendanceRepository,
@@ -35,6 +37,7 @@ import { GeofenceService } from '../../shared/geo/geofence.service';
     EmployeeGeofencesRepository,
     LeaveRequestsRepository,
     NotificationsRepository,
+    LeavesService,
     GeofenceService,
   ],
 })

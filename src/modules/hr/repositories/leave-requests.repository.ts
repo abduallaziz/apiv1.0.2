@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
 const SELECT = 'id, leave_type, date_from, date_to, days_count, status, reason, created_at';
+const SELECT_WITH_USER = 'id, leave_type, date_from, date_to, days_count, status, reason, created_at, user_id, users(name, job_title, department)';
 
 @Injectable()
 export class LeaveRequestsRepository {
@@ -44,6 +45,30 @@ export class LeaveRequestsRepository {
       .single();
     if (error) throw error;
     return row;
+  }
+
+  async findAllForTenant(tenantId: string, status?: 'pending' | 'approved' | 'rejected') {
+    let query = this.supabase
+      .from('leave_requests')
+      .select(SELECT_WITH_USER)
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
+    if (status) query = query.eq('status', status);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  async updateStatus(id: string, tenantId: string, status: 'approved' | 'rejected') {
+    const { data, error } = await this.supabase
+      .from('leave_requests')
+      .update({ status })
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .select(SELECT_WITH_USER)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
   }
 
   async sumApprovedDaysThisYear(tenantId: string, userId: string): Promise<number> {
