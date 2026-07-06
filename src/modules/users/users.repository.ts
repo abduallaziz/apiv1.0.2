@@ -88,7 +88,7 @@ export class UsersRepository extends ScopedRepository {
   async findByAttendanceToken(token: string) {
     const { data, error } = await this.supabase
       .from('users')
-      .select('id, tenant_id, name, job_title, attendance_device_fingerprint')
+      .select('id, tenant_id, name, job_title, annual_leave_balance, attendance_device_fingerprint')
       .eq('attendance_token', token)
       .is('deleted_at', null)
       .maybeSingle();

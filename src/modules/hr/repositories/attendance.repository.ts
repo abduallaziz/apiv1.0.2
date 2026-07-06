@@ -34,6 +34,28 @@ export class AttendanceRepository {
     return data;
   }
 
+  // Plain tenantId/userId variant of findAll, for the unauthenticated
+  // attendance-link flow where there's no TenantContext instance.
+  async findForRange(tenantId: string, userId: string, from: string, to: string) {
+    const { data, error } = await this.supabase
+      .from('attendance_records')
+      .select('id, check_in_at, check_out_at')
+      .eq('tenant_id', tenantId)
+      .eq('user_id', userId)
+      .gte('check_in_at', from)
+      .lte('check_in_at', to)
+      .order('check_in_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      check_in_at: r.check_in_at,
+      check_out_at: r.check_out_at,
+      hours_worked: r.check_out_at
+        ? parseFloat(((new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 3600000).toFixed(2))
+        : null,
+    }));
+  }
+
   async branchBelongsToTenant(branchId: string, tenantId: string): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('branches')

@@ -13,6 +13,8 @@ import { ShiftPatternsRepository } from './repositories/shift-patterns.repositor
 import { EmployeeGeofencesController } from './employee-geofences.controller';
 import { EmployeeGeofencesService } from './employee-geofences.service';
 import { EmployeeGeofencesRepository } from './repositories/employee-geofences.repository';
+import { LeaveRequestsRepository } from './repositories/leave-requests.repository';
+import { NotificationsRepository } from './repositories/notifications.repository';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { CoreAuthModule } from '../../core/auth/auth.module';
 import { UsersModule } from '../users/users.module';
@@ -31,6 +33,8 @@ import { GeofenceService } from '../../shared/geo/geofence.service';
     ShiftPatternsRepository,
     EmployeeGeofencesService,
     EmployeeGeofencesRepository,
+    LeaveRequestsRepository,
+    NotificationsRepository,
     GeofenceService,
   ],
 })
