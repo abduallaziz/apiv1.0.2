@@ -38,6 +38,8 @@ export class AttendanceLinkService {
       today_check_in_at: today?.check_in_at ?? null,
       today_check_out_at: today?.check_out_at ?? null,
       zone_name: zones[0]?.name ?? null,
+      tenant_name: (user as any).tenants?.name ?? null,
+      tenant_logo_url: (user as any).tenants?.logo_url ?? null,
     };
   }
 
@@ -112,6 +114,8 @@ export class AttendanceLinkService {
         : null,
       recent_leaves: recentLeaves,
       recent_notifications: recentNotifications,
+      tenant_name: (user as any).tenants?.name ?? null,
+      tenant_logo_url: (user as any).tenants?.logo_url ?? null,
     };
   }
 
