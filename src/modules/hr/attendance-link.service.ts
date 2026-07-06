@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { randomBytes } from 'crypto';
 import { UsersRepository } from '../users/users.repository';
 import { AttendanceRepository } from './repositories/attendance.repository';
+import { EmployeeGeofencesRepository } from './repositories/employee-geofences.repository';
 import { GeofenceService } from '../../shared/geo/geofence.service';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class AttendanceLinkService {
   constructor(
     private readonly usersRepo: UsersRepository,
     private readonly attendanceRepo: AttendanceRepository,
+    private readonly employeeGeofencesRepo: EmployeeGeofencesRepository,
     private readonly geofence: GeofenceService,
   ) {}
 
@@ -16,8 +18,19 @@ export class AttendanceLinkService {
     const user = await this.usersRepo.findByAttendanceToken(token);
     if (!user) throw new NotFoundException('Invalid attendance link');
 
-    const open = await this.attendanceRepo.findOpenRecord(user.tenant_id, user.id);
-    return { name: user.name, checked_in: !!open };
+    const [today, zones] = await Promise.all([
+      this.attendanceRepo.findTodayRecord(user.tenant_id, user.id),
+      this.employeeGeofencesRepo.findAllForUser(user.tenant_id, user.id),
+    ]);
+
+    return {
+      name: user.name,
+      job_title: user.job_title ?? null,
+      checked_in: !!today && !today.check_out_at,
+      today_check_in_at: today?.check_in_at ?? null,
+      today_check_out_at: today?.check_out_at ?? null,
+      zone_name: zones[0]?.name ?? null,
+    };
   }
 
   async check(token: string, lat: number, lng: number, deviceFingerprint: string) {

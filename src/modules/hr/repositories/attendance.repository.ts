@@ -19,6 +19,21 @@ export class AttendanceRepository {
     return data;
   }
 
+  async findTodayRecord(tenantId: string, userId: string) {
+    const todayStart = new Date().toISOString().substring(0, 10) + 'T00:00:00.000Z';
+    const { data, error } = await this.supabase
+      .from('attendance_records')
+      .select('id, check_in_at, check_out_at')
+      .eq('tenant_id', tenantId)
+      .eq('user_id', userId)
+      .gte('check_in_at', todayStart)
+      .order('check_in_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
   async branchBelongsToTenant(branchId: string, tenantId: string): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('branches')
