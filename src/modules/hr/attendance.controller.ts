@@ -8,6 +8,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('attendance')
@@ -15,6 +16,7 @@ export class AttendanceController {
   constructor(private readonly service: AttendanceService) {}
 
   @Post('check-in')
+  @Audit('attendance.checkin')
   @RequirePermission('attendance.checkin')
   checkIn(
     @GetTenant() tenant: TenantContext,
@@ -26,6 +28,7 @@ export class AttendanceController {
   }
 
   @Post('check-out')
+  @Audit('attendance.checkout')
   @RequirePermission('attendance.checkin')
   checkOut(@GetTenant() tenant: TenantContext, @Req() req: Request) {
     const user = req.user as { sub: string };
@@ -57,6 +60,7 @@ export class AttendanceController {
   }
 
   @Post('exceptions')
+  @Audit('payroll.adjustment.made')
   @RequirePermission('hr.manage')
   createException(
     @GetTenant() tenant: TenantContext,

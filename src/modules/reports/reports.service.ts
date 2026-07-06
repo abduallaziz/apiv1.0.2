@@ -1183,6 +1183,27 @@ export class ReportsService {
     };
   }
 
+  async getAuditSummary(tenant: TenantContext) {
+    const todayStart = `${new Date().toISOString().substring(0, 10)}T00:00:00.000Z`;
+
+    const { data, error } = await this.supabase
+      .from('audit_logs')
+      .select('resource_type')
+      .eq('tenant_id', tenant.tenantId)
+      .gte('created_at', todayStart);
+    if (error) throw error;
+
+    const rows = data ?? [];
+    const countOf = (resourceType: string) => rows.filter((r) => r.resource_type === resourceType).length;
+
+    return {
+      total_today: rows.length,
+      leave_today: countOf('leave'),
+      payroll_today: countOf('payroll'),
+      attendance_today: countOf('attendance'),
+    };
+  }
+
   async getCustomerChurn(tenant: TenantContext, query: ReportQueryDto) {
     const { from, to } = this.getDateRange(query);
     const currentFromMs = new Date(from).getTime();

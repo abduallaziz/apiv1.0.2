@@ -12,6 +12,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { Audit } from '../../core/audit/audit.decorator';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
@@ -31,6 +32,7 @@ export class UsersController {
   }
 
   @Post()
+  @Audit('employee.created')
   @RequirePermission('users.manage')
   create(
     @Body() dto: CreateUserDto,
@@ -41,6 +43,7 @@ export class UsersController {
   }
 
   @Patch(':id')
+  @Audit('employee.updated')
   @RequirePermission('users.manage')
   update(
     @Param('id') id: string,
@@ -52,6 +55,7 @@ export class UsersController {
   }
 
   @Patch(':id/role')
+  @Audit('employee.role.changed')
   @RequirePermission('users.manage')
   changeRole(
     @Param('id') id: string,
@@ -79,6 +83,7 @@ export class UsersController {
   }
 
   @Post(':id/attendance-link/unbind-device')
+  @Audit('attendance.link.device.unbound')
   @RequirePermission('hr.manage')
   unbindAttendanceDevice(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
     return this.usersService.unbindAttendanceDevice(id, tenant);

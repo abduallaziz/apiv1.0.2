@@ -7,6 +7,7 @@ import { LeaveRequestsRepository } from './repositories/leave-requests.repositor
 import { NotificationsRepository } from './repositories/notifications.repository';
 import { GeofenceService } from '../../shared/geo/geofence.service';
 import { calculateLeaveDays } from './leave-balance.util';
+import { AuditService } from '../../core/audit/audit.service';
 
 function todayStr() {
   return new Date().toISOString().substring(0, 10);
@@ -21,7 +22,26 @@ export class AttendanceLinkService {
     private readonly leaveRequestsRepo: LeaveRequestsRepository,
     private readonly notificationsRepo: NotificationsRepository,
     private readonly geofence: GeofenceService,
+    private readonly audit: AuditService,
   ) {}
+
+  // The personal attendance link is unauthenticated (identity comes from the token,
+  // not a JWT session), so the global AuditInterceptor — which reads req.user — never
+  // fires for these routes. Logging here is fire-and-forget by design (rule #4: audit
+  // writes must never block or fail the actual check-in/leave-request flow).
+  private logAudit(entry: { tenantId: string; actorId: string; action: string; resourceId?: string; afterData?: Record<string, unknown> }) {
+    this.audit
+      .log({
+        tenant_id: entry.tenantId,
+        actor_id: entry.actorId,
+        actor_role: 'employee',
+        action: entry.action,
+        resource_type: entry.action.split('.')[0],
+        resource_id: entry.resourceId,
+        after_data: entry.afterData,
+      })
+      .catch(() => {});
+  }
 
   async getStatus(token: string) {
     const user = await this.usersRepo.findByAttendanceToken(token);
@@ -55,6 +75,7 @@ export class AttendanceLinkService {
     }
     if (!user.attendance_device_fingerprint) {
       await this.usersRepo.bindAttendanceDevice(user.id, deviceFingerprint);
+      this.logAudit({ tenantId: user.tenant_id, actorId: user.id, action: 'attendance.link.device.bound' });
     }
 
     const geo = await this.geofence.checkLocation(user.tenant_id, user.id, lat, lng);
@@ -67,10 +88,12 @@ export class AttendanceLinkService {
 
     if (open) {
       await this.attendanceRepo.checkOut(user.tenant_id, open.id, { lat, lng, code });
+      this.logAudit({ tenantId: user.tenant_id, actorId: user.id, action: 'attendance.checkout', resourceId: open.id });
       return { action: 'check_out' as const, code, time: new Date().toISOString() };
     }
 
-    await this.attendanceRepo.checkIn(user.tenant_id, user.id, null, { lat, lng, code });
+    const created = await this.attendanceRepo.checkIn(user.tenant_id, user.id, null, { lat, lng, code });
+    this.logAudit({ tenantId: user.tenant_id, actorId: user.id, action: 'attendance.checkin', resourceId: (created as any)?.id });
     return { action: 'check_in' as const, code, time: new Date().toISOString() };
   }
 
@@ -161,7 +184,15 @@ export class AttendanceLinkService {
     const requestedDays = calculateLeaveDays(dto.date_from, dto.date_to);
     await this.validateLeaveBalanceBeforeCreation(user.tenant_id, user.id, user.annual_leave_balance, requestedDays);
 
-    return this.leaveRequestsRepo.create(user.tenant_id, user.id, dto);
+    const created = await this.leaveRequestsRepo.create(user.tenant_id, user.id, dto);
+    this.logAudit({
+      tenantId: user.tenant_id,
+      actorId: user.id,
+      action: 'leave.request.created',
+      resourceId: created.id,
+      afterData: { leave_type: dto.leave_type, date_from: dto.date_from, date_to: dto.date_to, days_count: requestedDays },
+    });
+    return created;
   }
 
   async getLog(token: string, range: 'day' | 'week' | 'month', date: string) {

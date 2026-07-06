@@ -8,6 +8,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { Audit } from '../../core/audit/audit.decorator';
 
 @Controller('reports')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
@@ -281,7 +282,14 @@ export class ReportsController {
     return this.reportsService.getHrSummary(tenant);
   }
 
+  @Get('audit-summary')
+  @RequirePermission('attendance.view.all')
+  async getAuditSummary(@GetTenant() tenant: TenantContext) {
+    return this.reportsService.getAuditSummary(tenant);
+  }
+
   @Get('payroll')
+  @Audit('payroll.calculated')
   @RequirePermission('hr.manage')
   async getPayroll(
     @GetTenant() tenant: TenantContext,
