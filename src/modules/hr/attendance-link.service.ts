@@ -6,6 +6,7 @@ import { EmployeeGeofencesRepository } from './repositories/employee-geofences.r
 import { LeaveRequestsRepository } from './repositories/leave-requests.repository';
 import { NotificationsRepository } from './repositories/notifications.repository';
 import { GeofenceService } from '../../shared/geo/geofence.service';
+import { calculateLeaveDays } from './leave-balance.util';
 
 function todayStr() {
   return new Date().toISOString().substring(0, 10);
@@ -119,6 +120,34 @@ export class AttendanceLinkService {
     };
   }
 
+  // Mirrors the balance shown on the employee dashboard (annual_leave_balance minus
+  // approved days used this year, across all leave types) — kept identical to that
+  // calculation so what's enforced here never contradicts what the employee sees.
+  // Returns null when the tenant hasn't configured a balance for this employee, in
+  // which case no enforcement applies (unlimited).
+  async getEmployeeLeaveBalance(tenantId: string, userId: string, annualLeaveBalance: number | null | undefined) {
+    if (annualLeaveBalance === null || annualLeaveBalance === undefined) return null;
+    const usedThisYear = await this.leaveRequestsRepo.sumApprovedDaysThisYear(tenantId, userId);
+    return Math.max(0, annualLeaveBalance - usedThisYear);
+  }
+
+  private async validateLeaveBalanceBeforeCreation(
+    tenantId: string,
+    userId: string,
+    annualLeaveBalance: number | null | undefined,
+    requestedDays: number,
+  ) {
+    const available = await this.getEmployeeLeaveBalance(tenantId, userId, annualLeaveBalance);
+    if (available !== null && requestedDays > available) {
+      throw new BadRequestException({
+        error: 'LEAVE_BALANCE_EXCEEDED',
+        message: 'Insufficient leave balance',
+        available,
+        requested: requestedDays,
+      });
+    }
+  }
+
   async createLeaveRequest(
     token: string,
     dto: { leave_type: string; date_from: string; date_to: string; reason?: string },
@@ -128,6 +157,9 @@ export class AttendanceLinkService {
     if (dto.date_to < dto.date_from) {
       throw new BadRequestException('date_to must not be before date_from');
     }
+
+    const requestedDays = calculateLeaveDays(dto.date_from, dto.date_to);
+    await this.validateLeaveBalanceBeforeCreation(user.tenant_id, user.id, user.annual_leave_balance, requestedDays);
 
     return this.leaveRequestsRepo.create(user.tenant_id, user.id, dto);
   }

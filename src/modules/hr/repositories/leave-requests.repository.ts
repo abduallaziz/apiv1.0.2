@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
+import { calculateLeaveDays } from '../leave-balance.util';
 
 const SELECT = 'id, leave_type, date_from, date_to, days_count, status, reason, created_at';
 const SELECT_WITH_USER = 'id, leave_type, date_from, date_to, days_count, status, reason, created_at, user_id, users(name, job_title, department)';
@@ -26,9 +27,7 @@ export class LeaveRequestsRepository {
     userId: string,
     data: { leave_type: string; date_from: string; date_to: string; reason?: string },
   ) {
-    const daysCount = Math.round(
-      (new Date(data.date_to).getTime() - new Date(data.date_from).getTime()) / 86400000,
-    ) + 1;
+    const daysCount = calculateLeaveDays(data.date_from, data.date_to);
     const { data: row, error } = await this.supabase
       .from('leave_requests')
       .insert({
