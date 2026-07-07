@@ -41,9 +41,14 @@ export class PermissionGuard implements CanActivate {
     // Internal QA/demo tenant bypasses all permission checks
     if (UNRESTRICTED_TEST_TENANT_IDS.includes(user.tenant_id)) return true;
 
+    // S5 Stage B: tenantId already lives on the JWT-derived user object via
+    // TenantGuard's resolution; passing it through lets PermissionsService
+    // apply per-tenant overrides. No change to this guard's public contract,
+    // bypass order, or exception behavior.
     const granted = await this.permissionsService.hasPermission(
       user.role,
       requiredPermission,
+      user.tenant_id,
     );
 
     if (!granted) {
