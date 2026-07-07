@@ -12,7 +12,7 @@ export class UsersRepository extends ScopedRepository {
   }
 
   private static readonly PAYROLL_FIELDS =
-    'base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value, attendance_token, shift_pattern_id, custom_days_of_week, custom_shifts, custom_day_overrides, schedule_start_date, department, job_title, avatar_url';
+    'base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value, attendance_token, attendance_device_fingerprint, attendance_enabled, shift_pattern_id, custom_days_of_week, custom_shifts, custom_day_overrides, schedule_start_date, department, job_title, avatar_url, employee_number, phone, identity_number, manager_name, employment_type, join_date, city, address, gps_radius_meters';
 
   async findAll(tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
@@ -67,10 +67,10 @@ export class UsersRepository extends ScopedRepository {
     const token = randomBytes(24).toString('base64url');
     const { data, error } = await this.supabase
       .from('users')
-      .update({ attendance_token: token, attendance_device_fingerprint: null })
+      .update({ attendance_token: token, attendance_device_fingerprint: null, attendance_enabled: true })
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .select('id, attendance_token')
+      .select('id, attendance_token, attendance_enabled')
       .single();
     if (error) throw error;
     return data;
@@ -91,6 +91,7 @@ export class UsersRepository extends ScopedRepository {
       .select('id, tenant_id, name, job_title, annual_leave_balance, attendance_device_fingerprint, tenants(name, logo_url)')
       .eq('attendance_token', token)
       .eq('is_active', true)
+      .eq('attendance_enabled', true)
       .is('deleted_at', null)
       .maybeSingle();
     if (error) throw error;

@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, Max, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, Max, MinLength } from 'class-validator';
 import { UserRole } from '../../../shared/types/enums';
 
 export class UpdateUserDto {
@@ -61,4 +61,46 @@ export class UpdateUserDto {
   @Min(0)
   @IsOptional()
   late_deduction_value?: number | null;
+
+  // Employee Core (HR) fields — additive, independent of login/role fields above.
+  @IsString()
+  @IsOptional()
+  employee_number?: string | null;
+
+  @IsString()
+  @IsOptional()
+  phone?: string | null;
+
+  @IsString()
+  @IsOptional()
+  identity_number?: string | null;
+
+  @IsString()
+  @IsOptional()
+  manager_name?: string | null;
+
+  @IsIn(['full_time', 'part_time'])
+  @IsOptional()
+  employment_type?: 'full_time' | 'part_time' | null;
+
+  @IsDateString()
+  @IsOptional()
+  join_date?: string | null;
+
+  @IsString()
+  @IsOptional()
+  city?: string | null;
+
+  @IsString()
+  @IsOptional()
+  address?: string | null;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  gps_radius_meters?: number | null;
+
+  @IsBoolean()
+  @IsOptional()
+  attendance_enabled?: boolean;
 }

@@ -97,6 +97,16 @@ export class UsersService {
     if (dto.department !== undefined) updates.department = dto.department;
     if (dto.job_title !== undefined) updates.job_title = dto.job_title;
     if (dto.avatar_url !== undefined) updates.avatar_url = dto.avatar_url;
+    if (dto.employee_number !== undefined) updates.employee_number = dto.employee_number;
+    if (dto.phone !== undefined) updates.phone = dto.phone;
+    if (dto.identity_number !== undefined) updates.identity_number = dto.identity_number;
+    if (dto.manager_name !== undefined) updates.manager_name = dto.manager_name;
+    if (dto.employment_type !== undefined) updates.employment_type = dto.employment_type;
+    if (dto.join_date !== undefined) updates.join_date = dto.join_date;
+    if (dto.city !== undefined) updates.city = dto.city;
+    if (dto.address !== undefined) updates.address = dto.address;
+    if (dto.gps_radius_meters !== undefined) updates.gps_radius_meters = dto.gps_radius_meters;
+    if (dto.attendance_enabled !== undefined) updates.attendance_enabled = dto.attendance_enabled;
 
     if (dto.role) throw new BadRequestException('Use PATCH /users/:id/role to change role');
 
@@ -109,6 +119,13 @@ export class UsersService {
     // existing "generate/regenerate" flow, no auto-restore of stale credentials).
     if (dto.is_active === false && existing.is_active !== false) {
       await this.revokeAccess(id, tenant.tenantId);
+    }
+
+    // Turning attendance off (independent of the employee's active/disabled status)
+    // must revoke the link/device the same way — attendance is its own on/off
+    // switch, not a side effect of the employee lifecycle.
+    if (dto.attendance_enabled === false && (existing as any).attendance_enabled !== false) {
+      await this.usersRepository.revokeAttendanceAccess(id, tenant.tenantId);
     }
 
     await this.auditService.log({
