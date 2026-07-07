@@ -1,0 +1,235 @@
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { AccessControlRepository, RoleRow } from './access-control.repository';
+import { PermissionsService } from '../../core/permissions/permissions.service';
+import { AuditService } from '../../core/audit/audit.service';
+import { TenantContext } from '../../core/tenant/tenant-context';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
+
+// Roles that can never be mutated through this API, even by an owner acting
+// on their own tenant — approved S5 Stage C decision #2. An owner editing
+// their own "owner" role is a self-lockout risk; "superadmin" is
+// platform-level and never tenant-editable at all.
+const PROTECTED_ROLE_NAMES = new Set(['owner', 'superadmin']);
+
+type PermissionState = 'granted' | 'denied' | 'inherited_default';
+
+function stateFromOverride(override: { is_granted: boolean } | null): PermissionState {
+  if (!override) return 'inherited_default';
+  return override.is_granted ? 'granted' : 'denied';
+}
+
+@Injectable()
+export class AccessControlService {
+  constructor(
+    private readonly repo: AccessControlRepository,
+    private readonly permissionsService: PermissionsService,
+    private readonly audit: AuditService,
+  ) {}
+
+  async listPermissionGroups() {
+    return this.repo.listPermissionGroups();
+  }
+
+  async listPermissions(actor: JwtPayload) {
+    const includeSuperadmin = actor.role === 'superadmin';
+    return this.repo.listPermissionsCatalog(includeSuperadmin);
+  }
+
+  async listRoles(tenant: TenantContext) {
+    const tenantId = this.requireTenantId(tenant);
+    const roles = await this.repo.listRolesForTenant(tenantId);
+
+    return Promise.all(
+      roles.map(async (role) => {
+        const [userCount, grantedKeys, customizedCount] = await Promise.all([
+          this.repo.countUsersForRole(role.id, tenantId),
+          this.permissionsService.getRolePermissions(role.name, tenantId),
+          this.repo.countCustomizedPermissions(tenantId, role.id),
+        ]);
+
+        return {
+          id: role.id,
+          name: role.name,
+          is_system: role.is_system,
+          user_count: userCount,
+          permission_count: grantedKeys.length,
+          customized_permission_count: customizedCount,
+        };
+      }),
+    );
+  }
+
+  async getRolePermissions(roleId: string, tenant: TenantContext, actor: JwtPayload) {
+    const tenantId = this.requireTenantId(tenant);
+    const role = await this.getAccessibleRoleOrThrow(roleId, tenantId);
+
+    const [catalog, detail] = await Promise.all([
+      this.listPermissions(actor),
+      this.permissionsService.getResolutionDetail(role.name, tenantId),
+    ]);
+
+    return catalog.map((permission) => ({
+      permission_key: permission.name,
+      group_code: permission.group_code,
+      description: permission.description,
+      granted: detail.grantedKeys.has(permission.name),
+      source: detail.overrides.has(permission.name) ? 'tenant_override' : 'global',
+    }));
+  }
+
+  async updatePermission(
+    roleId: string,
+    permissionKey: string,
+    isGranted: boolean,
+    tenant: TenantContext,
+    actor: JwtPayload,
+  ) {
+    const tenantId = this.requireTenantId(tenant);
+    const role = await this.getEditableRoleOrThrow(roleId, tenantId);
+    await this.assertPermissionIsCustomizable(permissionKey);
+
+    const before = await this.repo.getOverride(tenantId, roleId, permissionKey);
+    const beforeState = stateFromOverride(before);
+
+    await this.repo.upsertOverride(tenantId, roleId, permissionKey, isGranted);
+    await this.permissionsService.invalidateRole(role.name, tenantId);
+
+    const afterState: PermissionState = isGranted ? 'granted' : 'denied';
+
+    this.logPermissionChange({
+      tenant,
+      actor,
+      action: isGranted ? 'role_permission.granted' : 'role_permission.revoked',
+      roleId,
+      permissionKey,
+      beforeState,
+      afterState,
+    });
+
+    return { role_id: roleId, permission_key: permissionKey, granted: isGranted, source: 'tenant_override' as const };
+  }
+
+  async resetPermission(
+    roleId: string,
+    permissionKey: string,
+    tenant: TenantContext,
+    actor: JwtPayload,
+  ) {
+    const tenantId = this.requireTenantId(tenant);
+    const role = await this.getEditableRoleOrThrow(roleId, tenantId);
+
+    const before = await this.repo.getOverride(tenantId, roleId, permissionKey);
+    const beforeState = stateFromOverride(before);
+
+    // Reset means DELETE — never write a row matching the current global
+    // value (approved decision #3). If there was nothing to delete, this is
+    // a no-op, not an error.
+    await this.repo.deleteOverride(tenantId, roleId, permissionKey);
+    await this.permissionsService.invalidateRole(role.name, tenantId);
+
+    this.logPermissionChange({
+      tenant,
+      actor,
+      action: 'role_permission.reset',
+      roleId,
+      permissionKey,
+      beforeState,
+      afterState: 'inherited_default',
+    });
+
+    const grantedNow = await this.permissionsService.hasPermission(role.name, permissionKey, tenantId);
+    return { role_id: roleId, permission_key: permissionKey, granted: grantedNow, source: 'global' as const };
+  }
+
+  async resetRole(roleId: string, tenant: TenantContext, actor: JwtPayload) {
+    const tenantId = this.requireTenantId(tenant);
+    const role = await this.getEditableRoleOrThrow(roleId, tenantId);
+
+    // Fetch every override BEFORE deleting so each one gets its own
+    // before/after audit entry — not one vague "role was reset" row.
+    const overrides = await this.repo.listOverridesForRole(tenantId, roleId);
+
+    await this.repo.deleteAllOverridesForRole(tenantId, roleId);
+    await this.permissionsService.invalidateRole(role.name, tenantId);
+
+    for (const override of overrides) {
+      this.logPermissionChange({
+        tenant,
+        actor,
+        action: 'role_permission.reset',
+        roleId,
+        permissionKey: override.permission_key,
+        beforeState: override.is_granted ? 'granted' : 'denied',
+        afterState: 'inherited_default',
+      });
+    }
+
+    return { role_id: roleId, reset_count: overrides.length };
+  }
+
+  // ---- internal helpers -------------------------------------------------
+
+  private requireTenantId(tenant: TenantContext): string {
+    if (!tenant.tenantId) {
+      throw new ForbiddenException('Tenant context required for access-control management');
+    }
+    return tenant.tenantId;
+  }
+
+  private async getAccessibleRoleOrThrow(roleId: string, tenantId: string): Promise<RoleRow> {
+    const role = await this.repo.getRoleById(roleId);
+    if (!role) throw new NotFoundException('Role not found');
+
+    // System role (usable by every tenant) or this tenant's own custom role.
+    if (role.tenant_id !== null && role.tenant_id !== tenantId) {
+      throw new ForbiddenException('Cannot access another tenant\'s role');
+    }
+
+    return role;
+  }
+
+  private async getEditableRoleOrThrow(roleId: string, tenantId: string): Promise<RoleRow> {
+    const role = await this.getAccessibleRoleOrThrow(roleId, tenantId);
+
+    if (PROTECTED_ROLE_NAMES.has(role.name)) {
+      throw new ForbiddenException(`Role "${role.name}" is protected and cannot be modified`);
+    }
+
+    return role;
+  }
+
+  private async assertPermissionIsCustomizable(permissionKey: string): Promise<void> {
+    const permission = await this.repo.getPermissionByKey(permissionKey);
+    if (!permission) throw new NotFoundException('Permission not found');
+
+    if (permission.resource === 'superadmin') {
+      throw new ForbiddenException('Platform-level permissions cannot be granted to a tenant role');
+    }
+  }
+
+  private logPermissionChange(entry: {
+    tenant: TenantContext;
+    actor: JwtPayload;
+    action: string;
+    roleId: string;
+    permissionKey: string;
+    beforeState: PermissionState;
+    afterState: PermissionState;
+  }): void {
+    // Fire-and-forget, matching the established convention (e.g.
+    // AttendanceLinkService) — an audit-write hiccup must never block or
+    // fail the actual permission change.
+    this.audit
+      .log({
+        tenant_id: entry.tenant.tenantId,
+        actor_id: entry.actor.sub,
+        actor_role: entry.actor.role,
+        action: entry.action,
+        resource_type: 'role_permission',
+        resource_id: `${entry.roleId}:${entry.permissionKey}`,
+        before_data: { permission_key: entry.permissionKey, state: entry.beforeState },
+        after_data: { permission_key: entry.permissionKey, state: entry.afterState },
+      })
+      .catch(() => {});
+  }
+}

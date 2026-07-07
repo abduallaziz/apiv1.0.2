@@ -55,6 +55,39 @@ export class PermissionsService {
     await this.cache.del(cacheKey(role, tenantId));
   }
 
+  // S5 Stage C — shared resolution detail for the access-control admin API.
+  // Reuses the exact same merge logic as hasPermission/getGrantedSet (not a
+  // parallel implementation), so the admin "what does this role have and
+  // why" view can never disagree with what PermissionGuard actually enforces.
+  // Deliberately bypasses the cache (admin screens need up-to-the-second
+  // accuracy right after a write, not a up-to-10-minutes-stale cached view).
+  async getResolutionDetail(
+    role: string,
+    tenantId?: string | null,
+  ): Promise<{ grantedKeys: Set<string>; overrides: Map<string, boolean> }> {
+    const globalKeys = await this.fetchGlobalGrants(role);
+    const overrides = new Map<string, boolean>();
+
+    if (!tenantId) {
+      return { grantedKeys: new Set(globalKeys), overrides };
+    }
+
+    const roleId = await this.lookupSystemRoleId(role);
+    if (!roleId) {
+      return { grantedKeys: new Set(globalKeys), overrides };
+    }
+
+    const overrideRows = await this.fetchTenantOverrides(tenantId, roleId);
+    const merged = new Set(globalKeys);
+    for (const row of overrideRows) {
+      overrides.set(row.permission_key, row.is_granted);
+      if (row.is_granted) merged.add(row.permission_key);
+      else merged.delete(row.permission_key);
+    }
+
+    return { grantedKeys: merged, overrides };
+  }
+
   private async getGrantedSet(role: string, tenantId?: string | null): Promise<Set<string>> {
     const key = cacheKey(role, tenantId);
 
