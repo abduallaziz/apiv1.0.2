@@ -49,7 +49,7 @@ export class UsersRepository extends ScopedRepository {
     return this.supabase
       .from('users')
       .insert(data)
-      .select('id, email, name, role, is_active, commission_rate, created_at')
+      .select(`id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`)
       .single();
   }
 

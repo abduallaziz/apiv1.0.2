@@ -8,6 +8,7 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { UsersRepository } from './users.repository';
 import { CreateUserDto } from './dto/create-user.dto';
+import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { TenantContext } from '../../core/tenant/tenant.context';
@@ -80,6 +81,62 @@ export class UsersService {
     });
 
     return data;
+  }
+
+  // Employee Core creation — no email/password/role required. Creates a row
+  // with role 'none' (zero dashboard permissions, resolves via role_permissions
+  // to an empty set) and no password_hash, i.e. no System User account exists
+  // for this person unless one is separately created later via create() above.
+  async createEmployee(dto: CreateEmployeeDto, tenant: TenantContext, actorId: string) {
+    await this.billingService.checkUserLimit(tenant.tenantId);
+
+    if (dto.email) {
+      const { data: existing } = await this.usersRepository.findByEmail(dto.email, tenant.tenantId);
+      if (existing) throw new ConflictException('Email already exists in this tenant');
+    }
+
+    const { data, error } = await this.usersRepository.create({
+      tenant_id: tenant.tenantId,
+      email: dto.email ?? null,
+      password_hash: null,
+      name: dto.name,
+      role: UserRole.NONE,
+      is_active: true,
+      employee_number: dto.employee_number ?? null,
+      phone: dto.phone ?? null,
+      identity_number: dto.identity_number ?? null,
+      department: dto.department ?? null,
+      job_title: dto.job_title ?? null,
+      manager_name: dto.manager_name ?? null,
+      employment_type: dto.employment_type ?? null,
+      join_date: dto.join_date ?? null,
+      branch_id: dto.branch_id ?? null,
+      city: dto.city ?? null,
+      address: dto.address ?? null,
+      gps_radius_meters: dto.gps_radius_meters ?? null,
+    });
+
+    if (error) throw new BadRequestException(error.message);
+
+    // "Enable Attendance" was toggled in the wizard's Attendance step — generate
+    // the token now that the employee actually exists (attendance can only ever
+    // be tied to a real employeeId + tenantId, never created ahead of the record).
+    let attendance_token: string | null = null;
+    if (dto.enable_attendance) {
+      const linkResult = await this.usersRepository.generateAttendanceToken(data.id, tenant.tenantId);
+      attendance_token = linkResult.attendance_token;
+    }
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'employee.create',
+      resource_type: 'employee',
+      resource_id: data.id,
+      after_data: { name: data.name, employee_number: data.employee_number, attendance_enabled: !!dto.enable_attendance },
+    });
+
+    return { ...data, attendance_token };
   }
 
   async update(id: string, dto: UpdateUserDto, tenant: TenantContext, actorId: string) {
