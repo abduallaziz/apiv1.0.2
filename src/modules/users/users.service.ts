@@ -152,6 +152,10 @@ export class UsersService {
     if (dto.gps_radius_meters !== undefined) updates.gps_radius_meters = dto.gps_radius_meters;
     if (dto.is_active !== undefined) updates.is_active = dto.is_active;
     if (dto.attendance_enabled !== undefined) updates.attendance_enabled = dto.attendance_enabled;
+    if (dto.base_salary !== undefined) updates.base_salary = dto.base_salary;
+    if (dto.grace_period_minutes !== undefined) updates.grace_period_minutes = dto.grace_period_minutes;
+    if (dto.late_deduction_mode !== undefined) updates.late_deduction_mode = dto.late_deduction_mode;
+    if (dto.late_deduction_value !== undefined) updates.late_deduction_value = dto.late_deduction_value;
 
     const { data, error } = await this.usersRepository.update(id, tenant.tenantId, updates);
     if (error) throw new BadRequestException(error.message);

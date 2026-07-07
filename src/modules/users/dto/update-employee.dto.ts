@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 // Employee Core editing — deliberately excludes email/password/role/login
 // status. Those belong to the System User side (PATCH /users/:id) even when
@@ -69,4 +69,26 @@ export class UpdateEmployeeDto {
   @IsBoolean()
   @IsOptional()
   attendance_enabled?: boolean;
+
+  // Payroll policy — moved here from the old EmployeeSettingsModal (which used
+  // to edit these via the System User endpoint). Payroll is employment data,
+  // not authentication data, so it belongs on the Employee domain DTO.
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  base_salary?: number | null;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  grace_period_minutes?: number;
+
+  @IsIn(['fixed', 'per_minute', 'percentage_of_daily_rate'])
+  @IsOptional()
+  late_deduction_mode?: 'fixed' | 'per_minute' | 'percentage_of_daily_rate' | null;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  late_deduction_value?: number | null;
 }
