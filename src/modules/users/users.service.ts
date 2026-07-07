@@ -9,6 +9,7 @@ import * as bcrypt from 'bcryptjs';
 import { UsersRepository } from './users.repository';
 import { CreateUserDto } from './dto/create-user.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
+import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { TenantContext } from '../../core/tenant/tenant.context';
@@ -45,6 +46,128 @@ export class UsersService {
   async findOne(id: string, tenant: TenantContext) {
     const { data, error } = await this.usersRepository.findById(id, tenant);
     if (error || !data) throw new NotFoundException('User not found');
+    return data;
+  }
+
+  async findAllEmployees(tenant: TenantContext) {
+    const { data, error } = await this.usersRepository.findAllEmployees(tenant);
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  async findLinkableSystemUsers(tenant: TenantContext) {
+    const { data, error } = await this.usersRepository.findLinkableSystemUsers(tenant);
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  // Real-time wizard validation (Step 1) and a defense-in-depth check at create
+  // time — email/phone/employee_number must each be unique per tenant across
+  // every row (System User or Employee Profile), since they still share one table.
+  async checkDuplicates(tenant: TenantContext, fields: { email?: string; phone?: string; employee_number?: string }, excludeId?: string) {
+    const result: { email?: boolean; phone?: boolean; employee_number?: boolean } = {}
+
+    if (fields.email) {
+      const { data } = await this.usersRepository.findByEmail(fields.email, tenant.tenantId);
+      result.email = !!data && data.id !== excludeId;
+    }
+    if (fields.phone) {
+      const { data } = await this.usersRepository.findByPhone(fields.phone, tenant.tenantId);
+      result.phone = !!data && data.id !== excludeId;
+    }
+    if (fields.employee_number) {
+      const { data } = await this.usersRepository.findByEmployeeNumber(fields.employee_number, tenant.tenantId);
+      result.employee_number = !!data && data.id !== excludeId;
+    }
+    return result;
+  }
+
+  private async assertNoDuplicates(
+    dto: { email?: string; phone?: string; employee_number?: string },
+    tenantId: string,
+    excludeId?: string,
+  ) {
+    if (dto.email) {
+      const { data } = await this.usersRepository.findByEmail(dto.email, tenantId);
+      if (data && data.id !== excludeId) throw new ConflictException('Email already exists in this tenant');
+    }
+    if (dto.phone) {
+      const { data } = await this.usersRepository.findByPhone(dto.phone, tenantId);
+      if (data && data.id !== excludeId) throw new ConflictException('Phone number already exists in this tenant');
+    }
+    if (dto.employee_number) {
+      const { data } = await this.usersRepository.findByEmployeeNumber(dto.employee_number, tenantId);
+      if (data && data.id !== excludeId) throw new ConflictException('Employee number already exists in this tenant');
+    }
+  }
+
+  async linkAsEmployee(id: string, tenant: TenantContext, actorId: string) {
+    const existing = await this.findOne(id, tenant);
+    if ((existing as any).is_employee_profile) {
+      throw new ConflictException('This user already has an Employee Profile');
+    }
+
+    const { data, error } = await this.usersRepository.linkAsEmployee(id, tenant.tenantId);
+    if (error) throw new BadRequestException(error.message);
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'employee.linked',
+      resource_type: 'employee',
+      resource_id: id,
+      after_data: { name: existing.name },
+    });
+
+    return data;
+  }
+
+  async updateEmployee(id: string, dto: UpdateEmployeeDto, tenant: TenantContext, actorId: string) {
+    const existing = await this.findOne(id, tenant);
+    if (!(existing as any).is_employee_profile) {
+      throw new NotFoundException('Employee profile not found');
+    }
+
+    await this.assertNoDuplicates(dto, tenant.tenantId, id);
+
+    const updates: Record<string, unknown> = {};
+    if (dto.name !== undefined) updates.name = dto.name;
+    if (dto.avatar_url !== undefined) updates.avatar_url = dto.avatar_url;
+    if (dto.employee_number !== undefined) updates.employee_number = dto.employee_number;
+    if (dto.phone !== undefined) updates.phone = dto.phone;
+    if (dto.email !== undefined) updates.email = dto.email;
+    if (dto.identity_number !== undefined) updates.identity_number = dto.identity_number;
+    if (dto.department !== undefined) updates.department = dto.department;
+    if (dto.job_title !== undefined) updates.job_title = dto.job_title;
+    if (dto.manager_name !== undefined) updates.manager_name = dto.manager_name;
+    if (dto.employment_type !== undefined) updates.employment_type = dto.employment_type;
+    if (dto.join_date !== undefined) updates.join_date = dto.join_date;
+    if (dto.city !== undefined) updates.city = dto.city;
+    if (dto.address !== undefined) updates.address = dto.address;
+    if (dto.gps_radius_meters !== undefined) updates.gps_radius_meters = dto.gps_radius_meters;
+    if (dto.is_active !== undefined) updates.is_active = dto.is_active;
+    if (dto.attendance_enabled !== undefined) updates.attendance_enabled = dto.attendance_enabled;
+
+    const { data, error } = await this.usersRepository.update(id, tenant.tenantId, updates);
+    if (error) throw new BadRequestException(error.message);
+
+    if (dto.is_active === false && existing.is_active !== false) {
+      await this.revokeAccess(id, tenant.tenantId);
+    }
+    if (dto.attendance_enabled === false && (existing as any).attendance_enabled !== false) {
+      await this.usersRepository.revokeAttendanceAccess(id, tenant.tenantId);
+    }
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'employee.updated',
+      resource_type: 'employee',
+      resource_id: id,
+      before_data: { name: existing.name, is_active: existing.is_active },
+      after_data: updates,
+    });
+
     return data;
   }
 
@@ -90,10 +213,7 @@ export class UsersService {
   async createEmployee(dto: CreateEmployeeDto, tenant: TenantContext, actorId: string) {
     await this.billingService.checkUserLimit(tenant.tenantId);
 
-    if (dto.email) {
-      const { data: existing } = await this.usersRepository.findByEmail(dto.email, tenant.tenantId);
-      if (existing) throw new ConflictException('Email already exists in this tenant');
-    }
+    await this.assertNoDuplicates(dto, tenant.tenantId);
 
     const { data, error } = await this.usersRepository.create({
       tenant_id: tenant.tenantId,
@@ -102,6 +222,7 @@ export class UsersService {
       name: dto.name,
       role: UserRole.NONE,
       is_active: true,
+      is_employee_profile: true,
       employee_number: dto.employee_number ?? null,
       phone: dto.phone ?? null,
       identity_number: dto.identity_number ?? null,
