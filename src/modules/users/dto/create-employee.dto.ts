@@ -47,10 +47,6 @@ export class CreateEmployeeDto {
 
   @IsString()
   @IsOptional()
-  branch_id?: string;
-
-  @IsString()
-  @IsOptional()
   city?: string;
 
   @IsString()

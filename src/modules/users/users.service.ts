@@ -110,7 +110,6 @@ export class UsersService {
       manager_name: dto.manager_name ?? null,
       employment_type: dto.employment_type ?? null,
       join_date: dto.join_date ?? null,
-      branch_id: dto.branch_id ?? null,
       city: dto.city ?? null,
       address: dto.address ?? null,
       gps_radius_meters: dto.gps_radius_meters ?? null,
