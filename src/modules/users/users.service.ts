@@ -135,7 +135,7 @@ export class UsersService {
       after_data: { name: data.name, employee_number: data.employee_number, attendance_enabled: !!dto.enable_attendance },
     });
 
-    return { ...data, attendance_token };
+    return { ...data, attendance_token, attendance_enabled: !!dto.enable_attendance };
   }
 
   async update(id: string, dto: UpdateUserDto, tenant: TenantContext, actorId: string) {
