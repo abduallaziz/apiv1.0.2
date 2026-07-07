@@ -175,4 +175,18 @@ export class UsersRepository extends ScopedRepository {
       .eq('id', id)
       .eq('tenant_id', tenantId);
   }
+
+  // History tab — reuses the existing audit_logs table (see core/audit), scoped
+  // to this employee's row as resource_id. No new table, no schema change.
+  async findHistory(id: string, tenantId: string, limit = 50) {
+    const { data, error } = await this.supabase
+      .from('audit_logs')
+      .select('id, actor_id, actor_role, action, resource_type, before_data, after_data, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('resource_id', id)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data ?? [];
+  }
 }

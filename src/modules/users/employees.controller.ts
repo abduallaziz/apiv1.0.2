@@ -42,6 +42,12 @@ export class EmployeesController {
     return this.usersService.checkDuplicates(tenant, { email, phone, employee_number }, excludeId);
   }
 
+  @Get(':id/history')
+  @RequirePermission('users.view')
+  findHistory(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.usersService.findEmployeeHistory(id, tenant);
+  }
+
   @Post()
   @Audit('employee.created')
   @RequirePermission('users.manage')

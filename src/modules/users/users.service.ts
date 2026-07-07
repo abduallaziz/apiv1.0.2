@@ -55,6 +55,11 @@ export class UsersService {
     return data;
   }
 
+  async findEmployeeHistory(id: string, tenant: TenantContext) {
+    await this.findOne(id, tenant); // 404s if not found / wrong tenant
+    return this.usersRepository.findHistory(id, tenant.tenantId);
+  }
+
   async findLinkableSystemUsers(tenant: TenantContext) {
     const { data, error } = await this.usersRepository.findLinkableSystemUsers(tenant);
     if (error) throw new BadRequestException(error.message);

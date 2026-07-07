@@ -77,6 +77,7 @@ export class UsersController {
   }
 
   @Post(':id/attendance-link')
+  @Audit('attendance.link.regenerated')
   @RequirePermission('hr.manage')
   generateAttendanceLink(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
     return this.usersService.generateAttendanceLink(id, tenant);
