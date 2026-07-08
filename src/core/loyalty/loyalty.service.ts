@@ -1,6 +1,7 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import { LoyaltyTiersRepository } from './loyalty-tiers.repository';
 
 export interface LoyaltySettings {
   points_per_currency: number;
@@ -9,7 +10,10 @@ export interface LoyaltySettings {
 
 @Injectable()
 export class LoyaltyService {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly tiersRepo: LoyaltyTiersRepository,
+  ) {}
 
   async getSettings(tenantId: string): Promise<LoyaltySettings> {
     const { data, error } = await this.supabase
@@ -53,6 +57,19 @@ export class LoyaltyService {
     if (!data || data.length === 0) {
       throw new BadRequestException('Insufficient loyalty points balance');
     }
+  }
+
+  /** Bonus multiplier from the customer's current tier (by lifetime points earned, not spendable balance). Defaults to 1 if no tiers are configured or none match yet. */
+  async getTierMultiplier(tenantId: string, customerId: string): Promise<number> {
+    const { data, error } = await this.supabase
+      .from('customers')
+      .select('lifetime_points_earned')
+      .eq('id', customerId)
+      .single();
+    if (error || !data) return 1;
+
+    const tier = await this.tiersRepo.findMatchingTier(tenantId, data.lifetime_points_earned ?? 0);
+    return tier?.points_multiplier ?? 1;
   }
 
   async getBalance(customerId: string): Promise<number> {

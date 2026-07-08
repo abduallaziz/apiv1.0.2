@@ -126,4 +126,13 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsString()
   coupon_code?: string;
+
+  @IsOptional()
+  @IsString()
+  gift_card_code?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  gift_card_amount?: number;
 }

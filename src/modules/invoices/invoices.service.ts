@@ -14,6 +14,7 @@ import { MetricsService } from '../../core/metrics/metrics.service';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { LoyaltyService } from '../../core/loyalty/loyalty.service';
 import { CouponsService, Coupon } from '../coupons/coupons.service';
+import { GiftCardsService, GiftCard } from '../gift-cards/gift-cards.service';
 import { NotificationService } from '../../core/notification/notification.service';
 import {
   NOTIFICATION_TYPES,
@@ -48,6 +49,7 @@ export class InvoicesService {
     private readonly tenantsRepo: TenantsRepository,
     private readonly loyaltyService: LoyaltyService,
     private readonly couponsService: CouponsService,
+    private readonly giftCardsService: GiftCardsService,
     private readonly notificationService: NotificationService,
     private readonly cache: RedisCacheService,
   ) {}
@@ -107,28 +109,44 @@ export class InvoicesService {
       total: this.posEngine.calculateTotal(manualBuilt.subtotal, combinedDiscountAmount, taxAmount),
     };
 
-    if (dto.payment_method === 'cash') {
-      if (!dto.cash_tendered) {
+    // بطاقة الهدايا تسدّد جزءًا أو كامل الفاتورة مباشرة (رصيد مخزَّن حقيقي) — بخلاف
+    // الكوبون/نقاط الولاء (خصم يقلّل المبلغ)، فهي لا تدخل بحساب discount_amount إطلاقًا.
+    // ما تبقّى بعدها هو ما تُحقَّق عليه طريقة الدفع المختارة (dto.payment_method).
+    let giftCard: GiftCard | null = null;
+    let giftCardAmount = 0;
+    if (dto.gift_card_code) {
+      if (!dto.gift_card_amount) {
+        throw new BadRequestException('gift_card_amount required when gift_card_code is provided');
+      }
+      giftCard = await this.giftCardsService.validate(tenant, dto.gift_card_code, dto.gift_card_amount);
+      giftCardAmount = Math.min(dto.gift_card_amount, built.total);
+    }
+    const amountDueAfterGiftCard = parseFloat((built.total - giftCardAmount).toFixed(2));
+
+    if (amountDueAfterGiftCard > 0) {
+      if (dto.payment_method === 'cash') {
+        if (!dto.cash_tendered) {
+          throw new BadRequestException(
+            'cash_tendered required for cash payment',
+          );
+        }
+        this.paymentEngine.processCashPayment(amountDueAfterGiftCard, dto.cash_tendered);
+      } else if (dto.payment_method === 'split') {
+        if (dto.cash_amount === undefined || dto.card_amount === undefined) {
+          throw new BadRequestException(
+            'cash_amount and card_amount required for split payment',
+          );
+        }
+        this.paymentEngine.processSplitPayment(
+          amountDueAfterGiftCard,
+          dto.cash_amount,
+          dto.card_amount,
+        );
+      } else if (dto.payment_method === 'tab' && !dto.customer_id) {
         throw new BadRequestException(
-          'cash_tendered required for cash payment',
+          'customer_id required for tab (open account) payment',
         );
       }
-      this.paymentEngine.processCashPayment(built.total, dto.cash_tendered);
-    } else if (dto.payment_method === 'split') {
-      if (dto.cash_amount === undefined || dto.card_amount === undefined) {
-        throw new BadRequestException(
-          'cash_amount and card_amount required for split payment',
-        );
-      }
-      this.paymentEngine.processSplitPayment(
-        built.total,
-        dto.cash_amount,
-        dto.card_amount,
-      );
-    } else if (dto.payment_method === 'tab' && !dto.customer_id) {
-      throw new BadRequestException(
-        'customer_id required for tab (open account) payment',
-      );
     }
 
     const invoice = await this.repo.create(tenant, {
@@ -143,6 +161,8 @@ export class InvoicesService {
       payment_method: dto.payment_method,
       notes: dto.notes ?? null,
       coupon_code: coupon?.code ?? null,
+      gift_card_code: giftCard?.code ?? null,
+      gift_card_amount: giftCard ? giftCardAmount : null,
     });
 
     await this.repo.insertItems(
@@ -180,6 +200,9 @@ export class InvoicesService {
     if (coupon) {
       await this.couponsService.redeem(coupon.id, invoice.id);
     }
+    if (giftCard) {
+      await this.giftCardsService.redeem(giftCard.id, giftCardAmount, invoice.id);
+    }
 
     // خصم المخزون: أفضل-محاولة (best-effort) — مشكلة بالمخزون لا توقف بيعًا مكتمِلًا أبدًا.
     // يُخصَم فقط إن كان للفرع مستودع افتراضي معيَّن (default_warehouse_id)، وفقط للعناصر
@@ -212,7 +235,12 @@ export class InvoicesService {
       }
       // نقاط الولاء تُحتسب على المبلغ الفعلي المدفوع (بعد أي خصم، بما فيه استرداد النقاط)
       // لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط سابقة)
-      const pointsEarned = this.loyaltyService.calculatePointsEarned(built.total, loyaltySettings);
+      const basePoints = this.loyaltyService.calculatePointsEarned(built.total, loyaltySettings);
+      // مضاعِف الفئة (tier) يُحسَب على lifetime_points_earned *قبل* هذه العملية —
+      // نفس فلسفة نقاط الولاء نفسها: من رصيده الحالي يمكن أن يهبط بالاسترداد، لكن
+      // إجمالي ما اكتسبه لا ينخفض أبدًا، فالفئة لا تتذبذب صعودًا وهبوطًا مع كل عملية استرداد.
+      const tierMultiplier = await this.loyaltyService.getTierMultiplier(tenant.tenantId, dto.customer_id);
+      const pointsEarned = Math.floor(basePoints * tierMultiplier);
       this.loyaltyService.awardPoints(dto.customer_id, pointsEarned).catch(() => {});
     }
 
