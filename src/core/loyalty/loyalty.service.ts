@@ -37,9 +37,27 @@ export class LoyaltyService {
     return parseFloat((points * settings.redemption_value).toFixed(2));
   }
 
+  /**
+   * Confirms the customer belongs to this tenant before any points are read/adjusted.
+   * fn_adjust_loyalty_points itself takes no tenant_id (see migration 041/069) — without this
+   * check a cashier could pass any other tenant's customer_id in the invoice DTO and read or
+   * mutate that customer's loyalty balance.
+   */
+  private async assertCustomerInTenant(tenantId: string, customerId: string): Promise<void> {
+    const { data, error } = await this.supabase
+      .from('customers')
+      .select('id')
+      .eq('id', customerId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new BadRequestException('Customer not found');
+  }
+
   /** Awards points to a customer (positive delta). Silently no-ops on failure — never blocks a sale. */
-  async awardPoints(customerId: string, points: number): Promise<void> {
+  async awardPoints(tenantId: string, customerId: string, points: number): Promise<void> {
     if (points <= 0) return;
+    await this.assertCustomerInTenant(tenantId, customerId);
     await this.supabase.rpc('fn_adjust_loyalty_points', {
       p_customer_id: customerId,
       p_delta: points,
@@ -47,8 +65,9 @@ export class LoyaltyService {
   }
 
   /** Redeems points from a customer (throws if the balance is insufficient). */
-  async redeemPoints(customerId: string, points: number): Promise<void> {
+  async redeemPoints(tenantId: string, customerId: string, points: number): Promise<void> {
     if (points <= 0) return;
+    await this.assertCustomerInTenant(tenantId, customerId);
     const { data, error } = await this.supabase.rpc('fn_adjust_loyalty_points', {
       p_customer_id: customerId,
       p_delta: -points,
@@ -65,6 +84,7 @@ export class LoyaltyService {
       .from('customers')
       .select('lifetime_points_earned')
       .eq('id', customerId)
+      .eq('tenant_id', tenantId)
       .single();
     if (error || !data) return 1;
 
@@ -72,11 +92,12 @@ export class LoyaltyService {
     return tier?.points_multiplier ?? 1;
   }
 
-  async getBalance(customerId: string): Promise<number> {
+  async getBalance(tenantId: string, customerId: string): Promise<number> {
     const { data, error } = await this.supabase
       .from('customers')
       .select('loyalty_points')
       .eq('id', customerId)
+      .eq('tenant_id', tenantId)
       .single();
     if (error || !data) return 0;
     return data.loyalty_points ?? 0;

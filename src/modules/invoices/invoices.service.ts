@@ -77,7 +77,7 @@ export class InvoicesService {
           'customer_id required to redeem loyalty points',
         );
       }
-      const balance = await this.loyaltyService.getBalance(dto.customer_id);
+      const balance = await this.loyaltyService.getBalance(tenant.tenantId, dto.customer_id);
       if (balance < dto.redeem_points) {
         throw new BadRequestException('Insufficient loyalty points balance');
       }
@@ -231,7 +231,7 @@ export class InvoicesService {
 
     if (dto.customer_id) {
       if (dto.redeem_points) {
-        await this.loyaltyService.redeemPoints(dto.customer_id, dto.redeem_points);
+        await this.loyaltyService.redeemPoints(tenant.tenantId, dto.customer_id, dto.redeem_points);
       }
       // نقاط الولاء تُحتسب على المبلغ الفعلي المدفوع (بعد أي خصم، بما فيه استرداد النقاط)
       // لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط سابقة)
@@ -241,7 +241,7 @@ export class InvoicesService {
       // إجمالي ما اكتسبه لا ينخفض أبدًا، فالفئة لا تتذبذب صعودًا وهبوطًا مع كل عملية استرداد.
       const tierMultiplier = await this.loyaltyService.getTierMultiplier(tenant.tenantId, dto.customer_id);
       const pointsEarned = Math.floor(basePoints * tierMultiplier);
-      this.loyaltyService.awardPoints(dto.customer_id, pointsEarned).catch(() => {});
+      this.loyaltyService.awardPoints(tenant.tenantId, dto.customer_id, pointsEarned).catch(() => {});
     }
 
     // إشعار داخلي للكاشير عند إتمام الفاتورة

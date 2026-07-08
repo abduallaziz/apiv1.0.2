@@ -29,11 +29,18 @@ export class CouponsRepository extends ScopedRepository {
     return data;
   }
 
-  /** Case-insensitive lookup used both by CRUD duplicate checks and checkout validation. */
+  /**
+   * Exact lookup (case-insensitive via uppercasing, not SQL `ilike`) used both by CRUD
+   * duplicate checks and checkout validation. Codes are always stored uppercase (see
+   * CouponsService.create) — `ilike` was previously used here, but Postgres/PostgREST
+   * treats `%`/`_` in the pattern as wildcards, so a raw user-supplied checkout code like
+   * "%" would match *any* coupon in the tenant and pass validation. Uppercase + `eq` avoids
+   * that entirely while keeping the same case-insensitive behavior for legitimate codes.
+   */
   async findByCode(tenant: TenantContext, code: string) {
     const { data, error } = await this.scopedQuery('coupons', tenant)
       .select('*')
-      .ilike('code', code)
+      .eq('code', code.toUpperCase())
       .maybeSingle();
     if (error) throw error;
     return data;
