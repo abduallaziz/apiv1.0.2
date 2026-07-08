@@ -20,8 +20,9 @@
 # 1. CURRENT PHASE
 
 ## Active: ---
-## Next: Date Picker في OrdersPage
-## Completed Through: Phase 9F ✅ + Currency System ✅ + i18n Fixes ✅ + Auth Fixes ✅ + Dark Mode ✅ + Responsive ✅
+## Next: راجع §72 للفجوات الحقيقية المتبقية (تقارير العملاء/التسوية اليومية frontend، custom roles، Loyalty Tiers/بطاقات هدايا/كوبونات، باركود وطباعة ملصقات)
+## Completed Through: Phase 9F ✅ + Phase 10 (كل البنود A-M، معظمها backend+frontend، راجع §72 للتصحيح الكامل) + Access Control Core ✅ + Employee/Attendance Domain Separation ✅
+## ⚠️ هذا القسم كان متأخرًا لأيام عن الكود الفعلي حتى تصحيحه بـ§72 (يوليو 8, 2026) — لا تثق بـ"Next" هنا وحده، تحقّق من §72 والفجوات الحقيقية أولًا
 
 ---
 
@@ -470,11 +471,11 @@ Total Migrations: 32 (001–032، تسلسل متصل بلا فجوات — را
 | المقياس | القيمة |
 |---|---|
 | Backend Modules | 42+ (Inventory + Purchasing مضافة) |
-| Database Tables | 49 (عدّ مباشر لـ `CREATE TABLE` عبر كل الـmigrations 001–038، تحقق بتاريخ 2026-07-03) |
-| API Endpoints | 199 (عدّ مباشر لـ `@Get`/`@Post`/`@Patch`/`@Put`/`@Delete` عبر كل الـcontrollers، تحقق بتاريخ 2026-07-03 — رقم لحظي، بيزيد مع كل endpoint جديد، مش هدف ثابت) |
+| Database Tables | 49 (عدّ مباشر لـ `CREATE TABLE` عبر كل الـmigrations 001–038، تحقق بتاريخ 2026-07-03 — **قديم**، migrations استمرت حتى 067 (راجع §72)، لم يُعَد العدّ) |
+| API Endpoints | 199 (عدّ مباشر لـ `@Get`/`@Post`/`@Patch`/`@Put`/`@Delete` عبر كل الـcontrollers، تحقق بتاريخ 2026-07-03 — رقم لحظي، بيزيد مع كل endpoint جديد، مش هدف ثابت — **قديم**، لم يُعَد العدّ بعد إضافات access-control/hr/tables) |
 | Schema Mismatches Fixed | 28/28 ✅ |
-| Core Domains | 8 (+ Inventory + Purchasing) |
-| Database Migrations | 38 (001–038) |
+| Core Domains | 8 (+ Inventory + Purchasing + HR + Access Control) |
+| Database Migrations | 66 ملفًا فعليًا، ترقيم حتى 067 (فجوة معروفة: لا يوجد 062 — راجع §72) |
 | Inventory/Purchasing Core | ✅ مكتمل ومنشور بالكامل — راجع §50 |
 | Payment Providers | 2 (Stripe + Mock) |
 | Queue Infrastructure | BullMQ + Redis |
@@ -2627,3 +2628,79 @@ Phase 10F مكتمل بالكامل بنطاق backend. **لا واجهة fronte
 
 ## الحالة النهائية
 مكتمل ومنشور (api commit `01eb63f`). لا تغيير آخر بالكود أو الواجهة الأمامية.
+
+---
+
+# 72. تصحيح توثيق — عمل ضخم مُنجَز فعليًا لكن لم يُوثَّق بـSTATUS.md/TASKS.md — يوليو 8, 2026
+
+## السياق
+عند بدء جلسة عمل جديدة لمتابعة "الفقرات الباقية" حسب TASKS.md، وقبل البدء ببناء واجهة الطاولات/المطبخ والموارد البشرية (المذكورتين بالوثيقة كـ"لا واجهة frontend بعد")، تم فحص الكود والـgit log فعليًا (بدل الثقة العمياء بالوثيقة) — فتبيّن أن **كمية كبيرة من العمل أُنجزت فعليًا ومنشورة على `main`، لكن لم تُسجَّل أبدًا بـSTATUS.md أو TASKS.md**. هذا القسم توثيق تصالحي (reconciliation) بعد فحص مباشر للكود، لا سرد تفصيلي لكل commit.
+
+## ⚠️ الدرس: لماذا حصل هذا
+واضح أن جلسات عمل سابقة (على الأرجح جلسات متعددة بتاريخ 4-8 يوليو) نفّذت هذا العمل كاملًا لكن لم تُحدِّث STATUS.md/TASKS.md بنهاية كل جلسة، رغم أن سياسة الملف بالأعلى (الأسطر 6-17) تُلزم بذلك صراحة. **قاعدة يجب تذكّرها**: لا تُصدَّق حالة "لا واجهة frontend بعد" أو "لم يُبنَ" بهذه الوثيقة بشكل أعمى قبل تشغيل فحص مباشر (`git log`، فحص `features/`/`app/` بالفرونت إند، فحص `src/modules`/`src/database/migrations` بالباك إند) — الوثيقة قد تكون متأخرة عن الكود الفعلي بأيام.
+
+## Backend — migrations 033-067 (التوثيق كان متوقفًا عند 032 بجدول §11 PROJECT METRICS)
+مجمّعة حسب الموضوع (كل التفاصيل الدقيقة بملفات الـmigrations نفسها):
+- **033-039**: تحسينات أداء وتقارير (indexes، RPCs مُرقَّمة الصفحات، analytics aggregate RPCs)
+- **040**: إعدادات المالك (`invoice_footer` + كشف `logo_url`/`tax_number`) — موثَّقة فعليًا بـTASKS §10L
+- **041**: Loyalty Points — موثَّقة فعليًا بـ§60/TASKS §10G
+- **042**: تتبع انتهاء الصلاحية — موثَّقة فعليًا بـTASKS §10D
+- **043**: ربط POS بالمخزون — موثَّقة فعليًا بـ§64
+- **044**: HR Core (`attendance_records`, `work_schedules`, `users.commission_rate`) — موثَّقة فعليًا بـ§66/TASKS §10H (backend فقط وقتها)
+- **045**: الطاولات/الطلبات — موثَّقة فعليًا بـ§67/TASKS §10F
+- **046**: Payroll + Geofencing — **غير موثَّقة سابقًا**: `branches.geofence_lat/lng/radius_m` (جيوفنس افتراضي للفرع) + جدول `employee_geofences` (مناطق مخصصة لكل موظف، تدعم عدة مناطق نشطة بنفس الوقت لعمّال الميدان، بحدود تاريخ اختيارية)
+- **047**: ربط الحضور برمز PIN (`attendance_pin_link`) — **غير موثَّقة سابقًا**
+- **048**: GRANT صلاحيات HR/Payroll — نفس نمط إصلاح الصلاحيات المتكرر (§48/§68/§71)
+- **049-050**: Shift Patterns — **غير موثَّقة سابقًا**: استبدال جدولة التواريخ الثابتة بأنماط دوام قابلة لإعادة الاستخدام (أيام أسبوع + أوقات)، تُطبَّق على أي عدد موظفين، تعديل النمط يحدّث كل الموظفين المرتبطين به تلقائيًا، تدعم عدة ورديات باليوم الواحد (split shifts). `work_schedules` (الصفوف المادّية لكل تاريخ) بقيت بلا تغيير — التوليد يصير تلقائيًا بدل يدوي
+- **051-052**: `users.department`/`job_title`/`avatar_url` — **غير موثَّقة سابقًا**
+- **053**: Leave Requests (`leave_requests` + رصيد إجازات) — **غير موثَّقة سابقًا**. ملاحظة تقنية موثَّقة داخل ملف الـmigration نفسه: المحاولة الأولى حاولت إنشاء جدول `notifications` جديد فتصادمت مع جدول موجود مسبقًا (نفس الاسم، غرض مختلف — إشعارات الفوترة) وأفشلت الـmigration بالكامل بكل محاولة نشر، حتى اكتُشف السبب وأُزيل ذاك الجزء
+- **054**: index على `audit_logs.resource_type` — تحسين أداء بحت
+- **055-058**: فصل System User/Employee Core — موثَّقة فعليًا بـ§69
+- **059-066**: نظام Access Control بالكامل — موثَّقة فعليًا بـ§68
+- **067**: إصلاح صلاحيات الطاولات — موثَّقة فعليًا بـ§71
+
+### ⚠️ فجوة رقمية بالتسلسل: لا يوجد migration رقم 062
+تسلسل migrations حاليًا **يقفز من 061 إلى 063** — أول خرق لقاعدة "تسلسل متصل بلا فجوات" الموثَّقة بـ§4/§50. السبب غير معروف (على الأرجح ملف أُنشئ برقم 062 محليًا بجلسة سابقة ثم حُذف/أُعيد ترقيمه لـ063 قبل commit، بدون توثيق). **لم يُصحَّح** — إعادة ترقيم migration مطبَّقة فعليًا على production خطر غير ضروري (جدول `schema_migrations` يتتبَّع بالاسم/الرقم). يبقى فجوة معروفة موثَّقة، لا خللًا وظيفيًا (الـrunner يُطبِّق حسب الترتيب الأبجدي/الرقمي الموجود فعليًا، لا يشترط تسلسلًا حسابيًا صارمًا).
+
+## Frontend — عمل ضخم غير موثَّق إطلاقًا (commits من `4e52870` حتى `65cf502`، 4-8 يوليو)
+- **Tables & Kitchen UI** (`4e52870`, `dc7bdfc` — 4-5 يوليو): `features/tables/` (`TablesPage`, `TableCard`, `CreateTableModal`, `DineInModal`) + `features/kitchen/` (`KitchenPage`) — مربوطة بالكامل بالـbackend من §67، ومسجَّلة بالسايدبار (`/dashboard/tables`, `/dashboard/kitchen`، قسم `sales`)
+- **مجموعة HR/Attendance/Payroll كاملة** (عشرات الـcommits، 5-8 يوليو): `features/hr/` (`AttendancePage`, `SchedulesPage`, `LeavesPage`) + صفحة موظفين منفصلة عن المستخدمين (`Employees list` + `Employee Creation Wizard` بـ5 خطوات + `Employee Profile` بـ4 تبويبات: Overview/Job Info/Attendance/History) + `PayrollReportPage` (`features/reports/pages/`) + لوحة اعتماد الإجازات (list/approve/reject) + نموذج طلب إجازة بتحقق رصيد لحظي + جدولة بأنماط دوام قابلة لإعادة الاستخدام (تدعم عدة ورديات باليوم) + اختيار موقع الجيوفنس بالخريطة (Leaflet/OpenStreetMap، CARTO tiles) + KPIs موارد بشرية بالداشبورد الرئيسية. كلها مسجَّلة بالسايدبار (`/dashboard/employees`, `/dashboard/attendance`, `/dashboard/schedules`, `/dashboard/payroll`, `/dashboard/leaves`، قسم `hr`، بعضها مقيَّد بـ`owner`/`manager` فقط)
+- **تطبيق الحضور المحمول (attend link)** — 3 شاشات كاملة (الرئيسية/السجل/الإجازات) بتنقّل سفلي، إعادة تصميم كاملة حسب mockups مرجعية، عرض شعار/اسم المستأجر
+- **إعادة تصميم Access Control** (`efa77e3` حتى `8969207`، 7-8 يوليو): تصميم split-view (قائمة أدوار + تفاصيل بنفس الشاشة) — هذا **كان موثَّقًا فعليًا بـ§68** لكن التفاصيل الإضافية (تعديلات fidelity متعددة، صفحة موحَّدة) لم تكن مفصَّلة
+
+## التصحيح المُطبَّق على TASKS.md
+- بند "Tables & Kitchen" (10F): كان يذكر "لا واجهة frontend بعد لأي جزء" — **خطأ**، صُحِّح إلى ✅ مكتمل (backend + frontend)
+- بند "HR" (10H): كان يذكر "لا واجهة frontend بعد لأي من الثلاثة" — **خطأ**، صُحِّح إلى ✅ مكتمل (backend + frontend)، مع توسّع كبير غير مخطَّط أصلًا (Payroll/Geofencing/Shift Patterns/Leaves/Employee Wizard)
+
+## الفجوات الحقيقية المتبقية (بعد هذا التصحيح، تحقّق مباشر من الكود)
+- تقرير العملاء (`GET /reports/customers`) وتقرير المخزون العام (`GET /reports/inventory`) — الـhooks موجودة بالفرونت إند (`useCustomersReport`, `useInventoryReport`) لكن **لا صفحة/مكوّن يستدعيهما فعليًا** — كود ميت حاليًا
+- تسوية يومية (`GET /reports/daily-reconciliation`) — **لا أي أثر بالفرونت إند إطلاقًا**، لا hook ولا صفحة
+- إنشاء أدوار مخصصة (custom roles): جدول `roles` يدعم `tenant_id` غير NULL فعليًا (migration 059) لكن **لا `POST /access-control/roles` بعد** — والأهم: `users.role` لا يزال enum ثابت بقيد CHECK صريح (migration 057) منفصل تمامًا عن `roles.id`/`role_id`، و`UserRole` TypeScript type وDTOs الأدوار (`change-role.dto.ts` إلخ) لا تزال مبنية على نفس الـenum الثابت. تفعيل هذا فعليًا **ليس مجرد إزالة `disabled` من زر الواجهة** — يتطلب قرار معماري بخصوص نقل مصدر حقيقة تعيين الدور من `users.role` (نص) إلى `users.role_id` (FK)، دون كسر أي من مسارات `PermissionsService`/`PermissionGuard` الحالية. لم يُبدأ بعد
+- Loyalty Tiers، بطاقات هدايا، كوبونات — تحقّق مباشر: لا كود إطلاقًا (لا backend ولا frontend) لأي من الثلاثة. **تحديث لاحق نفس اليوم**: الكوبونات بُنيت بالكامل — راجع §73. Loyalty Tiers وبطاقات الهدايا ما زالا بلا كود
+- باركود وطباعة ملصقات — تحقّق مباشر: لا كود إطلاقًا
+
+---
+
+# 73. Coupons — كوبونات الخصم (Phase 10G، الجزء المتبقي) — يوليو 8, 2026
+
+## السياق
+بعد تصحيح التوثيق بـ§72، تبيّن أن جدول `coupons` لم يكن موجودًا إطلاقًا — لا backend ولا frontend — رغم إشارات سابقة غامضة لوجوده الجزئي (غير دقيقة، `DiscountEngine` الموجود دوال خصم يدوي عامة فقط لا علاقة له بالكوبونات). هذا القسم يبني الكوبونات كاملة: تعريف/إدارة الكوبون من صاحب العمل + تطبيقه فعليًا عند الدفع بالـPOS.
+
+## التصميم
+- جدول `coupons` (migration 068) — tenant-scoped، `code` فريد case-insensitive لكل مستأجر (`UPPER(code)` partial unique index)، `discount_type` (percentage/fixed)، `max_discount_amount` (سقف اختياري للنسبة المئوية)، `min_order_amount`، `max_uses`/`used_count`، `valid_from`/`valid_to`، soft delete.
+- `orders.coupon_code` — عمود نصي بسيط (ليس FK) يسجّل الكود المُستخدَم وقت البيع، بنفس منطق `payment_method`: الكوبون قد يُعدَّل/يُحذَف لاحقًا، تاريخ الطلب يجب ألا يتغيّر بأثر رجعي.
+- **استرداد ذرّي (race-safe)**: `fn_redeem_coupon` RPC يطابق `fn_adjust_loyalty_points` (migration 041) حرفيًا بنفس المبرر — `UPDATE ... WHERE used_count < max_uses RETURNING` بجملة SQL واحدة، لأن عميل Supabase JS لا يقدر يقارن عمودين ببعض (`used_count < max_uses`) بفلتر `.update()` عادي.
+- **قرار مختلف عن نمط الولاء عمدًا**: استرداد الكوبون (`CouponsService.redeem`) **لا يرمي استثناء أبدًا** — يسجّل تحذيرًا فقط ويكمل. هذا يخالف `LoyaltyService.redeemPoints` (الذي يرمي استثناء) عمدًا: الاسترداد يحصل بعد إنشاء الطلب فعليًا بقاعدة البيانات، فرمي استثناء بهذه المرحلة يترك طلبًا محفوظًا فعليًا بينما يفشل الـAPI response نفسه للعميل — نفس فلسفة خصم المخزون best-effort من §64. **ملاحظة جانبية**: أثناء البناء لوحظ أن `LoyaltyService.redeemPoints` الحالي فعليًا يحمل هذا الخلل الكامن (يرمي بعد إنشاء الطلب) — لم يُصحَّح هنا لأنه خارج نطاق هذه الدفعة، يستحق مراجعة منفصلة.
+- **صلاحية جديدة `coupons.manage`** (owner/manager/superadmin فقط) — إدارة تعريفات الكوبون فقط. تطبيق كود كوبون عند الدفع **لا** يحتاج صلاحية منفصلة (أي كاشير يقدر يدخل كود كوبون كجزء من إنشاء الفاتورة العادية، محكوم فقط بصلاحية `invoice.create` الموجودة أصلًا — نفس نمط استرداد نقاط الولاء غير المحكوم بصلاحية إضافية).
+- دمج الخصم في `InvoicesService.create()`: خصم الكوبون يُدمَج مع الخصم اليدوي وخصم استرداد نقاط الولاء بنفس السقف (لا يتجاوز الـsubtotal مجتمعين) — الترتيب: بناء الفاتورة اليدوية أولًا (subtotal) ← التحقق من الكوبون (يحتاج subtotal لفحص `min_order_amount`) ← الدمج.
+
+## التنفيذ
+- Backend: migration `068_coupons.sql` (جدول + عمود + RPC + صلاحية مع group_id مباشرة + GRANT بنفس الملف) + `modules/coupons/` (controller/service/repository/DTOs كاملة، تتبع نمط `customer-field-definitions` حرفيًا) + `CreateInvoiceDto.coupon_code` + تعديل `InvoicesService.create()`.
+- Frontend: `features/coupons/` كامل (api/hooks/components/page) + صفحة `/dashboard/coupons` (owner/manager فقط بالسايدبار، قسم `sales`) + namespace i18n جديد (`coupons.json` ar/en) مسجَّل بـ`i18n/request.ts`.
+- **لم يُبنَ بعد**: أي واجهة لإدخال كود كوبون فعليًا بشاشة الدفع بالـPOS (`PaymentModal.tsx`) — الـbackend يقبل `coupon_code` بالكامل، لكن الكاشير حاليًا لا يقدر يدخله من واجهة الـPOS نفسها. يحتاج دفعة عمل منفصلة صغيرة.
+
+## التحقق
+`tsc --noEmit` نظيف على الـapi والـweb معًا. الصفحة تُبنى وتُحمَّل بلا أخطاء (dev server محلي، بدون backend محلي متاح — لا بيانات .env بهذه البيئة أصلًا، فلا يمكن تشغيل الـAPI محليًا أو تطبيق migration 068 على أي قاعدة بيانات ضمن هذه الجلسة). **لم يُطبَّق migration 068 على production بعد** — بانتظار push+deploy فعلي، ونفس التحقق الذي جرى لـ§67/§71 (فحص GRANT بعد النشر) يجب إعادته بعد أول deploy لهذه الـmigration تحديدًا لأنها تنشئ جدولًا جديدًا.
+
+## الحالة النهائية
+الكود مكتمل ومُدقَّق النوع (type-check) لكن **غير مدفوع/منشور بعد** — بانتظار مراجعة/push من المستخدم. Loyalty Tiers وبطاقات الهدايا (باقي بنود 10G) لم يُبنيا بعد.

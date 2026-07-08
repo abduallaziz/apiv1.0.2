@@ -25,6 +25,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { HrModule } from './modules/hr/hr.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { TablesModule } from './modules/tables/tables.module';
+import { CouponsModule } from './modules/coupons/coupons.module';
 import { BillingModule } from './core/billing/billing.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
@@ -90,6 +91,7 @@ import Redis from 'ioredis';
     HrModule,
     AccessControlModule,
     TablesModule,
+    CouponsModule,
     PlansModule,
     SubscriptionsModule,
     ReportsModule,

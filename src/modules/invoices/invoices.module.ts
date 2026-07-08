@@ -9,10 +9,11 @@ import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { CoreAuthModule } from '../../core/auth/auth.module';
 import { NotificationModule } from '../../core/notification/notification.module';
 import { LoyaltyModule } from '../../core/loyalty/loyalty.module';
+import { CouponsModule } from '../coupons/coupons.module';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 
 @Module({
-  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule],
+  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule],
   controllers: [InvoicesController],
   providers: [InvoicesService, InvoicesRepository, TenantsRepository, JwtAuthGuard],
   exports: [InvoicesService],

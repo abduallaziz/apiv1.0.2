@@ -122,4 +122,8 @@ export class CreateInvoiceDto {
   @IsNumber()
   @Min(1)
   redeem_points?: number;
+
+  @IsOptional()
+  @IsString()
+  coupon_code?: string;
 }

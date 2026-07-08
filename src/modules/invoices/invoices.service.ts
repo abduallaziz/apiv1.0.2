@@ -13,6 +13,7 @@ import { AuditService } from '../../core/audit/audit.service';
 import { MetricsService } from '../../core/metrics/metrics.service';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { LoyaltyService } from '../../core/loyalty/loyalty.service';
+import { CouponsService, Coupon } from '../coupons/coupons.service';
 import { NotificationService } from '../../core/notification/notification.service';
 import {
   NOTIFICATION_TYPES,
@@ -46,6 +47,7 @@ export class InvoicesService {
     private readonly metricsService: MetricsService,
     private readonly tenantsRepo: TenantsRepository,
     private readonly loyaltyService: LoyaltyService,
+    private readonly couponsService: CouponsService,
     private readonly notificationService: NotificationService,
     private readonly cache: RedisCacheService,
   ) {}
@@ -84,8 +86,16 @@ export class InvoicesService {
     }
 
     const manualBuilt = this.posEngine.buildInvoice(dto.items, dto.discount, taxRate);
+
+    let couponDiscountAmount = 0;
+    let coupon: Coupon | null = null;
+    if (dto.coupon_code) {
+      coupon = await this.couponsService.validate(tenant, dto.coupon_code, manualBuilt.subtotal);
+      couponDiscountAmount = this.couponsService.calculateDiscount(coupon, manualBuilt.subtotal);
+    }
+
     const combinedDiscountAmount = Math.min(
-      manualBuilt.discount_amount + loyaltyDiscountAmount,
+      manualBuilt.discount_amount + loyaltyDiscountAmount + couponDiscountAmount,
       manualBuilt.subtotal,
     );
     const taxAmount = this.posEngine.applyTax(manualBuilt.subtotal, combinedDiscountAmount, taxRate);
@@ -132,6 +142,7 @@ export class InvoicesService {
       total: built.total,
       payment_method: dto.payment_method,
       notes: dto.notes ?? null,
+      coupon_code: coupon?.code ?? null,
     });
 
     await this.repo.insertItems(
@@ -165,6 +176,10 @@ export class InvoicesService {
     });
 
     this.metricsService.recordInvoice(tenant.tenantId, 'completed');
+
+    if (coupon) {
+      await this.couponsService.redeem(coupon.id, invoice.id);
+    }
 
     // خصم المخزون: أفضل-محاولة (best-effort) — مشكلة بالمخزون لا توقف بيعًا مكتمِلًا أبدًا.
     // يُخصَم فقط إن كان للفرع مستودع افتراضي معيَّن (default_warehouse_id)، وفقط للعناصر
