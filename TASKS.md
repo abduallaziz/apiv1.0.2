@@ -1,5 +1,5 @@
 # TASKS.md — Sefay V1.02
-# آخر تحديث: June 26, 2026 (Sidebar Hamburger Fix — منشور)
+# آخر تحديث: يوليو 8, 2026 (Access Control System — منشور بالكامل، backend + frontend)
 
 ---
 
@@ -19,6 +19,7 @@
 | Staging Environment | ✅ مكتمل |
 | Security Headers (Helmet) | ✅ مكتمل |
 | Phase 9F — Production Go-Live | ✅ مكتمل |
+| Access Control System (tenant-aware permissions + admin UI) | ✅ مكتمل ومنشور — يوليو 7-8, 2026 (roles/tenant_role_permissions/permission_groups + `/access-control/*` API + صفحة `/dashboard/settings/access-control`). راجع STATUS.md §68. **غير مبني بعد**: إنشاء أدوار مخصصة، تعدد أدوار للمستخدم، نطاق فرع/قسم، استثناءات مستخدم فردية، سياسات، وصول مؤقت |
 | Dark Mode — كل الصفحات | ✅ مكتمل (خلفية الصفحة + السايدبار أُصلحا — كانا ثابتين فاتح فقط — June 25, 2026) |
 | Responsive Design — كل الصفحات | ✅ مكتمل (جداول → بطاقات موبايل + إصلاح ارتفاع بوس — June 25, 2026) |
 | Date Picker في OrdersPage | ✅ مكتمل |

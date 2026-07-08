@@ -2519,3 +2519,37 @@ Phase 10H مكتمل بالكامل (بنطاق backend). **لا واجهة fron
 
 ## الحالة النهائية
 Phase 10F مكتمل بالكامل بنطاق backend. **لا واجهة frontend بعد** لأي جزء (طاولات/KDS/حجوزات/waitlist) — API فقط، نفس نمط كل دفعات هذه الجلسة. مدفوع على `claude/analytics-redis-cache` (لم يُدمَج على `main` بعد). **متبقٍ**: migration 045 لم تُطبَّق على production/staging بعد.
+
+---
+
+# 68. نظام إدارة الوصول والصلاحيات (Access Control System) — يوليو 7-8, 2026
+
+## السياق
+كل الصلاحيات كانت عالمية (`role_permissions` بلا `tenant_id`) — لا يمكن لأي مستأجر تخصيص ما يقدر عليه دوره الخاص دون التأثير على كل المستأجرين الآخرين. طُلِب بناء طبقة صلاحيات واعية بالمستأجر (tenant-aware) فوق النظام الحالي **إضافيًا بالكامل** (additive-only)، بدون كسر أي من الـ212 مسارًا المحمية بـ`@RequirePermission()` الحالية أو تغيير سلوك `PermissionGuard`/`PermissionsService` العام.
+
+## التصميم المعتمد (هجين — Hybrid Migration)
+- `role_permissions` (الجدول القديم) يبقى **المصدر الافتراضي العالمي إلى الأبد** — لا يُلغى ولا يُعدَّل.
+- `tenant_role_permissions` (جدول جديد) يطبّق **دمجًا على مستوى كل صلاحية منفردة**، لا استبدالًا كاملًا للدور: `is_granted=true` يضيف الصلاحية، `is_granted=false` يزيلها، وغياب أي صف = اتّباع الإعداد العالمي تلقائيًا. هذا يسمح لصاحب العمل بتعديل صلاحية واحدة فقط دون إعادة كتابة كل صلاحيات الدور.
+- ترتيب القرار النهائي المعتمد: Superadmin bypass → (رفض/سماح صريح للمستخدم — مرحلة مستقبلية لم تُبنَ بعد) → تخصيص المستأجر لصلاحيات الدور → الإعداد العالمي الافتراضي → (تعدد أدوار/نطاق/سياسات — مراحل مستقبلية لم تُبنَ بعد).
+
+## التنفيذ (مراحل S1→S5 Stage D، على `main` مباشرة، كل مرحلة تحقّق منفصل)
+
+**S1-S4 (migrations 059-063، تأسيسية بحتة):**
+- `roles` (7 أدوار نظام مزروعة: superadmin/owner/manager/cashier/worker/inventory_clerk/none، كلها `tenant_id IS NULL, is_system=true` — لا نسخ لكل مستأجر).
+- `users.role_id` (FK اختياري، مُعبَّأ رجعيًا، `users.role` النصي يبقى المصدر الحي حتى S5).
+- `departments` (بلا تعبئة بعد — بانتظار مراجعة القيم الحرة الموجودة).
+- `users.manager_id` (بلا مطابقة تلقائية من `manager_name` النصي — خطر مطابقة خاطئة).
+
+**S5 Stage A:** `tenant_role_permissions` (migration 064) — جدول فارغ، بلا أي كود يقرأه بعد.
+
+**S5 Stage B:** `PermissionsService.hasPermission()`/`getGrantedSet()` أصبحت واعية بـ`tenantId` (وسيط اختياري إضافي) — تدمج تخصيصات المستأجر فوق الإعداد العالمي، مع مفتاح Redis أصبح `permissions:tenant:{tenantId}:role:{role}` (بدل `permissions:role:{role}` العالمي) لمنع تسرّب تخصيص مستأجر لمستأجر آخر. `PermissionGuard` غيّر سطرًا واحدًا فقط (تمرير `user.tenant_id`) — بلا تغيير بترتيب الفحوصات أو نوع الاستثناءات.
+
+**S5 Stage C:** `permission_groups` (migration 065، 10 مجموعات مصنَّفة يدويًا: employees/attendance/expenses/payroll/reports/inventory/purchasing/sales/settings/platform) + `permissions.group_id`. وحدة `AccessControlModule` جديدة (`/access-control/*`) بصلاحية دخول مقفولة (`AccessControlAdminGuard` — فحص دور صريح `owner`/`superadmin` مثل `SuperAdminGuard` الموجود، **ليس** عبر `@RequirePermission()` كي لا يقدر أي دور يعدّل صلاحية نفسه). قواعد أمان مطبَّقة بالكامل: الأدوار المحمية (`owner`/`superadmin`) لا تُعدَّل أبدًا حتى من نفس المستأجر، لا وصول عابر لمستأجر آخر، صلاحيات `resource='superadmin'` لا تُمنح لأي دور مستأجر، الإرجاع للافتراضي = حذف الصف الفعلي لا كتابة قيمة مطابقة، كل تعديل يُسجَّل بـ`audit_logs` (before/after حقيقي لكل صلاحية، ليس سجلًا مبهمًا واحدًا). 27 اختبار Jest يغطي كل قاعدة أمان.
+
+**إصلاح إنتاجي (migration 066):** بعد النشر، `GET /access-control/roles` رجع 500. السبب الحقيقي (بعد تتبّع مباشر عبر Railway logs + استعلامات مباشرة على production Supabase): الجداول الثلاثة الجديدة (`roles`, `permission_groups`, `tenant_role_permissions`) **لم تُمنَح صلاحيات `service_role`** — نفس الخطأ المتكرر من §48/§29 بالضبط (`GRANT ALL ON public.<table> TO service_role` مفقود). أُصلح بـmigration 066، وتحقّق مباشر بعد النشر أن كل الاستعلامات ترجع 200.
+
+## التحقق (End-to-End حقيقي، بلا بيانات وهمية)
+أُنشئت جلسة اختبار شرعية قصيرة الأجل (ساعتين) لحساب `owner@sefay.com` بمستأجر QA المخصص للاختبار (`9bcd3369-...`)، واستُدعي الـ API الحقيقي مباشرة: `/auth/refresh` → `/auth/me` → `/access-control/roles` (7 أدوار حقيقية) → `/access-control/roles/:id/permissions` (51 صلاحية لدور manager، بنفس الشكل الذي تتوقعه الواجهة) → `/access-control/permission-groups` (10 مجموعات). كل الاستدعاءات 200 وبيانات صحيحة. الجلسة أُلغيت بعد التحقق (حذف `refresh_tokens`، تعطيل `device_sessions`).
+
+## الحالة النهائية
+مكتمل ومنشور بالكامل على `main` (api commits من `15d4f04` حتى `0e21e92`؛ web commits من `efa77e3` حتى `8969207`). **الواجهة الأمامية مبنية أيضًا** (خلاف كل الميزات السابقة بهذا الملف التي بقيت API-only) — صفحة `/dashboard/settings/access-control` بتصميم split-view حقيقي (قائمة الأدوار + تفاصيل الدور بنفس الشاشة، بلا انتقال صفحة). **غير مبني بعد عمدًا**: إنشاء أدوار مخصصة جديدة (`دور جديد` بالواجهة معطَّل بوضوح "قريبًا")، تعدد أدوار لكل مستخدم (`user_roles`)، نطاق الوصول (فرع/قسم)، استثناءات مستخدم فردية (allow/deny)، السياسات (حدود موافقة)، ووصول مؤقت — كل هذه مصمَّمة بمراجعة معمارية معتمدة لكن لم تُبنَ، لتُبنى لاحقًا فوق نفس الأساس دون إعادة تصميم schema.
