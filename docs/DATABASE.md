@@ -54,8 +54,11 @@
 ### System
 | الجدول | الوصف |
 |---|---|
-| `permissions` | الصلاحيات المتاحة في النظام |
-| `role_permissions` | الصلاحيات الافتراضية لكل دور |
+| `permissions` | الصلاحيات المتاحة في النظام (كتالوج عالمي، `group_id` يربطها بـ`permission_groups`) |
+| `role_permissions` | الصلاحيات **الافتراضية العالمية** لكل دور (المصدر الدائم — لا يُعدَّل، البديل عند غياب تخصيص) |
+| `roles` | الأدوار كصفوف حقيقية (7 أدوار نظام `tenant_id IS NULL`؛ يدعم أدوارًا مخصصة لكل مستأجر لاحقًا — راجع STATUS.md §68) |
+| `tenant_role_permissions` | تخصيص كل مستأجر لصلاحية دور واحدة (دمج، لا استبدال كامل للدور) — راجع STATUS.md §68 |
+| `permission_groups` | تصنيف الصلاحيات لعرضها بالواجهة (employees/attendance/expenses/payroll/...) |
 | `features` | الميزات القابلة للتفعيل |
 | `audit_logs` | سجل العمليات |
 | `outbox_events` | Outbox pattern |

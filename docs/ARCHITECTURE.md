@@ -36,7 +36,7 @@ Request
 
 | الغرض | المفتاح | الوحدة |
 |---|---|---|
-| Cache الصلاحيات | `perm:{tenantId}:{userId}` | PermissionsService |
+| Cache الصلاحيات | `permissions:tenant:{tenantId}:role:{role}` (أو `permissions:role:{role}` بلا مستأجر — راجع STATUS.md §68) | PermissionsService |
 | Rate limiting | `rl:{name}:{tracker}` | RedisThrottlerStorage |
 | قياس الأداء | `perf:*` | PerfTrackingService |
 | تتبع AI | `ai_usage:*` | AiUsageTrackingService |

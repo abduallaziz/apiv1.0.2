@@ -50,6 +50,24 @@ X-Tenant-ID: <tenant_uuid>      ← مطلوب لغير السوبر أدمن
 
 ---
 
+## Access Control — `/access-control` (added 2026-07-08, see STATUS.md §68)
+
+Not gated by `@RequirePermission()` at all — every route below requires `AccessControlAdminGuard` instead, a **hardcoded** owner/superadmin role check (never a customizable permission, so it can't be self-escalated).
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | `/access-control/permission-groups` | Curated categories (`employees`, `attendance`, `expenses`, ...) |
+| GET | `/access-control/permissions` | Full catalog; `resource='superadmin'` rows excluded unless caller is superadmin |
+| GET | `/access-control/roles` | Includes `user_count`, `permission_count`, `customized_permission_count` per role |
+| GET | `/access-control/roles/:roleId/permissions` | Per-key `granted` + `source` (`global` or `tenant_override`) |
+| PATCH | `/access-control/roles/:roleId/permissions/:permissionKey` | Body `{ is_granted: boolean }` — upserts a `tenant_role_permissions` override |
+| DELETE | `/access-control/roles/:roleId/permissions/:permissionKey` | Deletes the override row (reset to global default) — never rewrites a value |
+| POST | `/access-control/roles/:roleId/reset` | Deletes all overrides for that tenant+role |
+
+`owner` and `superadmin` roles reject every mutating call above (403), even for that tenant's own owner.
+
+---
+
 ## Branches — `/branches`
 
 | Method | Endpoint | Permission |
