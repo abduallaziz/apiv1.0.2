@@ -11,10 +11,11 @@ import { NotificationModule } from '../../core/notification/notification.module'
 import { LoyaltyModule } from '../../core/loyalty/loyalty.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { GiftCardsModule } from '../gift-cards/gift-cards.module';
+import { CustomersModule } from '../customers/customers.module';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 
 @Module({
-  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule, GiftCardsModule],
+  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule, GiftCardsModule, CustomersModule],
   controllers: [InvoicesController],
   providers: [InvoicesService, InvoicesRepository, TenantsRepository, JwtAuthGuard],
   exports: [InvoicesService],

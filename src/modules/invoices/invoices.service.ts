@@ -15,6 +15,7 @@ import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { LoyaltyService } from '../../core/loyalty/loyalty.service';
 import { CouponsService, Coupon } from '../coupons/coupons.service';
 import { GiftCardsService, GiftCard } from '../gift-cards/gift-cards.service';
+import { CustomersService } from '../customers/customers.service';
 import { NotificationService } from '../../core/notification/notification.service';
 import {
   NOTIFICATION_TYPES,
@@ -50,6 +51,7 @@ export class InvoicesService {
     private readonly loyaltyService: LoyaltyService,
     private readonly couponsService: CouponsService,
     private readonly giftCardsService: GiftCardsService,
+    private readonly customersService: CustomersService,
     private readonly notificationService: NotificationService,
     private readonly cache: RedisCacheService,
   ) {}
@@ -64,6 +66,12 @@ export class InvoicesService {
     ip: string,
     device: string,
   ) {
+    // يتحقق أن customer_id فعلاً يخص هذا المستأجر قبل ربطه بالفاتورة — بدون هذا الفحص كان أي
+    // كاشير يقدر يمرر customer_id يخص مستأجر آخر تمامًا فيُخزَّن على الفاتورة كأنه صحيح.
+    if (dto.customer_id) {
+      await this.customersService.findById(tenant, dto.customer_id);
+    }
+
     const taxRate = tenant.tenantId
       ? await this.tenantsRepo.getTaxRate(tenant.tenantId)
       : 0;
