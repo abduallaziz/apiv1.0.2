@@ -157,6 +157,17 @@ export class InvoicesService {
       }
     }
 
+    // نقطة الاسترداد الفعلية (الذرّية، القابلة للرمي) تصير هنا عمدًا — بعد كل تحقق آخر
+    // ممكن يفشل (كوبون/بطاقة هدايا/طريقة الدفع) لكن قبل إنشاء الفاتورة مباشرة. لو صارت
+    // مبكرًا (وقت حساب loyaltyDiscountAmount أعلاه) وفشل تحقق لاحق، كانت النقاط تُخصَم فعليًا
+    // دون إنشاء أي فاتورة. ولو صارت متأخرة (بعد repo.create كما كانت سابقًا)، كان يحصل العكس:
+    // الفاتورة تُنشأ فعليًا وتُطبَّق الخصم على إجماليها، ثم لو فشل الاسترداد الذرّي (تغيّر
+    // الرصيد فعليًا بين الفحص المبكر أعلاه وهذه اللحظة) يفشل الطلب لكن الفاتورة تبقى محفوظة.
+    // هذا هو أقرب موضع ممكن لعملية الإنشاء الفعلية مع إبقاء الاسترداد قبلها لا بعدها.
+    if (dto.redeem_points) {
+      await this.loyaltyService.redeemPoints(tenant.tenantId, dto.customer_id!, dto.redeem_points);
+    }
+
     const invoice = await this.repo.create(tenant, {
       branch_id: branchId,
       cashier_id: cashierId,
@@ -238,9 +249,7 @@ export class InvoicesService {
     }
 
     if (dto.customer_id) {
-      if (dto.redeem_points) {
-        await this.loyaltyService.redeemPoints(tenant.tenantId, dto.customer_id, dto.redeem_points);
-      }
+      // (استرداد نقاط الولاء المطلوب، لو طُلب، يكون قد صار فعليًا قبل إنشاء الفاتورة أعلاه)
       // نقاط الولاء تُحتسب على المبلغ الفعلي المدفوع (بعد أي خصم، بما فيه استرداد النقاط)
       // لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط سابقة)
       const basePoints = this.loyaltyService.calculatePointsEarned(built.total, loyaltySettings);
