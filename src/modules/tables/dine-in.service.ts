@@ -54,7 +54,28 @@ export class DineInService {
     if (!order) throw new NotFoundException('No open order for this table — open the table first');
 
     await this.dineInRepo.insertItems(order.id, tenant.tenantId, dto.items);
+    return this.recalculateAndRespond(tenant, order, taxRate);
+  }
 
+  async removeItem(tenant: TenantContext, tableId: string, itemId: string) {
+    const [order, taxRate] = await Promise.all([
+      this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId),
+      this.tenantsRepo.getTaxRate(tenant.tenantId),
+    ]);
+    if (!order) throw new NotFoundException('No open order for this table — open the table first');
+
+    const removed = await this.dineInRepo.removeItem(itemId, order.id, tenant.tenantId);
+    if (!removed) throw new NotFoundException('Order item not found');
+
+    return this.recalculateAndRespond(tenant, order, taxRate);
+  }
+
+  /**
+   * Shared by addItems/removeItem — re-fetches the order's current items, recomputes
+   * totals, persists them, and builds the response directly from what's already in
+   * hand instead of a redundant getCurrentOrder() re-fetch (see §78's perf fix).
+   */
+  private async recalculateAndRespond(tenant: TenantContext, order: { id: string; [key: string]: unknown }, taxRate: number) {
     const allItems = await this.dineInRepo.getOrderItems(order.id);
     const built = this.posEngine.buildInvoice(
       allItems.map((i) => ({
@@ -76,9 +97,6 @@ export class DineInService {
       total: built.total,
     });
 
-    // يبني الاستجابة مباشرة من البيانات المتوفرة أصلًا (الطلب + العناصر المُجلَبة للتو +
-    // الإجماليات المحسوبة أعلاه) بدل استدعاء getCurrentOrder() الذي كان يعيد جلب الطلب
-    // ونفس العناصر من الصفر — رحلتان زائدتان لقاعدة البيانات بكل عملية إضافة صنف.
     return {
       ...order,
       subtotal: built.subtotal,

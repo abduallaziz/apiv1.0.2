@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -49,6 +50,16 @@ export class DineInController {
   @RequirePermission('tables.manage')
   getCurrentOrder(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
     return this.service.getCurrentOrder(tenant, id);
+  }
+
+  @Delete('items/:itemId')
+  @RequirePermission('tables.manage')
+  removeItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.service.removeItem(tenant, id, itemId);
   }
 
   @Post('checkout')

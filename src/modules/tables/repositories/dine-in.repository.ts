@@ -87,6 +87,33 @@ export class DineInRepository {
     if (error) throw error;
   }
 
+  /**
+   * Soft-deletes an item from an open order. Scoped to both the specific order (not
+   * just "any item with this id") and the tenant, verified via a SELECT first (same
+   * join pattern as updateItemKitchenStatus below — order_items has no tenant_id
+   * column of its own) since PostgREST update filters can't reliably reach through
+   * an embedded relation. Returns null if the item doesn't exist, belongs to a
+   * different order/tenant, or was already removed.
+   */
+  async removeItem(itemId: string, orderId: string, tenantId: string) {
+    const { data: item, error: findErr } = await this.supabase
+      .from('order_items')
+      .select('id, deleted_at, orders!inner(tenant_id)')
+      .eq('id', itemId)
+      .eq('order_id', orderId)
+      .eq('orders.tenant_id', tenantId)
+      .maybeSingle();
+    if (findErr) throw findErr;
+    if (!item || item.deleted_at) return null;
+
+    const { error } = await this.supabase
+      .from('order_items')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', itemId);
+    if (error) throw error;
+    return true;
+  }
+
   async updateItemKitchenStatus(itemId: string, tenantId: string, status: string) {
     // order_items has no tenant_id column — scope via the parent order's tenant_id instead.
     const { data: item, error: findErr } = await this.supabase
