@@ -18,24 +18,37 @@ export class DineInRepository {
     return data;
   }
 
-  async createOpenOrder(tenantId: string, branchId: string, cashierId: string, tableId: string) {
-    const { data, error } = await this.supabase
-      .from('orders')
-      .insert({
-        tenant_id: tenantId,
-        branch_id: branchId,
-        cashier_id: cashierId,
-        table_id: tableId,
-        status: 'pending',
-        subtotal: 0,
-        discount: 0,
-        tax: 0,
-        total: 0,
-      })
-      .select('id, branch_id, cashier_id, table_id, subtotal, discount, tax, total, status, created_at')
-      .single();
+  /**
+   * Atomic via fn_open_dine_in_table — checks the table is available, flips it to
+   * occupied, and creates the order in one Postgres transaction. Replaces the old
+   * two-step create-order-then-update-table sequence, where a failure between the
+   * two left the table and its order permanently disagreeing about state (the root
+   * cause of the "No open order for this table" incident — STATUS.md §77/§78).
+   * Raises a Postgres exception (caught by the service and re-thrown as the
+   * matching HTTP error) if the table doesn't exist or isn't available.
+   */
+  async openTableAtomic(tenantId: string, tableId: string, branchId: string, cashierId: string) {
+    const { data, error } = await this.supabase.rpc('fn_open_dine_in_table', {
+      p_tenant_id: tenantId,
+      p_table_id: tableId,
+      p_branch_id: branchId,
+      p_cashier_id: cashierId,
+    });
     if (error) throw error;
-    return data;
+    return data?.[0] ?? null;
+  }
+
+  /** Atomic via fn_checkout_dine_in_table — finalizes the order and frees the table in one transaction. */
+  async checkoutAtomic(tenantId: string, orderId: string, tableId: string, paymentMethod: string, customerId: string | null) {
+    const { data, error } = await this.supabase.rpc('fn_checkout_dine_in_table', {
+      p_tenant_id: tenantId,
+      p_order_id: orderId,
+      p_table_id: tableId,
+      p_payment_method: paymentMethod,
+      p_customer_id: customerId,
+    });
+    if (error) throw error;
+    return data?.[0] ?? null;
   }
 
   async insertItems(orderId: string, tenantId: string, items: { item_id: string; item_name: string; variant_id?: string | null; variant_name?: string | null; quantity: number; unit_price: number }[]) {
@@ -72,18 +85,6 @@ export class DineInRepository {
       .eq('id', orderId)
       .eq('tenant_id', tenantId);
     if (error) throw error;
-  }
-
-  async finalizeOrder(orderId: string, tenantId: string, updates: { status: string; payment_method: string; customer_id: string | null }) {
-    const { data, error } = await this.supabase
-      .from('orders')
-      .update(updates)
-      .eq('id', orderId)
-      .eq('tenant_id', tenantId)
-      .select('id, branch_id, cashier_id, table_id, subtotal, discount, tax, total, status, payment_method')
-      .single();
-    if (error) throw error;
-    return data;
   }
 
   async updateItemKitchenStatus(itemId: string, tenantId: string, status: string) {

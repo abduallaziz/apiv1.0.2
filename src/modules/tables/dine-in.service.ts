@@ -27,13 +27,22 @@ export class DineInService {
   async openTable(tenant: TenantContext, tableId: string, cashierId: string) {
     const table = await this.tablesRepo.findById(tableId, tenant.tenantId);
     if (!table) throw new NotFoundException('Table not found');
+
+    // fn_open_dine_in_table re-checks availability itself (with a row lock) and
+    // raises a Postgres exception otherwise — this earlier check is just a fast,
+    // friendlier fail before hitting the DB for the common case.
     if (table.status !== 'available') {
       throw new BadRequestException(`Table is not available (status: ${table.status})`);
     }
 
-    const order = await this.dineInRepo.createOpenOrder(tenant.tenantId, table.branch_id, cashierId, tableId);
-    await this.tablesRepo.update(tableId, tenant.tenantId, { status: 'occupied' });
-    return order;
+    try {
+      return await this.dineInRepo.openTableAtomic(tenant.tenantId, tableId, table.branch_id, cashierId);
+    } catch (err: any) {
+      if (err?.message?.includes('not available')) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 
   async addItems(tenant: TenantContext, tableId: string, dto: AddDineInItemsDto) {
@@ -114,13 +123,18 @@ export class DineInService {
       this.paymentEngine.processSplitPayment(order.total, dto.cash_amount, dto.card_amount);
     }
 
-    const finalized = await this.dineInRepo.finalizeOrder(order.id, tenant.tenantId, {
-      status: 'completed',
-      payment_method: dto.payment_method,
-      customer_id: dto.customer_id ?? null,
-    });
-
-    await this.tablesRepo.update(tableId, tenant.tenantId, { status: 'available' });
+    // ذرّي عبر fn_checkout_dine_in_table — إنهاء الطلب وتحرير الطاولة بمعاملة واحدة،
+    // بدل خطوتين منفصلتين قد تتباعدان لو فشلت الثانية بعد نجاح الأولى.
+    const finalized = await this.dineInRepo.checkoutAtomic(
+      tenant.tenantId,
+      order.id,
+      tableId,
+      dto.payment_method,
+      dto.customer_id ?? null,
+    );
+    if (!finalized) {
+      throw new BadRequestException('Order was already checked out or no longer open');
+    }
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
