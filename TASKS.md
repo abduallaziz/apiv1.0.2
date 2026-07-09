@@ -185,6 +185,8 @@
 - [x] تحقق branch ownership
 - [x] تحقق user access to branch
 - [x] استبدال x-branch-id header بـ validated branch context
+- [x] ✅ **Rate limiting لكل مستأجر ولكل IP معًا — يوليو 9, 2026** (راجع STATUS.md §75): كان الحد قديمًا "إما/أو" (tenant_id لو موجود، وإلا IP) — أي مهاجم يزوّر/يدوّر `tenant_id` بتوكن مزوَّر من نفس IP يحصل على دلو مستقل ٦٠٠/دقيقة بلا حد فعلي على الـIP نفسه. أُضيف throttler ثانٍ (`global-ip`) يعمل بالتوازي مع الأصلي، بحد **ديناميكي** = (عدد `tenant_id` مختلف شوهد فعليًا من نفس IP بآخر ~٦٠ ثانية، متتبَّع عبر Redis set) × ٦٠٠. مُدقَّق النوع/مبني محليًا، مُختبَر بمحاكاة Redis (٦/٦ نجحت)، **غير مدفوع لـ`main` بعد** بانتظار الموافقة.
+- [x] ✅ **إصلاح `findById` يرمي 500 بدل 404 بـ17 ملف repository — يوليو 9, 2026** (راجع STATUS.md §75): اكتُشف أثناء اختبار إصلاح ملكية `customer_id`. السبب: `.single()` بدل `.maybeSingle()` — Postgrest يرمي خطأ خام عند 0 صفوف بدل إرجاع `null`، فيمنع منطق `NotFoundException` الموجود أصلًا بكل *service* من العمل. أُصلح بـ17 ملفًا (inventory×7، purchasing×3، items×2، invoices، tenants، customers×2). مدفوع (`e2dfb7a`) ومُتحقَّق منه حيًّا (404 نظيف بدل 500).
 
 ---
 
