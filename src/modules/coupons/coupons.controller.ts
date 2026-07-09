@@ -8,6 +8,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
+import { ValidateCouponDto } from './dto/validate-coupon.dto';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('coupons')
@@ -18,6 +19,19 @@ export class CouponsController {
   @RequirePermission('coupons.manage')
   findAll(@GetTenant() tenant: TenantContext) {
     return this.service.findAll(tenant);
+  }
+
+  // Preview-only — gated by invoice.create.own (same permission POS checkout itself
+  // requires) rather than coupons.manage, since any cashier applying a code at
+  // checkout needs to see its real discount before confirming payment, not just
+  // whoever manages coupon definitions. Does NOT redeem/increment used_count — the
+  // actual invoice creation re-validates and redeems atomically on its own.
+  @Post('validate')
+  @RequirePermission('invoice.create.own')
+  async validate(@GetTenant() tenant: TenantContext, @Body() dto: ValidateCouponDto) {
+    const coupon = await this.service.validate(tenant, dto.code, dto.subtotal);
+    const discount_amount = this.service.calculateDiscount(coupon, dto.subtotal);
+    return { code: coupon.code, discount_type: coupon.discount_type, discount_value: coupon.discount_value, discount_amount };
   }
 
   @Post()
