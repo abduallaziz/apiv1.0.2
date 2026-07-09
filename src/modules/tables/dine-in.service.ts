@@ -37,13 +37,16 @@ export class DineInService {
   }
 
   async addItems(tenant: TenantContext, tableId: string, dto: AddDineInItemsDto) {
-    const order = await this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId);
+    // الطلب المفتوح ونسبة الضريبة مستقلان تمامًا عن بعضهما — يُنفَّذان بالتوازي بدل التسلسل.
+    const [order, taxRate] = await Promise.all([
+      this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId),
+      this.tenantsRepo.getTaxRate(tenant.tenantId),
+    ]);
     if (!order) throw new NotFoundException('No open order for this table — open the table first');
 
     await this.dineInRepo.insertItems(order.id, tenant.tenantId, dto.items);
 
     const allItems = await this.dineInRepo.getOrderItems(order.id);
-    const taxRate = await this.tenantsRepo.getTaxRate(tenant.tenantId);
     const built = this.posEngine.buildInvoice(
       allItems.map((i) => ({
         item_id: i.item_id,
@@ -64,7 +67,17 @@ export class DineInService {
       total: built.total,
     });
 
-    return this.getCurrentOrder(tenant, tableId);
+    // يبني الاستجابة مباشرة من البيانات المتوفرة أصلًا (الطلب + العناصر المُجلَبة للتو +
+    // الإجماليات المحسوبة أعلاه) بدل استدعاء getCurrentOrder() الذي كان يعيد جلب الطلب
+    // ونفس العناصر من الصفر — رحلتان زائدتان لقاعدة البيانات بكل عملية إضافة صنف.
+    return {
+      ...order,
+      subtotal: built.subtotal,
+      discount: built.discount_amount,
+      tax: built.tax_amount,
+      total: built.total,
+      items: allItems,
+    };
   }
 
   async getCurrentOrder(tenant: TenantContext, tableId: string) {

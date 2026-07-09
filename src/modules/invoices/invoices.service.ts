@@ -66,17 +66,14 @@ export class InvoicesService {
     ip: string,
     device: string,
   ) {
-    // يتحقق أن customer_id فعلاً يخص هذا المستأجر قبل ربطه بالفاتورة — بدون هذا الفحص كان أي
-    // كاشير يقدر يمرر customer_id يخص مستأجر آخر تمامًا فيُخزَّن على الفاتورة كأنه صحيح.
-    if (dto.customer_id) {
-      await this.customersService.findById(tenant, dto.customer_id);
-    }
-
-    const taxRate = tenant.tenantId
-      ? await this.tenantsRepo.getTaxRate(tenant.tenantId)
-      : 0;
-
-    const loyaltySettings = await this.loyaltyService.getSettings(tenant.tenantId);
+    // ثلاثة استعلامات مستقلة تمامًا عن بعضها (فحص ملكية العميل، نسبة الضريبة، إعدادات
+    // الولاء) — كانت تُنفَّذ بالتسلسل رغم عدم اعتماد أي منها على نتيجة الآخر، فتضيف
+    // زمن استجابة (round-trip) إضافيًا لكل عملية بيع واحدة. تُنفَّذ الآن بالتوازي.
+    const [, taxRate, loyaltySettings] = await Promise.all([
+      dto.customer_id ? this.customersService.findById(tenant, dto.customer_id) : Promise.resolve(null),
+      tenant.tenantId ? this.tenantsRepo.getTaxRate(tenant.tenantId) : Promise.resolve(0),
+      this.loyaltyService.getSettings(tenant.tenantId),
+    ]);
 
     let loyaltyDiscountAmount = 0;
     if (dto.redeem_points) {
