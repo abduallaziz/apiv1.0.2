@@ -26,7 +26,7 @@ export class CountsRepository extends ScopedRepository {
       .select('*, items:stock_count_items(*, items(name, sku), warehouse_locations(code, name))')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

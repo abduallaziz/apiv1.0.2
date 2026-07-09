@@ -27,7 +27,7 @@ export class PurchaseOrdersRepository extends ScopedRepository {
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

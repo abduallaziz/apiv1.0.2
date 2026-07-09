@@ -22,7 +22,7 @@ export class SuppliersRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.scopedQuery('suppliers', this.ctx(tenantId))
       .eq('id', id)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

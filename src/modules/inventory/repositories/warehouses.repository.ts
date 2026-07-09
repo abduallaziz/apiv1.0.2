@@ -46,7 +46,7 @@ export class WarehousesRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.scopedQuery('warehouses', this.ctx(tenantId))
       .eq('id', id)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

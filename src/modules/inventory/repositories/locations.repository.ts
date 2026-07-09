@@ -81,7 +81,7 @@ export class LocationsRepository extends ScopedRepository {
       .eq('id', id)
       .eq('warehouse_id', warehouseId)
       .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

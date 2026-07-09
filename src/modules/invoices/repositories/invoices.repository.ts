@@ -73,7 +73,7 @@ export class InvoicesRepository extends ScopedRepository {
     const { data: order, error: orderError } = await this.ordersQuery(tenant)
       .select(this.ORDER_SELECT)
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (orderError) throw orderError;
     if (!order) return null;

@@ -25,7 +25,7 @@ export class ReservationsRepository extends ScopedRepository {
       .select('*')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

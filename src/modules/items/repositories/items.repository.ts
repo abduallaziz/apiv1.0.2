@@ -48,9 +48,9 @@ export class ItemsRepository extends ScopedRepository {
          item_variants(id, name, price_adjustment, sku, stock_quantity, is_active)`,
       )
       .eq('id', id)
-      .single();
+      .maybeSingle();
     if (error) throw error;
-    return this.flattenItem(data);
+    return data ? this.flattenItem(data) : null;
   }
 
   async create(tenantId: string, payload: Record<string, unknown>) {

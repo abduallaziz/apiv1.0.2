@@ -17,7 +17,7 @@ export class TenantsRepository {
       .select(TenantsRepository.PROFILE_COLUMNS)
       .eq('id', tenantId)
       .is('deleted_at', null)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

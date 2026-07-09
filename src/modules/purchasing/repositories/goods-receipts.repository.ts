@@ -28,7 +28,7 @@ export class GoodsReceiptsRepository extends ScopedRepository {
       )
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

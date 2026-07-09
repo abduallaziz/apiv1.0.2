@@ -32,7 +32,7 @@ export class CategoriesRepository extends ScopedRepository {
     const { data, error } = await this.scopedQuery('categories', this.ctx(tenantId))
       .select('id, name, type, is_active, created_at')
       .eq('id', id)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }

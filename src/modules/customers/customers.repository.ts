@@ -66,11 +66,14 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async findById(tenant: TenantContext, id: string) {
+    // maybeSingle(), not single() — single() throws a raw PGRST116 Postgrest error when 0 rows
+    // match (e.g. a nonexistent or cross-tenant id), which bubbled up as an unhandled 500 instead
+    // of letting CustomersService.findById's own `if (!customer) throw NotFoundException` run.
     const { data, error } = await this.scopedQuery('customers', tenant)
       .select('*')
       .eq('id', id)
       .is('deleted_at', null)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data;
   }
