@@ -104,4 +104,10 @@ export class UpdateTenantProfileDto {
   @IsNumber()
   @Min(0)
   loyalty_redemption_value?: number;
+
+  // Master switch for the whole loyalty program (points/tiers/redemption). Defaults
+  // to true at the DB level so no existing tenant's behavior changes silently.
+  @IsOptional()
+  @IsBoolean()
+  loyalty_enabled?: boolean;
 }

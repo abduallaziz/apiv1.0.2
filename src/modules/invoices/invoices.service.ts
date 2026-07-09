@@ -80,6 +80,9 @@ export class InvoicesService {
 
     let loyaltyDiscountAmount = 0;
     if (dto.redeem_points) {
+      if (!loyaltySettings.enabled) {
+        throw new BadRequestException('Loyalty program is disabled for this tenant');
+      }
       if (!dto.customer_id) {
         throw new BadRequestException(
           'customer_id required to redeem loyalty points',
@@ -248,7 +251,7 @@ export class InvoicesService {
         });
     }
 
-    if (dto.customer_id) {
+    if (dto.customer_id && loyaltySettings.enabled) {
       // (استرداد نقاط الولاء المطلوب، لو طُلب، يكون قد صار فعليًا قبل إنشاء الفاتورة أعلاه)
       // نقاط الولاء تُحتسب على المبلغ الفعلي المدفوع (بعد أي خصم، بما فيه استرداد النقاط)
       // لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط سابقة)

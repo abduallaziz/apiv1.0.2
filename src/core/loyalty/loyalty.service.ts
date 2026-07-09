@@ -6,6 +6,7 @@ import { LoyaltyTiersRepository } from './loyalty-tiers.repository';
 export interface LoyaltySettings {
   points_per_currency: number;
   redemption_value: number;
+  enabled: boolean;
 }
 
 @Injectable()
@@ -18,14 +19,15 @@ export class LoyaltyService {
   async getSettings(tenantId: string): Promise<LoyaltySettings> {
     const { data, error } = await this.supabase
       .from('tenants')
-      .select('loyalty_points_per_currency, loyalty_redemption_value')
+      .select('loyalty_points_per_currency, loyalty_redemption_value, loyalty_enabled')
       .eq('id', tenantId)
-      .single();
+      .maybeSingle();
 
-    if (error || !data) return { points_per_currency: 1, redemption_value: 0.01 };
+    if (error || !data) return { points_per_currency: 1, redemption_value: 0.01, enabled: true };
     return {
       points_per_currency: data.loyalty_points_per_currency ?? 1,
       redemption_value: data.loyalty_redemption_value ?? 0.01,
+      enabled: data.loyalty_enabled ?? true,
     };
   }
 

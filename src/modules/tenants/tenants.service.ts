@@ -38,6 +38,7 @@ export class TenantsService {
       tax_rate: tenant.tax_rate,
       customer_capture_enabled: tenant.customer_capture_enabled,
       name_field_enabled: tenant.name_field_enabled,
+      loyalty_enabled: tenant.loyalty_enabled,
     };
   }
 

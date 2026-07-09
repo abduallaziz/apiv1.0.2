@@ -9,7 +9,7 @@ export class TenantsRepository {
   ) {}
 
   private static readonly PROFILE_COLUMNS =
-    'id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled, logo_url, tax_number, invoice_footer, printer_settings, notification_preferences, loyalty_points_per_currency, loyalty_redemption_value';
+    'id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled, logo_url, tax_number, invoice_footer, printer_settings, notification_preferences, loyalty_points_per_currency, loyalty_redemption_value, loyalty_enabled';
 
   async findById(tenantId: string) {
     const { data, error } = await this.supabase
@@ -50,6 +50,7 @@ export class TenantsRepository {
     notification_preferences?: object;
     loyalty_points_per_currency?: number;
     loyalty_redemption_value?: number;
+    loyalty_enabled?: boolean;
   }) {
     const { data, error } = await this.supabase
       .from('tenants')
