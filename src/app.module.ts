@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { throttlers } from './core/security/throttler.config';
+import { createThrottlers } from './core/security/throttler.config';
 import { RedisThrottlerStorage } from './core/security/redis-throttler.storage';
 import { TenantThrottlerGuard } from './core/security/tenant-throttler.guard';
 import { IpMiddleware } from './core/security/ip.middleware';
@@ -64,7 +64,7 @@ import Redis from 'ioredis';
       imports: [RedisCacheModule],
       inject: [REDIS_CLIENT],
       useFactory: (redis: Redis) => ({
-        throttlers,
+        throttlers: createThrottlers(redis),
         storage: new RedisThrottlerStorage(redis),
       }),
     }),
