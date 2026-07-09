@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ReservationsRepository } from './repositories/reservations.repository';
-import { TablesRepository } from './repositories/tables.repository';
+import { DineInService } from './dine-in.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -9,7 +9,7 @@ import { TenantContext } from '../../core/tenant/tenant-context';
 export class ReservationsService {
   constructor(
     private readonly repo: ReservationsRepository,
-    private readonly tablesRepo: TablesRepository,
+    private readonly dineInService: DineInService,
   ) {}
 
   findAll(tenant: TenantContext, filters: { tableId?: string; from?: string; to?: string; status?: string }) {
@@ -28,11 +28,16 @@ export class ReservationsService {
     return this.repo.create(tenant.tenantId, dto);
   }
 
-  async update(id: string, tenant: TenantContext, dto: UpdateReservationDto) {
+  async update(id: string, tenant: TenantContext, dto: UpdateReservationDto, actorId: string) {
     const reservation = await this.findOne(id, tenant);
 
+    // كان يضبط حالة الطاولة "مشغولة" مباشرة بدون إنشاء أي طلب فعلي — فيظهر الموظف
+    // "الطاولة مشغولة" لكن أي محاولة إضافة صنف ترمي "No open order for this table"،
+    // لأن جدول الطلبات (orders) لا يعرف شيئًا عن هذا الحجز إطلاقًا. الحل الجذري:
+    // فتح الطاولة فعليًا (إنشاء الطلب + ضبط الحالة معًا بعملية واحدة متسقة) بدل تكرار
+    // نصف المنطق هنا فقط.
     if (dto.status === 'seated' && reservation.status !== 'seated') {
-      await this.tablesRepo.update(reservation.table_id, tenant.tenantId, { status: 'occupied' });
+      await this.dineInService.openTable(tenant, reservation.table_id, actorId);
     }
 
     return this.repo.update(id, tenant.tenantId, dto);

@@ -8,7 +8,9 @@ import {
   Query,
   UseGuards,
   ParseUUIDPipe,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { WaitlistService } from './waitlist.service';
 import { CreateWaitlistEntryDto } from './dto/create-waitlist-entry.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
@@ -45,8 +47,10 @@ export class WaitlistController {
     @Param('id', ParseUUIDPipe) id: string,
     @GetTenant() tenant: TenantContext,
     @Body('table_id') tableId: string,
+    @Req() req: Request,
   ) {
-    return this.service.seat(tenant, id, tableId);
+    const user = req.user as { sub: string };
+    return this.service.seat(tenant, id, tableId, user.sub);
   }
 
   @Patch(':id/cancel')

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { WaitlistRepository } from './repositories/waitlist.repository';
-import { TablesRepository } from './repositories/tables.repository';
+import { DineInService } from './dine-in.service';
 import { CreateWaitlistEntryDto } from './dto/create-waitlist-entry.dto';
 import { TenantContext } from '../../core/tenant/tenant-context';
 
@@ -8,7 +8,7 @@ import { TenantContext } from '../../core/tenant/tenant-context';
 export class WaitlistService {
   constructor(
     private readonly repo: WaitlistRepository,
-    private readonly tablesRepo: TablesRepository,
+    private readonly dineInService: DineInService,
   ) {}
 
   findAll(tenant: TenantContext, branchId?: string, status?: string) {
@@ -21,20 +21,17 @@ export class WaitlistService {
     return this.repo.create(tenant.tenantId, dto);
   }
 
-  async seat(tenant: TenantContext, id: string, tableId: string) {
+  async seat(tenant: TenantContext, id: string, tableId: string, actorId: string) {
     const entry = await this.repo.findById(id, tenant.tenantId);
     if (!entry) throw new NotFoundException('Waitlist entry not found');
     if (entry.status !== 'waiting') {
       throw new BadRequestException(`Cannot seat an entry with status: ${entry.status}`);
     }
 
-    const table = await this.tablesRepo.findById(tableId, tenant.tenantId);
-    if (!table) throw new BadRequestException('Table not found');
-    if (table.status !== 'available') {
-      throw new BadRequestException(`Table is not available (status: ${table.status})`);
-    }
-
-    await this.tablesRepo.update(tableId, tenant.tenantId, { status: 'occupied' });
+    // كان يضبط حالة الطاولة "مشغولة" مباشرة (بعد تحقق يدوي مكرَّر) بدون إنشاء أي طلب —
+    // نفس خلل الحجوزات أعلاه بالضبط. openTable() يفعل التحقق + الإنشاء + ضبط الحالة
+    // كعملية واحدة متسقة، فأزلنا التكرار هنا بدل نسخه.
+    await this.dineInService.openTable(tenant, tableId, actorId);
     return this.repo.seat(id, tenant.tenantId, tableId);
   }
 

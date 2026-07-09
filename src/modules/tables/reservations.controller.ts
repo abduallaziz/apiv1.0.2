@@ -8,7 +8,9 @@ import {
   Query,
   UseGuards,
   ParseUUIDPipe,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { ReservationsService } from './reservations.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
@@ -54,7 +56,9 @@ export class ReservationsController {
     @Param('id', ParseUUIDPipe) id: string,
     @GetTenant() tenant: TenantContext,
     @Body() dto: UpdateReservationDto,
+    @Req() req: Request,
   ) {
-    return this.service.update(id, tenant, dto);
+    const user = req.user as { sub: string };
+    return this.service.update(id, tenant, dto, user.sub);
   }
 }
