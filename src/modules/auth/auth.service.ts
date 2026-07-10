@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient, createClient } from '@supabase/supabase-js';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
@@ -61,12 +61,74 @@ const ACTIVITY_SECTION_TO_BUSINESS_TYPE: Record<string, string> = {
 
 @Injectable()
 export class AuthService {
+  // Anon-key client used only to exchange a magiclink token_hash for a real Supabase
+  // session (verifyOtp) — a separate, lightweight instance rather than adding a second
+  // DI-provided client for one narrow purpose. Never used for any data access.
+  private readonly realtimeAnonClient: SupabaseClient;
+
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
     private readonly auditService: AuditService,
-  ) {}
+  ) {
+    this.realtimeAnonClient = createClient(
+      this.config.getOrThrow<string>('SUPABASE_URL'),
+      this.config.getOrThrow<string>('SUPABASE_ANON_KEY'),
+    );
+  }
+
+  private realtimeEmailForTenant(tenantId: string): string {
+    return `realtime-${tenantId}@internal.sefay.local`;
+  }
+
+  /**
+   * Mints a genuine Supabase Auth session tagged with app_metadata.tenant_id, used
+   * purely so the browser's Supabase Realtime subscription can be authenticated —
+   * RLS policies on tables/orders/order_items read this claim to scope Postgres
+   * Changes events to the right tenant. Deliberately does NOT touch the project's
+   * JWT signing key (stays on the already-active ES256 key) — this bridges our own
+   * auth into Supabase's native Auth system instead, via one persistent synthetic
+   * user per tenant (deterministic email, lazily created, reused across logins
+   * rather than growing auth.users by one row per login).
+   *
+   * Best-effort: if Supabase Auth is ever unreachable or misconfigured, login/refresh
+   * must still succeed for the app's own auth — this just returns null and the
+   * frontend falls back to polling for that session.
+   */
+  private async mintRealtimeToken(tenantId: string | null): Promise<string | null> {
+    if (!tenantId) return null;
+    const email = this.realtimeEmailForTenant(tenantId);
+
+    try {
+      const { error: createErr } = await this.supabase.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        app_metadata: { tenant_id: tenantId },
+      });
+      // Idempotent: ignore "already exists" so this works both on first mint and
+      // every subsequent one for the same tenant.
+      if (createErr && !/already been registered|already exists/i.test(createErr.message ?? '')) {
+        throw createErr;
+      }
+
+      const { data: linkData, error: linkErr } = await this.supabase.auth.admin.generateLink({
+        type: 'magiclink',
+        email,
+      });
+      if (linkErr || !linkData?.properties?.hashed_token) return null;
+
+      const { data: verifyData, error: verifyErr } = await this.realtimeAnonClient.auth.verifyOtp({
+        token_hash: linkData.properties.hashed_token,
+        type: 'magiclink',
+      });
+      if (verifyErr || !verifyData.session) return null;
+
+      return verifyData.session.access_token;
+    } catch {
+      return null;
+    }
+  }
 
   private async getUserPermissions(role: string): Promise<string[]> {
     const { data } = await this.supabase
@@ -221,14 +283,16 @@ export class AuthService {
       device: userAgent,
     });
 
-    const [permissions, features] = await Promise.all([
+    const [permissions, features, realtime_token] = await Promise.all([
       this.getUserPermissions(user.role),
       this.getTenantFeatures(user.tenant_id),
+      this.mintRealtimeToken(user.tenant_id),
     ]);
 
     return {
       access_token,
       refresh_token,
+      realtime_token,
       user: {
         id: user.id,
         name: user.name,
@@ -392,14 +456,16 @@ export class AuthService {
         device: userAgent,
       });
 
-      const [permissions, features] = await Promise.all([
+      const [permissions, features, realtime_token] = await Promise.all([
         this.getUserPermissions(user.role),
         this.getTenantFeatures(tenant.id),
+        this.mintRealtimeToken(tenant.id),
       ]);
 
       return {
         access_token,
         refresh_token,
+        realtime_token,
         user: {
           id: user.id,
           name: user.name,
@@ -515,12 +581,15 @@ export class AuthService {
       is_used: false,
     });
 
-    await this.supabase
-      .from('device_sessions')
-      .update({ last_active_at: new Date().toISOString() })
-      .eq('id', session.id);
+    const [, realtime_token] = await Promise.all([
+      this.supabase
+        .from('device_sessions')
+        .update({ last_active_at: new Date().toISOString() })
+        .eq('id', session.id),
+      this.mintRealtimeToken(user.tenant_id),
+    ]);
 
-    return { access_token, refresh_token: new_refresh_token };
+    return { access_token, refresh_token: new_refresh_token, realtime_token };
   }
 
   async logout(
