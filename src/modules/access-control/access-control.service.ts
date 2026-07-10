@@ -270,6 +270,16 @@ export class AccessControlService {
     return role;
   }
 
+  // Verified explicitly (frontend "custom roles can't be edited" bug report,
+  // investigated and found not reproducible): the only names ever blocked
+  // here are 'owner'/'superadmin' (PROTECTED_ROLE_NAMES). Every custom
+  // tenant role (is_system=false) and every other system role
+  // (manager/cashier/worker/inventory_clerk) is editable through this path
+  // today — updatePermission()/resetPermission()/resetRole() all route
+  // through here and none of them special-case is_system. If a future
+  // report reappears, check the frontend's readOnly wiring first
+  // (ConfigureRoleSheet sets it from mode==='view', which is only ever true
+  // for is_system roles) before assuming this guard changed.
   private async getEditableRoleOrThrow(roleId: string, tenantId: string): Promise<RoleRow> {
     const role = await this.getAccessibleRoleOrThrow(roleId, tenantId);
 
