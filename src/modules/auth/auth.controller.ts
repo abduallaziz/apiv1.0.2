@@ -50,6 +50,7 @@ export class AuthController {
 
     return {
       access_token: result.access_token,
+      realtime_token: result.realtime_token,
       user: result.user,
     };
   }
@@ -69,6 +70,7 @@ export class AuthController {
 
     return {
       access_token: result.access_token,
+      realtime_token: result.realtime_token,
       user: result.user,
     };
   }
@@ -96,7 +98,7 @@ export class AuthController {
 
     res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
 
-    return { access_token: result.access_token };
+    return { access_token: result.access_token, realtime_token: result.realtime_token };
   }
 
   @UseGuards(JwtAuthGuard)
