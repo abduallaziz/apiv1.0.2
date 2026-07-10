@@ -3059,3 +3059,25 @@ Phase 10F مكتمل بالكامل بنطاق backend. **لا واجهة fronte
 
 ## الحالة النهائية
 Backend: جاهز، مُختبَر، مدفوع. Frontend: مبني بالكامل حسب المواصفة الصارمة (5 نقاط)، نظيف من ناحية النوع/البناء، **غير مُتحقَّق منه بصريًا حيًّا** بسبب غياب بيانات دخول Supabase بهذه البيئة (قيد موجود منذ بداية الجلسة، غير خاص بهذا التغيير).
+
+---
+
+# 87. "الـSwitches لا تستجيب" — تحقّق حي كشف أن المشكلة ليست bug إطلاقًا، بل فجوة UX حقيقية بجانب واحد فقط — يوليو 10, 2026
+
+## التشخيص
+المستخدم أضاف `console.log` بطلبه داخل `PermissionRow.tsx`/`useUpdateRolePermission` واختبر حيًّا على production. النتيجة القاطعة: الـSwitch استجاب فعليًا، الـmutation استُدعيت، الطلب وصل فعليًا للـbackend — **لا يوجد أي guard أو overlay بالواجهة يمنع التفاعل**. الفشل الوحيد: `PATCH .../permissions/analytics.view.all` رجع **403 "Platform-level permissions cannot be granted to a tenant role"** — وهو بالضبط سلوك الحماية المتعمَّد من §83 (منع تصعيد الصلاحيات)، يعمل تمامًا كما صُمِّم.
+
+## الفجوة الحقيقية المكتشفة
+`assertPermissionIsCustomizable` (جانب الكتابة) يحظر `analytics.view.all`/`audit.view.all` منذ §83 — لكن `listPermissionsCatalog` (جانب القراءة، `access-control.repository.ts`) **لم يكن يستثنيهما إطلاقًا**، فقط `resource === 'superadmin'`. النتيجة: تظهران بقائمة الصلاحيات لأي مالك مستأجر، قابلتين للنقر ظاهريًا، ليُفاجَأ بـ403 بلا أي تفسير مرئي — بالضبط ما بدا وكأنه "الـSwitch لا يعمل".
+
+## الإصلاح
+- جديد: `access-control/platform-only-permissions.const.ts` — مصدر واحد مشترك لـ`HARDCODED_PLATFORM_ONLY_KEYS` بدل نسخة خاصة داخل `access-control.service.ts` فقط.
+- `access-control.repository.ts`: `listPermissionsCatalog()` يستثني الآن نفس المفتاحين من القائمة المعروضة لغير الـsuperadmin.
+- `access-control.service.ts`: يستورد نفس الثابت المشترك بدل نسخته الخاصة.
+- أُزيلت أسطر الـ`console.log` التشخيصية المؤقتة من الواجهة بعد تأكيد السبب.
+
+## التحقق
+`tsc --noEmit`/`nest build` (backend) و`tsc --noEmit`/`next build` (frontend) نظيفان. 19/19 اختبار access-control ناجح.
+
+## الحالة النهائية
+لا توجد أي مشكلة تفاعلية بالـSwitches — مؤكَّد حيًّا على production. الفجوة الوحيدة الحقيقية (ظهور صلاحيتين عبر-مستأجرين بالقائمة رغم حظرهما بالكتابة) مُغلَقة الآن من مصدر واحد مشترك.

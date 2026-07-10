@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccessControlRepository, RoleRow } from './access-control.repository';
+import { HARDCODED_PLATFORM_ONLY_KEYS } from './platform-only-permissions.const';
 import { PermissionsService } from '../../core/permissions/permissions.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -301,18 +302,22 @@ export class AccessControlService {
   // route those permissions gate (added to AnalyticsController/
   // AuditLogsController in this same pass) as the real enforcement boundary —
   // this check is defense-in-depth, not the primary guarantee.
-  private static readonly HARDCODED_PLATFORM_ONLY_KEYS = new Set([
-    'analytics.view.all',
-    'audit.view.all',
-  ]);
-
+  //
+  // HARDCODED_PLATFORM_ONLY_KEYS moved to platform-only-permissions.const.ts
+  // and shared with the repository's listPermissionsCatalog() — this used to
+  // be a private copy here only, so the catalog still returned these two
+  // keys to tenant admins, who could see and try to toggle them, only to hit
+  // this 403 with no visible reason why (confirmed live via browser network
+  // tab — PATCH .../analytics.view.all -> 403 "Platform-level permissions
+  // cannot be granted to a tenant role"). Single source now — both sides
+  // stay in sync going forward.
   private async assertPermissionIsCustomizable(permissionKey: string): Promise<void> {
     const permission = await this.repo.getPermissionByKey(permissionKey);
     if (!permission) throw new NotFoundException('Permission not found');
 
     if (
       permission.resource === 'superadmin' ||
-      AccessControlService.HARDCODED_PLATFORM_ONLY_KEYS.has(permissionKey)
+      HARDCODED_PLATFORM_ONLY_KEYS.has(permissionKey)
     ) {
       throw new ForbiddenException('Platform-level permissions cannot be granted to a tenant role');
     }

@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import { HARDCODED_PLATFORM_ONLY_KEYS } from './platform-only-permissions.const';
 
 export interface RoleRow {
   id: string;
@@ -54,7 +55,11 @@ export class AccessControlRepository {
     const { data, error } = await query;
     if (error) throw error;
 
-    return (data ?? []).map((row: any) => ({
+    const rows = includeSuperadmin
+      ? (data ?? [])
+      : (data ?? []).filter((row: any) => !HARDCODED_PLATFORM_ONLY_KEYS.has(row.name));
+
+    return rows.map((row: any) => ({
       id: row.id,
       name: row.name,
       resource: row.resource,
