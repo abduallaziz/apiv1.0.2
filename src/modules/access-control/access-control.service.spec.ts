@@ -9,10 +9,11 @@ import { JwtPayload } from '../../shared/types/jwt-payload.type';
 const TENANT_A = 'tenant-a';
 const TENANT_B = 'tenant-b';
 
-const OWNER_ROLE: RoleRow = { id: 'role-owner', name: 'owner', description: null, tenant_id: null, is_system: true };
-const SUPERADMIN_ROLE: RoleRow = { id: 'role-superadmin', name: 'superadmin', description: null, tenant_id: null, is_system: true };
-const MANAGER_ROLE: RoleRow = { id: 'role-manager', name: 'manager', description: null, tenant_id: null, is_system: true };
-const TENANT_B_ROLE: RoleRow = { id: 'role-tenant-b-custom', name: 'Custom B Role', description: null, tenant_id: TENANT_B, is_system: false };
+const TIMESTAMPS = { created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
+const OWNER_ROLE: RoleRow = { id: 'role-owner', name: 'owner', description: null, tenant_id: null, is_system: true, ...TIMESTAMPS };
+const SUPERADMIN_ROLE: RoleRow = { id: 'role-superadmin', name: 'superadmin', description: null, tenant_id: null, is_system: true, ...TIMESTAMPS };
+const MANAGER_ROLE: RoleRow = { id: 'role-manager', name: 'manager', description: null, tenant_id: null, is_system: true, ...TIMESTAMPS };
+const TENANT_B_ROLE: RoleRow = { id: 'role-tenant-b-custom', name: 'Custom B Role', description: null, tenant_id: TENANT_B, is_system: false, ...TIMESTAMPS };
 
 function actor(overrides: Partial<JwtPayload> = {}): JwtPayload {
   return {

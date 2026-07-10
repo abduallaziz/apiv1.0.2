@@ -2824,3 +2824,238 @@ Phase 10F مكتمل بالكامل بنطاق backend. **لا واجهة fronte
 
 ## الحالة النهائية
 كل ما بهذا القسم مدفوع ومنشور على production بالمستودعين، ومُتحقَّق منه حيًّا حيث أمكن (كل نقاط API الجديدة/المعدَّلة). ما لم يُختبر تفاعليًا: النقر الفعلي عبر واجهة POS بالمتصفح (لا بيانات دخول بهذه البيئة) — البناء والفحص النوعي نظيفان والمسارات الخلفية المكافئة مؤكَّدة حيًّا.
+
+---
+
+# 78. تدشين مبادرة Safety & Scale — تشخيص ثغرة `SUPABASE_SERVICE_ROLE_KEY` وخطة الانتقال لـ RLS — يوليو 10, 2026
+
+## السياق
+مراجعة معمارية شاملة (audit خارجي) لتقييم جاهزية المشروع لحجم 100 ألف مستأجر. الوثيقتان الكاملتان: `HIGH_SCALE_ARCHITECTURE.md` و`ENGINEERING_ROADMAP.md` بجذر المستودع (خارج `api/`، تغطي `api` و`web` معًا). هذا القسم يوثّق فقط ما بدأ تنفيذه فعليًا من ذلك التحليل.
+
+## الثغرة المؤكَّدة
+`api/src/shared/supabase/supabase.module.ts` يتصل بـ`SUPABASE_SERVICE_ROLE_KEY` — هذا الدور في Supabase **يتجاوز RLS بالكامل بحسب التصميم**. يعني هذا أن الـ`CREATE POLICY` الموجودة فعليًا (بـ`005_expense_categories.sql`/`073_realtime_tables_orders.sql`/`074_fix_realtime_rls_claim_path.sql`، مبنية على `auth.jwt()`) **لا تحمي أي استعلام يصدر من الـ backend نفسه** — فقط تحمي مسار Realtime الذي يتصل العميل به مباشرة بتوكن JWT خاص به. الحماية الوحيدة الفعلية لاستعلامات الـ API اليوم هي الفلترة اليدوية `.eq('tenant_id', ...)` بـ`core/tenant/scoped.repository.ts` — وهي بالضبط الآلية التي فشلت مرة سابقًا (تسريب نقاط الولاء عبر المستأجرين، موثَّق أعلاه بالتاريخ السابق لهذا القسم).
+
+## القرار المعماري
+الانتقال التدريجي من "فلترة تطبيقية فقط" إلى "RLS مفروضة على مستوى قاعدة البيانات، حتى لطلبات الـ API نفسها" — **كخط أساس أمني "First Build"**. لكن هذا يتطلب تغييرًا بنيويًا حقيقيًا وليس مجرد إضافة `CREATE POLICY`: لازم قناة اتصال تحمل جلسة/transaction ثابتة (`SET LOCAL app.tenant_id`)، وهذا غير ممكن عبر `@supabase/supabase-js` (طلبات HTTP عديمة الحالة عبر PostgREST). لذلك أُضيفت بنية تحتية جديدة موازية بدل تعديل `supabase.module.ts`:
+- `api/src/shared/database/pg-pool.module.ts` — `pg.Pool` خام متصل عبر Supavisor (transaction mode)
+- `api/src/core/tenant/tenant-session.service.ts` — يغلّف `BEGIN; SET LOCAL app.tenant_id = $1; ...; COMMIT/ROLLBACK` حول أي دالة، بمعزل تام عن `ScopedRepository`/PostgREST
+
+**ملاحظة نطاق مهمة**: يتطلب هذا env var جديد غير موجود بـ`.env.example` الحالي — `DATABASE_URL` (سلسلة اتصال Supavisor بوضع transaction). هذه خطوة تزويد يدوية (من لوحة تحكم Supabase) لم تُنفَّذ بعد — الكود جاهز لاستقبالها لكنه غير مفعَّل بدونها.
+
+## اكتشاف إضافي أثناء التدقيق (أوسع من الطلب الأصلي)
+تدقيق كل ملفات الـrepository (45 ملفًا) أظهر أن 22 منها **لا يرثون** من `core/tenant/scoped.repository.ts` (مثل `hr/repositories/attendance.repository.ts`, `tables/repositories/dine-in.repository.ts`, `billing/repositories/invoices.repository.ts`). فحص عيّنة من 5 منها أظهر أنها تفلتر `tenant_id` يدويًا بشكل صريح داخل كل استعلام — إذن ليست ثغرة مؤكَّدة اليوم، لكنها نفس نمط عدم الاتساق الذي أنتج تسريب نقاط الولاء سابقًا. تدقيق كامل لبقية الـ17 ملفًا بند مفتوح منفصل.
+
+## تصحيح رقمي على الطلب الأصلي
+طُلب "RLS على 73 جدول" — العدد الفعلي 65 جدولًا مميزًا (`CREATE TABLE` عبر كل الـmigrations)؛ 73 هو عدد ملفات الـmigration نفسها، وليس عدد الجداول.
+
+## الحالة الحالية
+- [x] `pg-pool.module.ts` و`tenant-session.service.ts` مكتوبان (كود جاهز، غير مفعَّل بلا `DATABASE_URL`)
+- [x] أول migration بنمط الجلسة (`075_rls_policies_session_context.sql`) مكتوبة لدفعة أولى من الجداول (customers/orders/order_items/invoices/invoice_items/payments) — لم تُطبَّق على production بعد
+- [ ] `supabase.module.ts`/`scoped.repository.ts` **لم يُعدَّلا** — تقرَّر عدم تزييف session context عليهما؛ يبقيان كما هما لحين هجرة كل repository على حدة للـpool الجديد
+- [ ] تزويد `DATABASE_URL` الفعلي، تفعيل الـpool، تطبيق migration 075، ثم البدء بهجرة `InvoicesRepository`/`StockRepository` كأول مسارين حرجين — كل هذا لم يبدأ تنفيذه الفعلي بعد، تفاصيل التتبّع بـ`TASKS.md` تحت "SAFETY & SCALE INITIATIVE"
+
+---
+
+# 79. CRITICAL ARCHITECTURAL WARNINGS & DISCOVERIES (JULY 2026)
+
+توثيق دائم لثلاث نتائج معمارية اكتُشفت أثناء تدقيق Safety & Scale (§78) — تُسجَّل هنا حرفيًا حتى لا تُنسى أو يُعاد اكتشافها من الصفر مستقبلاً. نسخة احتياطية من الملفات المتأثرة قبل أي تعديل عليها محفوظة بـ`_backup_before_rls_refactor/` بجذر المستودع (راجع `README.md` بداخلها).
+
+## Warning 1 — قيد HTTP عديم الحالة بـ`@supabase/supabase-js`
+`api/src/shared/supabase/supabase.module.ts` يستخدم `@supabase/supabase-js` (`createClient`)، الذي يحوّل كل استعلام إلى طلب HTTP منفصل عبر PostgREST — **بلا أي جلسة أو transaction ثابتة تربط طلبين متتاليين ببعض**. تنفيذ `SET LOCAL app.tenant_id` مباشرة على هذا العميل **لا يعمل فعليًا**: حتى لو نُفِّذ كطلب منفصل، فلا ضمان أن الطلب التالي (`SELECT`/`INSERT` الفعلي) سيُوجَّه لنفس الاتصال الفيزيائي بقاعدة البيانات — PostgREST يدير pooling داخليًا خاصًا به لا يُتحكَّم به من كود التطبيق. لهذا السبب لم يُعدَّل `supabase.module.ts` إطلاقًا، وبُنيت بنية موازية مستقلة تمامًا: `api/src/shared/database/pg-pool.module.ts` (`pg.Pool` خام عبر Supavisor بوضع transaction) + `api/src/core/tenant/tenant-session.service.ts` (يغلّف `BEGIN`/`SET LOCAL`/`COMMIT`/`ROLLBACK` حول أي دالة). المسار الجديد يُستخدَم فقط من repositories تُهاجَر إليه صراحةً — لا يُستبدَل به `supabase.module.ts` القائم.
+
+## Warning 2 — مخاطرة تجاوز `SUPABASE_SERVICE_ROLE_KEY` لـ RLS
+`supabase.module.ts` يتّصل بمفتاح `SUPABASE_SERVICE_ROLE_KEY`. هذا الدور في Supabase **مصمَّم عمدًا ليتجاوز Row-Level Security بالكامل**، بغض النظر عن أي `CREATE POLICY` موجودة أو مستقبلية. النتيجة العملية: كل الـ`ENABLE ROW LEVEL SECURITY` المفعَّلة على 24 جدولًا بـ`001_initial_schema.sql`، وحتى سياسات `073`/`074` (المبنية على `auth.jwt()`)، **لا تحمي أي استعلام صادر من الـ backend نفسه عبر هذا المسار** — فقط تحمي اتصال Realtime المباشر من العميل بتوكن JWT خاص به. الحماية الوحيدة الفعلية لاستعلامات الـ API اليوم عبر هذا المسار تبقى الفلترة اليدوية `.eq('tenant_id', ...)` بـ`ScopedRepository` — وهي نفسها الآلية التي فشلت سابقًا (تسريب نقاط الولاء، موثَّق أعلاه). سياسات migration 075 الجديدة (`current_setting('app.tenant_id', true)`) لا تُغلق هذه الثغرة إلا لمسارات الـrepositories المهاجَرة فعليًا لـ`TenantSessionService` — لا تُغلق تلقائيًا لبقية المسارات التي تبقى على service_role.
+
+## Warning 3 — تدقيق الـ22 نقطة عمياء (Blindspots)
+من أصل 45 ملف repository بالمشروع، **22 ملفًا لا يرثون من `core/tenant/scoped.repository.ts`** إطلاقًا (منها: `hr/repositories/attendance.repository.ts`, `hr/repositories/leave-requests.repository.ts`, `tables/repositories/dine-in.repository.ts`, `tables/repositories/waitlist.repository.ts`, `billing/repositories/invoices.repository.ts`, `billing/repositories/payments.repository.ts`, `access-control/access-control.repository.ts`, `branches/branches.repository.ts`, وغيرها — القائمة الكاملة بـ`TASKS.md`). فحص عيّنة من 5 ملفات أظهر أنها **تفلتر `tenant_id` يدويًا داخل كل استعلام بشكل صريح** — إذن ليست ثغرة مؤكَّدة اليوم بحسب العيّنة، لكن هذا بالضبط نمط عدم الاتساق (فلترة يدوية متفرقة بدل قاعدة أساس مشتركة مفروضة) الذي أنتج تسريب نقاط الولاء بالماضي. **لم يُدقَّق بعد** بقية الـ17 ملفًا فرديًا للتأكد من عدم وجود استعلام واحد نسي الفلترة — هذا بند مفتوح صريح، غير مغلَق بهذا التوثيق.
+
+## الحالة
+توثيق فقط — لا تعديل كود إضافي بهذا القسم. الكود الفعلي (pg-pool/tenant-session/migration 075) مسجَّل بـ§78. نسخة الأمان قبل أي تعديل على `supabase.module.ts`/`scoped.repository.ts`/`modules/invoices/**`/`engines/pos-engine/**` محفوظة بـ`_backup_before_rls_refactor/` (لاحقًا استُبدلت بنسخة كاملة أشمل: `_FULL_SYSTEM_BACKUP_JULY_2026/`، مطابقة byte-for-byte، عبر `diff -rq` + مقارنة checksum صريحة).
+
+---
+
+# 80. أول Hot-Path Refactor فعلي — `InvoicesRepository`/`InvoicesService` — يوليو 10, 2026
+
+## ما نُفِّذ
+- `api/src/shared/database/pg-pool.module.ts`: عُدِّل ليتوقف عن `getOrThrow('DATABASE_URL')` (كان سيُسقط تشغيل التطبيق بالكامل فور استيراد الموديول بلا هذا الـenv var، لكل المستأجرين، لا فقط للمسار المُهاجَر) إلى `config.get(...)` مع تحذير واضح باللوق و`PG_POOL` = `null` عند غيابه.
+- `api/src/core/tenant/tenant-session.service.ts`: يقبل `Pool | null` الآن (`@Optional()`)، ويرمي `ServiceUnavailableException` واضحة فقط عند استدعائه الفعلي بلا pool — لا عند الإقلاع.
+- جديد: `api/src/core/tenant/tenant-session.module.ts` (`@Global`) يُصدِّر `TenantSessionService`، مستورَد مرة واحدة بـ`app.module.ts`.
+- `api/src/modules/invoices/repositories/invoices.repository.ts`: مُضافة `createWithItemsPooled()` — إدراج `orders` + `order_items` بمعاملة واحدة (`BEGIN`/`COMMIT`) عبر `TenantSessionService`، تحل بنفس الوقت مشكلتين: (1) فرض RLS فعليًا (migration 075) عبر `SET LOCAL app.tenant_id`، (2) **مشكلة إضافية اكتُشفت أثناء التنفيذ ولم تكن موثَّقة سابقًا**: `repo.create()` و`repo.insertItems()` الحاليان استدعاءان منفصلان تمامًا عبر PostgREST — غير ذرّيين إطلاقًا (تعطّل بينهما يترك فاتورة بلا أصناف).
+- `api/src/modules/invoices/invoices.service.ts`: `create()` يتفرّع الآن حسب `POOLED_INVOICE_WRITES_ENABLED` (`ConfigService`، افتراضي `false`) — المسار القديم (`repo.create` + `repo.insertItems` المنفصلين) **لم يُحذَف ولم يتأثر إطلاقًا**، يبقى نشطًا ما دام العلم معطَّلًا.
+- `env.validation.ts` + `.env.example`: `DATABASE_URL`/`PG_POOL_MAX` اختياريان صراحةً، `POOLED_INVOICE_WRITES_ENABLED` افتراضي `false` مع تعليق تحذيري مباشر بعدم تفعيله قبل تزويد `DATABASE_URL` وتطبيق migration 075.
+
+## ما لم يُنفَّذ عمدًا
+`api/src/engines/pos-engine/pos.engine.ts` **لم يُمَس** — فُحص محتواه فعليًا: حسابات رياضية بحتة فقط (`buildInvoice`/`applyTax`/`calculateTotal`)، لا يحتوي أي استعلام قاعدة بيانات إطلاقًا. لا علاقة له بمشكلة عزل المستأجرين أو الـpooling، فلا يوجد ما يُعاد هيكلته فيه لهذا الغرض تحديدًا.
+
+## التحقق
+`tsc --noEmit` و`nest build` نظيفان بالكامل (بلا أخطاء). **لا يوجد `.env` فعلي بهذه البيئة** (لا بـ`api/` مباشرة؛ الوحيد الموجود بـ`ignore/api/.env` منفصل تمامًا) — لا إمكانية لاختبار الإقلاع الحي أو استدعاء فعلي بقاعدة بيانات حقيقية بهذه الجلسة، فالتحقق اقتصر على الفحص النوعي الساكن (نفس قيد الجلسات السابقة الموثَّق بأقسام أخرى بهذا الملف).
+
+## الحالة النهائية
+الكود جاهز ومحفوظ محليًا لكن **معطَّل افتراضيًا وآمن بصيغته الحالية** — `POOLED_INVOICE_WRITES_ENABLED=false` يعني عدم تأثر أي عملية بيع حالية إطلاقًا. **غير جاهز للتفعيل الفعلي** حتى تزويد `DATABASE_URL` (خطوة يدوية بلوحة تحكم Supabase + Railway، لم تتم بعد) وتطبيق migration 075 على production/staging.
+
+---
+
+# 81. ثاني Hot-Path Refactor — `StockRepository`/`StockService` — يوليو 10, 2026
+
+## ما نُفِّذ
+- `api/src/modules/inventory/repositories/stock.repository.ts`: مُضافة `callApplyStockMovementPooled()` — تستدعي نفس `fn_apply_stock_movement` الموجودة (migration 019) لكن عبر `TenantSessionService` (raw SQL بمعاملة pooled) بدل `.rpc()` عبر PostgREST.
+- جديد: `api/src/database/migrations/076_rls_policies_stock_tables.sql` — سياسات RLS لـ`stock_levels`/`stock_movements` (كانتا `ENABLE ROW LEVEL SECURITY` منذ `017_inventory_ledger.sql` بلا أي `CREATE POLICY` إطلاقًا حتى الآن — نفس نمط الفجوة الموثَّق بـ§79).
+- `api/src/modules/inventory/stock.service.ts`: `applyStockMovement()` يتفرّع حسب `POOLED_STOCK_WRITES_ENABLED` (افتراضي `false`) — نفس نمط الأمان تمامًا المستخدَم بالفاتورة.
+- `api/src/modules/inventory/inventory.module.ts`: تحديث الـ`useFactory` اليدوي لـ`StockRepository` (لم يكن يستخدم Nest constructor injection التلقائي، بل تزويد يدوي صريح بـ`inject: [SUPABASE_CLIENT]`) ليُدرِج `TenantSessionService` أيضًا.
+- `env.validation.ts` + `.env.example`: `POOLED_STOCK_WRITES_ENABLED` جديد، افتراضي `false`.
+
+## فرق جوهري عن إصلاح الفواتير (§80)
+`fn_apply_stock_movement` كانت أصلاً **استدعاء RPC ذرّي واحد** (لا يوجد انقسام شبيه بمشكلة `orders`/`order_items` المنفصلين). إذن هذا التعديل خاص فقط بجعل RLS فعليًا مُلزِمًا (عبر `SET LOCAL app.tenant_id`) — لا يحل أي مشكلة ذرّية إضافية، بعكس الفواتير.
+
+## التحقق
+`tsc --noEmit` و`nest build` نظيفان. نفس قيد غياب `.env` حقيقي بهذه البيئة — لا اختبار حي متاح.
+
+## ملاحظة جانبية — خطأ اكتُشف وأُصلح بنفس الجلسة
+أول تعديل على `TASKS.md` بهذه المبادرة (§78) كان قد حذف عنوان `## Guard Execution Order` بالخطأ أثناء الإلحاق (المحتوى تحته بقي، العنوان نفسه اختفى) — اكتُشف وأُصلح فورًا عند المراجعة قبل بدء هذا القسم. مُسجَّل كتذكير: مراجعة الفروقات الفعلية لأي `Edit` كبير مقابل المصدر، لا الاكتفاء بافتراض أن الإلحاق سليم.
+
+## الحالة النهائية
+نفس حالة §80 تمامًا: كود جاهز، معطَّل افتراضيًا، آمن للنشر بصيغته الحالية، غير جاهز للتفعيل حتى تزويد `DATABASE_URL` وتطبيق migration 076.
+
+---
+
+# 82. ثالث وأخير Hot-Path Refactor — `LoyaltyService` — واكتشاف جوهري يُراجع §80/§81 رجعيًا — يوليو 10, 2026
+
+## ما نُفِّذ
+- `api/src/core/loyalty/loyalty.service.ts`: مُضافة `getBalancePooled()`/`awardPointsPooled()`/`redeemPointsPooled()` + `assertCustomerInTenantPooled()` (نسخة pooled من الفحص الموجود) — الفحص والاستدعاء الفعلي لـ`fn_adjust_loyalty_points` صارا الآن بمعاملة واحدة عبر `TenantSessionService` بدل استدعاءين منفصلين غير مرتبطين.
+- `api/src/modules/invoices/invoices.service.ts`: الاستدعاءات الثلاثة (`getBalance`/`redeemPoints`/`awardPoints`) تتفرّع الآن حسب `POOLED_LOYALTY_WRITES_ENABLED` (افتراضي `false`).
+- `env.validation.ts`/`.env.example`: العلم الجديد مضاف بنفس النمط.
+
+## اكتشاف جوهري أثناء التنفيذ — يُراجع §80/§81 رجعيًا
+`fn_adjust_loyalty_points(p_customer_id, p_delta)` **لا تأخذ `p_tenant_id` كمعامل إطلاقًا** (موثَّق أصلاً بتعليق `assertCustomerInTenant`). الحماية الوحيدة اليوم فحص `SELECT` منفصل قبلها، غير ذرّي مع الاستدعاء الفعلي. فُحص تعريف الدالة (migration 041/069): `LANGUAGE sql` بلا `SECURITY DEFINER` — إذن تعمل بصلاحيات المستدعي (`SECURITY INVOKER` الافتراضي)، ما يعني أن `UPDATE customers` بداخلها **تخضع فعليًا لسياسات RLS** على جدول `customers` لأي دور ينفّذها.
+
+**لكن هذا يكشف فجوة لم تكن موثَّقة بعد، تنطبق على §80 و§81 أيضًا وليس فقط هنا**: الحماية أعلاه **تعتمد كليًا على أن الدور الذي يُصادق به `DATABASE_URL` لا يملك صلاحية `BYPASSRLS`**. دور `postgres` الافتراضي الذي يعرضه Supabase بلوحة التحكم (Connection Pooling) **عادة ما يتجاوز RLS بنفس طريقة `service_role`** (نفس مشكلة Warning 2 بـ§79، لكن بمسار مختلف). لو زُوِّد `DATABASE_URL` بسلسلة الاتصال الافتراضية بـ`postgres`، فكل عمل §78/§80/§81/هذا القسم **يبقى بلا أثر حقيقي على العزل** رغم أن كل الأعلام مفعَّلة والمهاجرة مكتملة ظاهريًا.
+
+**المطلوب فعليًا (خطوة يدوية بقاعدة البيانات، خارج نطاق هذه الجلسة)**: إنشاء دور Postgres مخصَّص (`NOBYPASSRLS`)، مع `GRANT` صريح فقط على الجداول/الدوال اللازمة (`customers`, `orders`, `order_items`, `invoices`, `invoice_items`, `payments`, `stock_levels`, `stock_movements`, `fn_apply_stock_movement`, `fn_adjust_loyalty_points`)، واستخدام هذا الدور تحديدًا (لا `postgres`) بسلسلة اتصال Supavisor الموضوعة بـ`DATABASE_URL`.
+
+## التحقق
+`tsc --noEmit` و`nest build` نظيفان. نفس قيد غياب `.env` حقيقي بهذه البيئة.
+
+## الحالة النهائية
+**اكتمل الـsubtask الثلاثي بالكامل** (Invoices/Stock/Loyalty) — كل الأكواد جاهزة، معطَّلة افتراضيًا، آمنة للنشر بصيغتها الحالية. **لكن التفعيل الفعلي لأي منها الآن يتطلب شرطين وليس واحدًا**: (1) `DATABASE_URL` مزوَّد، (2) **الدور المستخدَم به تحديدًا بلا `BYPASSRLS` ومصرَّح له بالجداول اللازمة** — الشرط الثاني لم يكن موثَّقًا قبل هذا القسم، وتجاهله يعني تفعيل الأعلام بلا أي حماية فعلية رغم ظهورها "تعمل".
+
+---
+
+# 83. تدقيق الـ17 ملف المتبقية (من 22) — واكتشاف ثغرة تصعيد صلاحيات حقيقية وإصلاحها — يوليو 10, 2026
+
+## المنهجية
+لكل ملف: فُحص كل async method — هل يُفلتَر بـ`tenant_id` (أو معرّف آخر مكافئ مثل `user_id` حصريًا)، أم مُستثنى بشكل مشروع (بيانات مرجعية عامة/بنية تحتية داخلية/superadmin فعليًا محمي)؟ لكل حالة استثناء: تحقّق فعلي من المستدعين (callers) وليس افتراضًا.
+
+## النتائج — 16 من 17: آمنة أو مستثناة بشكل مشروع
+- `core/outbox/outbox.repository.ts`: **مستثنى بشكل مشروع** — بنية تحتية داخلية بحتة (scheduler/processor فقط، لا controller يستدعيها إطلاقًا). معالجة الـoutbox عبر كل المستأجرين هي بالضبط الغرض من النمط.
+- `core/billing/repositories/payments.repository.ts`: `findByInvoice(invoiceId)`/`updateStatus(paymentId)` بلا فلتر `tenant_id` مباشر — **غير قابل للاستغلال اليوم** (تحقّق من كل المستدعين بـ`billing-invoice.service.ts`: `invoiceId`/`paymentId` يصلان دائمًا بعد تحقّق ملكية مسبق أو من سجل حديث الإنشاء)، لكنها نفس نمط الهشاشة الموثَّق سابقًا — لا حماية defense-in-depth بمستوى الـrepository نفسه.
+- `core/billing/repositories/billing-customers.repository.ts`: آمن بالكامل — كل method يفلتر `tenant_id` بشكل صريح.
+- `core/notification/repositories/notifications.repository.ts`: `markAsRead(notificationId, userId)` بلا `tenant_id` مباشر لكن مفلتَر بـ`user_id` (المستخدِم لا يملك سوى إشعاراته، والمستخدم نفسه ينتمي لمستأجر واحد فقط) — آمن فعليًا.
+- `modules/access-control/access-control.repository.ts`: `getRoleById`/`getPermissionByKey`/الكتالوج بلا فلتر مباشر، لكن مغلَّفة دائمًا بـ`getAccessibleRoleOrThrow` (تحقّق صريح `role.tenant_id !== tenantId` → `ForbiddenException`) بمستوى الـservice — آمن، نمط تصميم جيد (نقطة تحقّق واحدة مُعاد استخدامها، لا فحوصات متفرقة).
+- `modules/branches`, `hr/schedules`, `hr/shift-patterns`, `hr/employee-geofences`, `hr/notifications`, `modules/shifts`, `tables/reservations`, `tables/tables`, `modules/tenants`: **آمنة بالكامل** — كل method يفلتر `tenant_id` (أو `id` على جدول tenants نفسه) بشكل صريح ومتسق.
+- `modules/shared/analytics/platform-analytics.repository.ts`, `modules/shared/tenant-management/tenant-management.repository.ts`: عبر-مستأجرين عمدًا (لوحة تحكم superadmin) — تحقّق من المستدعين: `superadmin.service.ts` حصرًا، خلف `superadmin.controller.ts` بـ`@UseGuards(JwtAuthGuard, SuperAdminGuard)`. آمن.
+
+## ⚠️ الاستثناء — ثغرة حقيقية مؤكَّدة ومُصلَحة: تصعيد صلاحيات لبيانات عبر كل المستأجرين
+`modules/superadmin/repositories/audit-logs.repository.ts` نفسها آمنة (تُستدعى فقط من `audit-logs.service.ts`). **لكن الثغرة الحقيقية لم تكن بالـrepository — كانت بمستوى الـauthorization** عند تتبّع مستدعيها:
+
+**سلسلة الاكتشاف**:
+1. `superadmin/controllers/analytics.controller.ts` و`audit-logs.controller.ts` (كلاهما تحت `/superadmin/*`) محميان بـ`PermissionGuard` + `@RequirePermission('analytics.view.all'|'audit.view.all')` فقط — **وليس** `SuperAdminGuard` الصريح المستخدَم بـ`superadmin.controller.ts` الرئيسي.
+2. فحص seed الصلاحيات (`permissions.seed.ts`): `analytics.view.all` و`audit.view.all` لهما `resource: 'analytics'`/`'audit'` — **وليس** `resource: 'superadmin'`.
+3. `AccessControlService.assertPermissionIsCustomizable()` (الحارس الوحيد على ميزة تخصيص الصلاحيات لكل مستأجر، بـ`PATCH /access-control/roles/:roleId/permissions/:permissionKey`) كان يحظر فقط `permission.resource === 'superadmin'` — **لا يحظر `resource: 'analytics'`/`'audit'`**.
+4. `PermissionGuard.canActivate()` يستدعي `permissionsService.hasPermission(role, key, tenantId)` التي تدمج صلاحيات الدور الافتراضية مع الـtenant overrides — بلا أي مفهوم لـ"صلاحية عبر-مستأجرين لا يجوز تخصيصها".
+
+**نتيجة السلسلة**: أي **مالك مستأجر (owner)** — وهو دور موجود افتراضيًا بكل مستأجر، وله وصول شرعي لواجهة `/access-control` أصلاً — يقدر يمنح نفسه `analytics.view.all` أو `audit.view.all` عبر الميزة الشرعية نفسها (تخصيص صلاحيات دوره)، ثم يستدعي `/superadmin/analytics/mrr|arr|churn|cohort|growth|...` أو `/superadmin/audit-logs` بنجاح كامل — **ويحصل على بيانات العمل الماكرو-اقتصادية لكل المنصة وكل المستأجرين، وسجل تدقيق كل المستأجرين**، دون أن يكون superadmin إطلاقًا. هذه أخطر بكثير من تسريب نقاط ولاء عميل واحد (المشكلة الأصلية بمطلع هذه المبادرة) — تصعيد صلاحيات كامل لبيانات المنصة بأكملها.
+
+## الإصلاح المُنفَّذ
+- `analytics.controller.ts` و`audit-logs.controller.ts`: أُضيف `SuperAdminGuard` صراحةً لقائمة الحرّاس (مطابقًا لنمط `superadmin.controller.ts` الرئيسي) — هذا هو حد الحماية الفعلي الآن، لا `PermissionGuard` وحده.
+- `access-control.service.ts`: `assertPermissionIsCustomizable()` عُزِّزت بقائمة صريحة (`analytics.view.all`, `audit.view.all`) بالإضافة لفحص `resource === 'superadmin'` — **حل مؤقت (stopgap)** موثَّق كذلك بالكود نفسه: لا يعمّم على أي صلاحية عبر-مستأجرين مستقبلية بـresource مختلف. **الحل الدائم المُوصى به**: عمود `is_platform_only` صريح بجدول `permissions` بدل الاعتماد على اسم الـresource، مع بقاء `SuperAdminGuard` كخط الدفاع الحقيقي على كل route تكشف بيانات عبر-مستأجرين، بغض النظر عن الصلاحية.
+
+## التحقق
+`tsc --noEmit` و`nest build` نظيفان بالكامل. نفس قيد غياب `.env`/بيئة حية بهذه الجلسة — لا اختبار end-to-end حي مباشر (مثل محاولة استغلال فعلية عبر حسابين تجريبيين)، لكن سلسلة الكود مُتتبَّعة يدويًا بالكامل من الـcontroller حتى الـpermissions seed وتؤكد الثغرة رياضيًا/منطقيًا قبل الإصلاح، ومساره مُغلَق بعده (الحارس الجديد يرفض أي دور غير `superadmin` بغض النظر عن أي override).
+
+## الحالة النهائية
+**اكتمل تدقيق الـ22 ملف بالكامل** (5 + 17). ثغرة واحدة حقيقية خطيرة اكتُشفت ومعالجة فورًا بنفس الجلسة، لا مجرد توثيق مؤجَّل. يُوصى بمتابعة الحل الدائم (`is_platform_only` schema flag) كبند منفصل لاحقًا — غير عاجل الآن بعد إغلاق المسار الفعلي بـ`SuperAdminGuard`.
+
+---
+
+# 84. توسيع migrations الـ RLS للجداول المتبقية — يوليو 10, 2026
+
+## المنهجية
+لا افتراضات — فُحص كل جدول فعليًا: هل عنده `ENABLE ROW LEVEL SECURITY` بلا أي `CREATE POLICY` بعد؟ هل عنده عمود `tenant_id` مباشر؟ إن لم يكن، ما نمط الربط الصحيح؟
+
+## الأرقام الدقيقة (مصحَّحة عن التقدير التقريبي بـ§78/79)
+- إجمالي الجداول الفعلي: **65** (`CREATE TABLE` عبر كل الـmigrations).
+- من أصل الـ65: **46 فقط** عندها `ENABLE ROW LEVEL SECURITY` — الـ19 الباقية لم تُفعَّل عليها RLS إطلاقًا بعد (بند منفصل، أصغر أولوية، غير مُدقَّق جدولاً-بجدول بعد — راجع `TASKS.md`).
+- من الـ46: **10 كانت عندها `CREATE POLICY` فعلاً** قبل هذه الجلسة (`075`/`076` + `005`/`073`/`074` السابقة).
+- **36 كانت بلا أي policy** — هذا العدد الحقيقي المتبقي (وليس "34" كما قُدِّر تقريبيًا سابقًا).
+
+## ما نُفِّذ — 5 migrations جديدة (077–081)، 33 جدولًا
+- `077_rls_policies_platform_core.sql`: tenants, users, device_sessions, refresh_tokens, branches, subscriptions, dunning_attempts, tenant_feature_overrides, billing_customers
+- `078_rls_policies_catalog_items.sql`: categories, items, item_variants, item_batches
+- `079_rls_policies_inventory_ops.sql`: warehouses, warehouse_locations, suppliers, inventory_reorder_points, cost_layers, stock_reservations, stock_adjustments, stock_transfers, stock_transfer_items, stock_counts, stock_count_items
+- `080_rls_policies_purchasing.sql`: purchase_orders, purchase_order_items, goods_receipts, goods_receipt_items
+- `081_rls_policies_hr_expenses_misc.sql`: expense_templates, expenses, shifts, notifications, audit_logs
+
+**حالتان خاصتان تطلبتا نمطًا مختلفًا عن القالب المعتاد** (فُحصتا من الـschema الفعلي، لا افتراضًا):
+- `tenants`: هويتها نفسها `id`، وليس عمود `tenant_id` FK — السياسة تقارن `id = current_setting(...)`.
+- `refresh_tokens`: **لا يوجد عمود `tenant_id` إطلاقًا** بهذا الجدول (فقط `user_id`/`session_id`) — السياسة تربط عبر `EXISTS` على جدول `users`، بنفس نمط `order_items`/`invoice_items` بـmigration 075.
+
+## 3 جداول استُثنيت عمدًا — وليس نسيانًا
+- `domain_events_outbox`: عندها `tenant_id` فعليًا، لكنها **بنية تحتية عبر-مستأجرين بالتصميم** — `OutboxRepository.claimBatch()` يعالج أحداث كل المستأجرين دفعة واحدة (مُدقَّق ومؤكَّد بـ§83: لا controller يستدعيها، scheduler/processor داخلي فقط). سياسة تفرض عزل مستأجر واحد هنا **ستكسر آلية الـrelay فعليًا** لو استُخدم هذا الاتصال يومًا بدور مقيَّد بلا BYPASSRLS (بالضبط سيناريو §82). استُبعدت عمدًا، موثَّق بالكود نفسه.
+- `features`, `plan_features`: كتالوج عام عبر كل المنصة (تعريف الميزات وربطها بالخطط) — **لا يوجد عمود `tenant_id` بهما إطلاقًا** (فُحص الـschema مباشرة). كتابة سياسة `tenant_id = ...` عليهما كانت ستفشل SQL-يًا (عمود غير موجود)، عدا عن كونها غير منطقية أصلاً لبيانات غير مقسَّمة بمستأجر.
+
+## التحقق
+لا أداة فحص SQL آلية بهذه البيئة (لا اتصال حي بقاعدة بيانات). التحقق تم بمطابقة كل اسم جدول بالسياسات الجديدة (33 اسمًا) مقابل قائمة الجداول الـ46 المفعَّل عليها RLS فعليًا (استخراج آلي من كل ملفات الـmigrations، ليس نسخًا يدويًا) — تطابق كامل بلا أي اسم زائد أو ناقص أو خطأ إملائي.
+
+## الحالة النهائية
+**43 من 46 جدولًا مفعَّل عليها RLS الآن عندها policy فعلية** (10 سابقة + 33 جديدة). 3 مستثناة عمدًا بتوثيق واضح للسبب. **لا شيء من هذا مُطبَّق على أي بيئة فعلية بعد** — نفس عائق `DATABASE_URL` + الدور المخصَّص (`NOBYPASSRLS`) من §82، ينطبق هنا بالضبط كما ينطبق على 075/076.
+
+---
+
+# 85. تفعيل RLS للـ19 جدولًا التي لم تُفعَّل عليها إطلاقًا — تدقيق ثم تنفيذ — يوليو 10, 2026
+
+## التدقيق قبل أي SQL (بطلب صريح من المستخدم)
+لكل جدول من الـ19: فُحص الغرض الفعلي من الكود/التعليقات، وفُحص عمود `tenant_id` مباشرة من الـschema. **تحقّق حاسم قبل الكتابة**: هل أي من هذه الجداول مفعَّل على Realtime (`ALTER PUBLICATION supabase_realtime`)؟ فحص شامل لكل الـmigrations + `web/src/core/realtime/RealtimeProvider.tsx` + `useTables.ts` — **فقط** `tables`/`orders`/`order_items` مفعَّلة على Realtime، لا شيء من الـ19. وتحقّق إضافي: هل أي webhook (Stripe) أو queue processor يستخدم اتصال DB مختلف عن `SUPABASE_SERVICE_ROLE_KEY`؟ لا — `stripe-webhook.controller.ts` وكل الـprocessors تستخدم نفس `SUPABASE_CLIENT` المشترك. **النتيجة**: تفعيل RLS على هذه الجداول اليوم بلا أي أثر فعلي ملموس — بالضبط نفس وضع migration 001 الأصلية حين فُعِّل RLS على 24 جدولًا دون أي عطل.
+
+## التصنيف
+- **14 جدولًا تحتاج عزل مستأجر عادي**: attendance_records, attendance_exceptions, work_schedules, shift_patterns, leave_requests, departments, employee_geofences, coupons, gift_cards, loyalty_tiers, customer_field_definitions, table_reservations, waitlist_entries, tenant_role_permissions.
+- **حالة خاصة — `roles`**: عمود `tenant_id` قابل لـNULL — الأدوار النظامية (owner/manager/...) لها `tenant_id IS NULL` و`is_system=true`، بينما الأدوار المخصَّصة لكل مستأجر لها `tenant_id` فعلي. سياسة `tenant_id = current_setting(...)` وحدها كانت ستُخفي كل الأدوار النظامية عن كل جلسة مستأجر — بدل ذلك: `tenant_id IS NULL OR tenant_id = current_setting(...)`، مطابقة تمامًا لمنطق `AccessControlService.getAccessibleRoleOrThrow()` الموجود بالكود فعلاً.
+- **4 مستثناة عمدًا (كتالوجات عامة، لا عمود tenant_id إطلاقًا، فُحص مباشرة من الـschema)**: `permissions`, `permission_groups`, `role_permissions`, `plans`.
+
+## ما نُفِّذ — 4 migrations جديدة (082–085)، كل جدول: `ENABLE ROW LEVEL SECURITY` + `CREATE POLICY` بنفس الملف (لا خطوتين منفصلتين، بعكس 075-081 التي كانت تتعامل مع جداول RLS مفعَّل عليها أصلاً)
+- `082_rls_hr_tables.sql`: 7 جداول HR
+- `083_rls_pos_extensions.sql`: 4 جداول (coupons/gift_cards/loyalty_tiers/customer_field_definitions)
+- `084_rls_dine_in.sql`: table_reservations, waitlist_entries
+- `085_rls_access_control.sql`: roles (dual-condition) + tenant_role_permissions + توثيق استثناء الـ4 الكتالوجات العامة صراحةً بنفس الملف (تعليق، بلا أي `ALTER TABLE` عليها)
+
+**ملاحظة مهمة موثَّقة بنفس migration 085**: RLS هنا دفاع إضافي (defense-in-depth) لجدول `tenant_role_permissions` — نفس الجدول المرتبط بثغرة §83 (تصعيد الصلاحيات) — لكنه **لا يغلق تلك الثغرة بنفسه**؛ الإغلاق الفعلي كان `SuperAdminGuard` على الـcontrollers. هذا فقط يمنع مستأجرًا من قراءة/تعديل صفوف override تخص مستأجرًا آخر، لو هوجر أي repository يومًا لمسار الجلسة المجمَّعة.
+
+## التحقق
+مقارنة آلية (diff) بين قائمة الـ19 الأصلية ومجموع (المُفعَّل بسياسة + الأربعة المستثناة) — تطابق تام، صفر فجوات، صفر أسماء زائدة أو بها خطأ إملائي.
+
+## الحالة النهائية
+**اكتمل إغلاق فجوة "RLS غير مفعَّل إطلاقًا" بالكامل** — الـ65 جدولًا الآن: 43+15=58 جدولًا عندها RLS+policy فعلي، 7 مستثناة عمدًا وموثَّقة (`domain_events_outbox`, `features`, `plan_features`, `permissions`, `permission_groups`, `role_permissions`, `plans`). **لا شيء مُطبَّق على أي بيئة فعلية بعد** — نفس عائق `DATABASE_URL` + الدور المخصَّص من §82.
+
+---
+
+# 86. PHASE 3 (Frontend) — إعادة بناء واجهة Access Control بالكامل + إضافة CRUD أدوار مفقود بالباك إند — يوليو 10, 2026
+
+## الفجوة المكتشفة قبل أي كود واجهة
+المواصفة طلبت "[+ Create Custom Role]" وحذف/تعديل أدوار مخصَّصة — لم يكن هناك أي endpoint لإنشاء أو حذف دور إطلاقًا (فقط تخصيص صلاحيات الأدوار الثابتة الموجودة). أُضيف الآن:
+- `access-control.repository.ts`: `createRole()`/`deleteRole()` + `RoleRow` صار يتضمّن `created_at`/`updated_at`.
+- `access-control.service.ts`: `createRole()` (تحقق تكرار الاسم عبر unique index موجود مسبقًا) و`deleteRole()` — **تحقق أشد من `getEditableRoleOrThrow`**: يرفض الحذف لأي دور `tenant_id !== tenantId` (وليس فقط الأسماء المحمية) لأن حذف دور نظامي بالخطأ يؤثر على كل المستأجرين. يرفض أيضًا حذف دور له مستخدمون فعليون.
+- `access-control.controller.ts`: `POST /access-control/roles`، `DELETE /access-control/roles/:roleId` — بنفس `AccessControlAdminGuard` الموجود.
+- migration جديدة **لم تكن مطلوبة** — عمودا `created_at`/`updated_at` كانا موجودين أصلاً بجدول `roles` (migration 059)، فقط لم يُعرَضا بالـSELECT سابقًا.
+- تحديث fixture الاختبارات (`access-control.service.spec.ts`) للحقول الجديدة — **19/19 اختبارًا ناجحة**، `tsc --noEmit` و`nest build` نظيفان.
+
+## الواجهة (web/)
+- تبعيات جديدة مثبَّتة فعليًا (`npm install`، ليست فقط مُضافة بـpackage.json): `@tanstack/react-table@8.21.3`, `sonner@2.0.7`.
+- `shared/ui/sheet.tsx` جديد (Radix Dialog نفسه المستخدَم بـ`dialog.tsx`، بمتغيّر slide-over) + تصدير بـ`shared/ui/index.ts`.
+- إصلاح فجوة حقيقية بـ`tailwind.config.ts`: متغيّرات `--font-cairo`/`--font-inter` كانت مُحمَّلة فعليًا بـ`app/layout.tsx` (next/font) لكن غير مربوطة بأي Tailwind utility — `font-cairo`/`font-inter` لم تكونا تعملان فعليًا قبل هذا الإصلاح.
+- إعادة بناء كاملة لـ`features/access-control/`: `RolesDataTable.tsx` (`@tanstack/react-table` فعليًا، أوزان أعمدة 35/15/15/20/15%)، `RoleStatusBadge.tsx`، `RoleActionsMenu.tsx` (إخفاء كامل من الـDOM لخياري Edit/Delete على الأدوار النظامية، لا مجرد تعطيل)، `RoleFormSheet.tsx` (Sheet + react-hook-form + zod + حالة تحميل `Loader2`)، `PermissionConfigurator.tsx` (Tabs بـ3 مجموعات نطاق: Sales/Inventory/HR + Switch رئيسي يحجب الشبكة الفرعية)، `RolesTableSkeleton.tsx` (مطابق لهندسة صف الجدول، لا spinner عام). صفحة `AccessControlPage.tsx` أُعيد بناؤها بالكامل (Sheet بدل تنقّل مسارات)، مع الحفاظ على قابلية الربط العميق (`initialRoleId`) عبر فتح الـSheet تلقائيًا بدل التنقّل.
+- `<Toaster />` (sonner) مضاف بـ`core/providers.tsx` — بملاحظة: `useLocale()` غير متاح بهذا المستوى (فوق مقطع `[locale]`)، فاستُخدم `dir="auto"` بدل قيمة locale صريحة.
+
+## التحقق
+`tsc --noEmit` (frontend) نظيف. `next build` نجح فعليًا (Turbopack، كل الصفحات بما فيها `access-control` و`access-control/[roleId]` مُصرَّفة بلا خطأ). محاولة فتح الصفحة حيًّا عبر preview: خطأ "supabaseUrl is required" — **تحقّق مباشر أنه عطل بيئة سابق وليس ناتجًا عن هذا التغيير**: نفس الخطأ بالضبط يظهر على `/login` (صفحة غير مرتبطة إطلاقًا) — لا `.env` حقيقي لـ`web/` بهذه البيئة (مطابق تمامًا لغياب `.env` بـ`api/`). التحقق البصري الحي غير ممكن بهذه الجلسة لنفس السبب المتكرر بكل هذا المسار.
+
+## الحالة النهائية
+Backend: جاهز، مُختبَر، مدفوع. Frontend: مبني بالكامل حسب المواصفة الصارمة (5 نقاط)، نظيف من ناحية النوع/البناء، **غير مُتحقَّق منه بصريًا حيًّا** بسبب غياب بيانات دخول Supabase بهذه البيئة (قيد موجود منذ بداية الجلسة، غير خاص بهذا التغيير).

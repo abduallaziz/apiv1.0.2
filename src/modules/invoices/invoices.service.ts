@@ -4,6 +4,7 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
 import { InvoicesRepository } from './repositories/invoices.repository';
@@ -54,6 +55,7 @@ export class InvoicesService {
     private readonly customersService: CustomersService,
     private readonly notificationService: NotificationService,
     private readonly cache: RedisCacheService,
+    private readonly config: ConfigService,
   ) {}
 
   async create(
@@ -85,7 +87,9 @@ export class InvoicesService {
           'customer_id required to redeem loyalty points',
         );
       }
-      const balance = await this.loyaltyService.getBalance(tenant.tenantId, dto.customer_id);
+      const balance = this.config.get<boolean>('POOLED_LOYALTY_WRITES_ENABLED')
+        ? await this.loyaltyService.getBalancePooled(tenant.tenantId, dto.customer_id)
+        : await this.loyaltyService.getBalance(tenant.tenantId, dto.customer_id);
       if (balance < dto.redeem_points) {
         throw new BadRequestException('Insufficient loyalty points balance');
       }
@@ -165,38 +169,72 @@ export class InvoicesService {
     // الرصيد فعليًا بين الفحص المبكر أعلاه وهذه اللحظة) يفشل الطلب لكن الفاتورة تبقى محفوظة.
     // هذا هو أقرب موضع ممكن لعملية الإنشاء الفعلية مع إبقاء الاسترداد قبلها لا بعدها.
     if (dto.redeem_points) {
-      await this.loyaltyService.redeemPoints(tenant.tenantId, dto.customer_id!, dto.redeem_points);
+      if (this.config.get<boolean>('POOLED_LOYALTY_WRITES_ENABLED')) {
+        await this.loyaltyService.redeemPointsPooled(tenant.tenantId, dto.customer_id!, dto.redeem_points);
+      } else {
+        await this.loyaltyService.redeemPoints(tenant.tenantId, dto.customer_id!, dto.redeem_points);
+      }
     }
 
-    const invoice = await this.repo.create(tenant, {
-      branch_id: branchId,
-      cashier_id: cashierId,
-      customer_id: dto.customer_id ?? null,
-      status: 'completed',
-      subtotal: built.subtotal,
-      discount: built.discount_amount,
-      tax: built.tax_amount,
-      total: built.total,
-      payment_method: dto.payment_method,
-      notes: dto.notes ?? null,
-      coupon_code: coupon?.code ?? null,
-      gift_card_code: giftCard?.code ?? null,
-      gift_card_amount: giftCard ? giftCardAmount : null,
-    });
+    // Feature-flagged, defaults to false everywhere until DATABASE_URL is
+    // provisioned and migration 075 applied (see STATUS.md §78/§79,
+    // TASKS.md "SAFETY & SCALE INITIATIVE"). Do not remove the PostgREST
+    // branch when enabling this — it's not a temporary shim, it's what every
+    // repository not yet migrated onto TenantSessionService still relies on.
+    const usePooledWrite = this.config.get<boolean>('POOLED_INVOICE_WRITES_ENABLED');
 
-    await this.repo.insertItems(
-      built.items.map((item) => ({
-        order_id: invoice.id,
-        tenant_id: tenant.tenantId,
-        item_id: item.item_id,
-        item_name: item.item_name,
-        variant_id: item.variant_id ?? null,
-        variant_name: item.variant_name ?? null,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total_price: parseFloat((item.unit_price * item.quantity).toFixed(2)),
-      })),
-    );
+    let invoice: { id: string };
+    if (usePooledWrite) {
+      invoice = await this.repo.createWithItemsPooled(
+        tenant,
+        {
+          branch_id: branchId,
+          cashier_id: cashierId,
+          customer_id: dto.customer_id ?? null,
+          status: 'completed',
+          subtotal: built.subtotal,
+          discount: built.discount_amount,
+          tax: built.tax_amount,
+          total: built.total,
+          payment_method: dto.payment_method,
+          notes: dto.notes ?? null,
+          coupon_code: coupon?.code ?? null,
+          gift_card_code: giftCard?.code ?? null,
+          gift_card_amount: giftCard ? giftCardAmount : null,
+        },
+        built.items,
+      );
+    } else {
+      invoice = await this.repo.create(tenant, {
+        branch_id: branchId,
+        cashier_id: cashierId,
+        customer_id: dto.customer_id ?? null,
+        status: 'completed',
+        subtotal: built.subtotal,
+        discount: built.discount_amount,
+        tax: built.tax_amount,
+        total: built.total,
+        payment_method: dto.payment_method,
+        notes: dto.notes ?? null,
+        coupon_code: coupon?.code ?? null,
+        gift_card_code: giftCard?.code ?? null,
+        gift_card_amount: giftCard ? giftCardAmount : null,
+      });
+
+      await this.repo.insertItems(
+        built.items.map((item) => ({
+          order_id: invoice.id,
+          tenant_id: tenant.tenantId,
+          item_id: item.item_id,
+          item_name: item.item_name,
+          variant_id: item.variant_id ?? null,
+          variant_name: item.variant_name ?? null,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: parseFloat((item.unit_price * item.quantity).toFixed(2)),
+        })),
+      );
+    }
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
@@ -258,7 +296,10 @@ export class InvoicesService {
       // إجمالي ما اكتسبه لا ينخفض أبدًا، فالفئة لا تتذبذب صعودًا وهبوطًا مع كل عملية استرداد.
       const tierMultiplier = await this.loyaltyService.getTierMultiplier(tenant.tenantId, dto.customer_id);
       const pointsEarned = Math.floor(basePoints * tierMultiplier);
-      this.loyaltyService.awardPoints(tenant.tenantId, dto.customer_id, pointsEarned).catch(() => {});
+      const awardCall = this.config.get<boolean>('POOLED_LOYALTY_WRITES_ENABLED')
+        ? this.loyaltyService.awardPointsPooled(tenant.tenantId, dto.customer_id, pointsEarned)
+        : this.loyaltyService.awardPoints(tenant.tenantId, dto.customer_id, pointsEarned);
+      awardCall.catch(() => {});
     }
 
     // إشعار داخلي للكاشير عند إتمام الفاتورة

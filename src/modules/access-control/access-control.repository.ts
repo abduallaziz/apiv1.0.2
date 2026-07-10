@@ -8,6 +8,8 @@ export interface RoleRow {
   description: string | null;
   tenant_id: string | null;
   is_system: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PermissionRow {
@@ -63,12 +65,11 @@ export class AccessControlRepository {
     }));
   }
 
-  // System roles (tenant_id IS NULL) + this tenant's own custom roles (none
-  // exist yet, but the query already generalizes — see S5 architecture review).
+  // System roles (tenant_id IS NULL) + this tenant's own custom roles.
   async listRolesForTenant(tenantId: string): Promise<RoleRow[]> {
     const { data, error } = await this.supabase
       .from('roles')
-      .select('id, name, description, tenant_id, is_system')
+      .select('id, name, description, tenant_id, is_system, created_at, updated_at')
       .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
       .order('name', { ascending: true });
 
@@ -79,12 +80,43 @@ export class AccessControlRepository {
   async getRoleById(roleId: string): Promise<RoleRow | null> {
     const { data, error } = await this.supabase
       .from('roles')
-      .select('id, name, description, tenant_id, is_system')
+      .select('id, name, description, tenant_id, is_system, created_at, updated_at')
       .eq('id', roleId)
       .maybeSingle();
 
     if (error) throw error;
     return data;
+  }
+
+  async createRole(tenantId: string, name: string, description: string | null): Promise<RoleRow> {
+    const { data, error } = await this.supabase
+      .from('roles')
+      .insert({ tenant_id: tenantId, name, description, is_system: false })
+      .select('id, name, description, tenant_id, is_system, created_at, updated_at')
+      .single();
+
+    if (error) {
+      // idx_roles_tenant_name_unique — same name already exists for this tenant.
+      if (error.code === '23505') {
+        throw new Error('DUPLICATE_ROLE_NAME');
+      }
+      throw error;
+    }
+    return data;
+  }
+
+  // tenant_id filter here is defense-in-depth alongside the service-layer
+  // ownership check — a delete must never succeed against a system role
+  // (tenant_id IS NULL) or another tenant's role even if the service check
+  // were ever bypassed or modified incorrectly later.
+  async deleteRole(tenantId: string, roleId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('roles')
+      .delete()
+      .eq('id', roleId)
+      .eq('tenant_id', tenantId);
+
+    if (error) throw error;
   }
 
   async getPermissionByKey(permissionKey: string): Promise<{ name: string; resource: string } | null> {

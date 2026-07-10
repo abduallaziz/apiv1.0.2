@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { TenantContext } from '../../../core/tenant/tenant-context';
+import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 
 export interface StockLevelFilter {
   warehouseId?: string;
@@ -31,7 +33,10 @@ export interface MovementsLedgerFilter {
 
 @Injectable()
 export class StockRepository extends ScopedRepository {
-  constructor(supabase: SupabaseClient) {
+  constructor(
+    supabase: SupabaseClient,
+    private readonly tenantSession: TenantSessionService,
+  ) {
     super(supabase);
   }
 
@@ -132,5 +137,54 @@ export class StockRepository extends ScopedRepository {
     const { data, error } = await this.supabase.rpc('fn_apply_stock_movement', params);
     if (error) throw error;
     return data;
+  }
+
+  /**
+   * Pooled, RLS-enforceable equivalent of `callApplyStockMovement`. Unlike the
+   * invoices hot path, `fn_apply_stock_movement` is already a single atomic
+   * RPC — this migration is purely about making `stock_levels`/`stock_movements`
+   * RLS binding (both `ENABLE ROW LEVEL SECURITY`'d since `017_inventory_ledger.sql`,
+   * but with zero `CREATE POLICY` today — see `076_rls_policies_stock_tables.sql`)
+   * for the connection actually running the write, via `SET LOCAL app.tenant_id`.
+   * Gated behind `POOLED_STOCK_WRITES_ENABLED` in `StockService.applyStockMovement`
+   * — default `false`, same safety pattern as `InvoicesRepository.createWithItemsPooled`.
+   */
+  async callApplyStockMovementPooled(params: {
+    p_tenant_id: string;
+    p_warehouse_id: string;
+    p_location_id: string | null;
+    p_item_id: string;
+    p_variant_id: string | null;
+    p_batch_id: string | null;
+    p_movement_type: string;
+    p_direction: 'in' | 'out';
+    p_quantity: number;
+    p_unit_cost: number;
+    p_reference_type: string;
+    p_reference_id: string | null;
+    p_created_by: string | null;
+  }) {
+    const tenant = new TenantContext(params.p_tenant_id);
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const result = await client.query(
+        `SELECT * FROM fn_apply_stock_movement($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [
+          params.p_tenant_id,
+          params.p_warehouse_id,
+          params.p_location_id,
+          params.p_item_id,
+          params.p_variant_id,
+          params.p_batch_id,
+          params.p_movement_type,
+          params.p_direction,
+          params.p_quantity,
+          params.p_unit_cost,
+          params.p_reference_type,
+          params.p_reference_id,
+          params.p_created_by,
+        ],
+      );
+      return result.rows[0];
+    });
   }
 }

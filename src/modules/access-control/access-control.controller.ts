@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { UpdateRolePermissionDto } from './dto/update-role-permission.dto';
+import { CreateRoleDto } from './dto/create-role.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { AccessControlAdminGuard } from './guards/access-control-admin.guard';
@@ -40,6 +41,24 @@ export class AccessControlController {
   @Get('roles')
   listRoles(@GetTenant() tenant: TenantContext) {
     return this.service.listRoles(tenant);
+  }
+
+  @Post('roles')
+  createRole(
+    @Body() dto: CreateRoleDto,
+    @GetTenant() tenant: TenantContext,
+    @Req() req: { user: JwtPayload },
+  ) {
+    return this.service.createRole(dto.name, dto.description ?? null, tenant, req.user);
+  }
+
+  @Delete('roles/:roleId')
+  deleteRole(
+    @Param('roleId') roleId: string,
+    @GetTenant() tenant: TenantContext,
+    @Req() req: { user: JwtPayload },
+  ) {
+    return this.service.deleteRole(roleId, tenant, req.user);
   }
 
   @Get('roles/:roleId/permissions')

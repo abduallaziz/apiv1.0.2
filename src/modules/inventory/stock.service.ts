@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   StockRepository,
   StockLevelFilter,
@@ -15,6 +16,7 @@ export class StockService {
   constructor(
     private readonly stockRepo: StockRepository,
     private readonly cache: RedisCacheService,
+    private readonly config: ConfigService,
   ) {}
 
   async findLevels(tenantId: string, filter: StockLevelFilter) {
@@ -76,7 +78,13 @@ export class StockService {
   }
 
   async applyStockMovement(params: Parameters<StockRepository['callApplyStockMovement']>[0]) {
-    const result = await this.stockRepo.callApplyStockMovement(params);
+    // Same gating pattern as InvoicesService.create() — default false, no
+    // change to existing behavior until DATABASE_URL + migration 076 are live.
+    // See STATUS.md §78/§79/§80, TASKS.md "SAFETY & SCALE INITIATIVE".
+    const usePooledWrite = this.config.get<boolean>('POOLED_STOCK_WRITES_ENABLED');
+    const result = usePooledWrite
+      ? await this.stockRepo.callApplyStockMovementPooled(params)
+      : await this.stockRepo.callApplyStockMovement(params);
     await this.cache.delByPrefix(stockCachePrefix(params.p_tenant_id));
     return result;
   }

@@ -50,13 +50,95 @@ export class AccessControlService {
         return {
           id: role.id,
           name: role.name,
+          description: role.description,
           is_system: role.is_system,
           user_count: userCount,
           permission_count: grantedKeys.length,
           customized_permission_count: customizedCount,
+          created_at: role.created_at,
+          updated_at: role.updated_at,
         };
       }),
     );
+  }
+
+  async createRole(name: string, description: string | null, tenant: TenantContext, actor: JwtPayload) {
+    const tenantId = this.requireTenantId(tenant);
+    const trimmed = name.trim();
+    if (!trimmed) throw new ForbiddenException('Role name is required');
+
+    let role: RoleRow;
+    try {
+      role = await this.repo.createRole(tenantId, trimmed, description);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'DUPLICATE_ROLE_NAME') {
+        throw new ForbiddenException(`A role named "${trimmed}" already exists for this tenant`);
+      }
+      throw err;
+    }
+
+    this.audit
+      .log({
+        tenant_id: tenant.tenantId,
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        action: 'role.created',
+        resource_type: 'role',
+        resource_id: role.id,
+        after_data: { name: role.name, description: role.description },
+      })
+      .catch(() => {});
+
+    return {
+      id: role.id,
+      name: role.name,
+      description: role.description,
+      is_system: role.is_system,
+      user_count: 0,
+      permission_count: 0,
+      customized_permission_count: 0,
+      created_at: role.created_at,
+      updated_at: role.updated_at,
+    };
+  }
+
+  async deleteRole(roleId: string, tenant: TenantContext, actor: JwtPayload) {
+    const tenantId = this.requireTenantId(tenant);
+    const role = await this.getAccessibleRoleOrThrow(roleId, tenantId);
+
+    // Stricter than getEditableRoleOrThrow's PROTECTED_ROLE_NAMES check —
+    // deletion must be impossible for ANY system role, not just the two
+    // by-name-protected ones, since a system role's tenant_id is null and
+    // shared across every tenant. Only a role this tenant actually owns
+    // (tenant_id === tenantId) may ever be deleted.
+    if (role.tenant_id !== tenantId) {
+      throw new ForbiddenException('System roles cannot be deleted');
+    }
+
+    const userCount = await this.repo.countUsersForRole(roleId, tenantId);
+    if (userCount > 0) {
+      throw new ForbiddenException(
+        `Cannot delete role "${role.name}" — ${userCount} user(s) are still assigned to it`,
+      );
+    }
+
+    await this.repo.deleteAllOverridesForRole(tenantId, roleId);
+    await this.repo.deleteRole(tenantId, roleId);
+    await this.permissionsService.invalidateRole(role.name, tenantId);
+
+    this.audit
+      .log({
+        tenant_id: tenant.tenantId,
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        action: 'role.deleted',
+        resource_type: 'role',
+        resource_id: roleId,
+        before_data: { name: role.name, description: role.description },
+      })
+      .catch(() => {});
+
+    return { role_id: roleId, deleted: true };
   }
 
   async getRolePermissions(roleId: string, tenant: TenantContext, actor: JwtPayload) {
@@ -198,11 +280,30 @@ export class AccessControlService {
     return role;
   }
 
+  // Stopgap, not the real fix — see STATUS.md §83. resource==='superadmin' was
+  // the only block here, but `analytics.view.all`/`audit.view.all` carry
+  // resource:'analytics'/'audit' and gate platform-wide, cross-tenant data
+  // (superadmin/analytics/*, superadmin/audit-logs) despite not being tagged
+  // 'superadmin'. Hardcoding the two known keys closes today's confirmed gap;
+  // it does not generalize to any *future* platform-only permission added
+  // with a non-'superadmin' resource. The durable fix is a schema-level
+  // `is_platform_only` flag on `permissions`, plus SuperAdminGuard on every
+  // route those permissions gate (added to AnalyticsController/
+  // AuditLogsController in this same pass) as the real enforcement boundary —
+  // this check is defense-in-depth, not the primary guarantee.
+  private static readonly HARDCODED_PLATFORM_ONLY_KEYS = new Set([
+    'analytics.view.all',
+    'audit.view.all',
+  ]);
+
   private async assertPermissionIsCustomizable(permissionKey: string): Promise<void> {
     const permission = await this.repo.getPermissionByKey(permissionKey);
     if (!permission) throw new NotFoundException('Permission not found');
 
-    if (permission.resource === 'superadmin') {
+    if (
+      permission.resource === 'superadmin' ||
+      AccessControlService.HARDCODED_PLATFORM_ONLY_KEYS.has(permissionKey)
+    ) {
       throw new ForbiddenException('Platform-level permissions cannot be granted to a tenant role');
     }
   }

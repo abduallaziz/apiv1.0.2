@@ -3,12 +3,96 @@ import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { TenantContext } from '../../../core/tenant/tenant-context';
+import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
+
+interface PooledInvoiceItem {
+  item_id: string;
+  item_name: string;
+  variant_id?: string | null;
+  variant_name?: string | null;
+  quantity: number;
+  unit_price: number;
+}
 
 @Injectable()
 export class InvoicesRepository extends ScopedRepository {
-  constructor(@Inject(SUPABASE_CLIENT) supabase: SupabaseClient) {
+  constructor(
+    @Inject(SUPABASE_CLIENT) supabase: SupabaseClient,
+    private readonly tenantSession: TenantSessionService,
+  ) {
     super(supabase);
+  }
+
+  /**
+   * Pooled, RLS-enforced, atomic equivalent of `create()` + `insertItems()`
+   * combined into one transaction — closes two gaps the PostgREST path has
+   * today: (1) tenant isolation relies solely on service_role + app-level
+   * `.eq('tenant_id', ...)`, not DB-enforced RLS; (2) order + order_items are
+   * two independent HTTP calls, not atomic, so a crash between them can leave
+   * an order with zero items. `SET LOCAL app.tenant_id` (via
+   * `TenantSessionService`) makes migration 075's RLS policies binding for
+   * this write, and a single `BEGIN`/`COMMIT` covers both inserts.
+   *
+   * Gated behind `POOLED_INVOICE_WRITES_ENABLED` in `InvoicesService.create()`
+   * — do not call this until that flag is intentionally enabled (see
+   * `.env.example` and `TASKS.md`).
+   */
+  async createWithItemsPooled(
+    tenant: TenantContext,
+    orderPayload: Record<string, unknown>,
+    items: PooledInvoiceItem[],
+  ): Promise<{ id: string }> {
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const orderResult = await client.query<{ id: string }>(
+        `INSERT INTO orders (
+           tenant_id, branch_id, cashier_id, customer_id, status,
+           subtotal, discount, tax, total, payment_method, notes,
+           coupon_code, gift_card_code, gift_card_amount
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING id`,
+        [
+          tenant.tenantId,
+          orderPayload.branch_id,
+          orderPayload.cashier_id,
+          orderPayload.customer_id ?? null,
+          orderPayload.status,
+          orderPayload.subtotal,
+          orderPayload.discount,
+          orderPayload.tax,
+          orderPayload.total,
+          orderPayload.payment_method,
+          orderPayload.notes ?? null,
+          orderPayload.coupon_code ?? null,
+          orderPayload.gift_card_code ?? null,
+          orderPayload.gift_card_amount ?? null,
+        ],
+      );
+      const orderId = orderResult.rows[0].id;
+
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO order_items (
+             order_id, item_id, item_name, qty, price, total_price,
+             variant_id, variant_name
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            orderId,
+            item.item_id,
+            item.item_name,
+            item.quantity,
+            item.unit_price,
+            Number(item.quantity) * Number(item.unit_price),
+            item.variant_id ?? null,
+            item.variant_name ?? null,
+          ],
+        );
+      }
+
+      return { id: orderId };
+    });
   }
 
   private readonly ORDER_SELECT = `

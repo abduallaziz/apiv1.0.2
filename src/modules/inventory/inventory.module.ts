@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import { TenantSessionService } from '../../core/tenant/tenant-session.service';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 
 import { WarehousesController } from './warehouses.controller';
@@ -85,8 +86,9 @@ import { ReportsRepository } from './repositories/reports.repository';
     },
     {
       provide: StockRepository,
-      useFactory: (supabase: SupabaseClient) => new StockRepository(supabase),
-      inject: [SUPABASE_CLIENT],
+      useFactory: (supabase: SupabaseClient, tenantSession: TenantSessionService) =>
+        new StockRepository(supabase, tenantSession),
+      inject: [SUPABASE_CLIENT, TenantSessionService],
     },
     {
       provide: ReservationsRepository,
