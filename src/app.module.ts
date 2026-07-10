@@ -8,6 +8,7 @@ import { RedisThrottlerStorage } from './core/security/redis-throttler.storage';
 import { TenantThrottlerGuard } from './core/security/tenant-throttler.guard';
 import { IpMiddleware } from './core/security/ip.middleware';
 import { SupabaseModule } from './shared/supabase/supabase.module';
+import { TenantSessionModule } from './core/tenant/tenant-session.module';
 import { SecurityModule } from './core/security/security.module';
 import { PermissionsModule } from './core/permissions/permissions.module';
 import { FeatureFlagsModule } from './core/feature-flags/feature-flags.module';
@@ -74,6 +75,7 @@ import Redis from 'ioredis';
     AiUsageTrackingModule,
     LoggerModule,
     SupabaseModule,
+    TenantSessionModule,
     SecurityModule,
     PermissionsModule,
     FeatureFlagsModule,
