@@ -71,11 +71,14 @@ export class AccessControlRepository {
   }
 
   // System roles (tenant_id IS NULL) + this tenant's own custom roles.
+  // 'superadmin' excluded explicitly — it's a platform-level role, never
+  // meant to be visible or assignable from a tenant-facing screen at all.
   async listRolesForTenant(tenantId: string): Promise<RoleRow[]> {
     const { data, error } = await this.supabase
       .from('roles')
       .select('id, name, description, tenant_id, is_system, created_at, updated_at')
       .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
+      .neq('name', 'superadmin')
       .order('name', { ascending: true });
 
     if (error) throw error;

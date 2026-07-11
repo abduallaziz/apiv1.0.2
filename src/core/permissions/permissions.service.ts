@@ -42,6 +42,13 @@ export class PermissionsService {
     permissionKey: string,
     tenantId?: string | null,
   ): Promise<boolean> {
+    // 'owner' is forced true for every permission, unconditionally — not a
+    // cosmetic UI lock, this is the actual enforcement path PermissionGuard
+    // calls on every request. Short-circuits before any cache/DB round trip
+    // so it can never depend on role_permissions seed data being complete,
+    // and can never be affected by a stray tenant_role_permissions row.
+    if (role === 'owner') return true;
+
     const granted = await this.getGrantedSet(role, tenantId);
     return granted.has(permissionKey);
   }
@@ -65,6 +72,15 @@ export class PermissionsService {
     role: string,
     tenantId?: string | null,
   ): Promise<{ grantedKeys: Set<string>; overrides: Map<string, boolean> }> {
+    // Same force-true rule as hasPermission — empty overrides map on purpose:
+    // this bypasses tenant_role_permissions entirely for 'owner', it doesn't
+    // just happen to agree with it. Even a stray override row can never
+    // change what's displayed or enforced for this role.
+    if (role === 'owner') {
+      const allKeys = await this.fetchAllTenantPermissionKeys();
+      return { grantedKeys: new Set(allKeys), overrides: new Map() };
+    }
+
     const globalKeys = await this.fetchGlobalGrants(role);
     const overrides = new Map<string, boolean>();
 
@@ -100,6 +116,12 @@ export class PermissionsService {
   }
 
   private async resolveGrantedKeys(role: string, tenantId?: string | null): Promise<string[]> {
+    // getRolePermissions() (used by getEditableRoleOrThrow's caller chain and
+    // anywhere else that lists rather than checks a single key) goes through
+    // here — same force-true rule, kept consistent with hasPermission and
+    // getResolutionDetail rather than re-special-cased at every call site.
+    if (role === 'owner') return this.fetchAllTenantPermissionKeys();
+
     const globalKeys = await this.fetchGlobalGrants(role);
 
     if (!tenantId) return globalKeys;
@@ -127,6 +149,20 @@ export class PermissionsService {
 
     if (error || !data) return [];
     return data.map((row) => row.permission_key);
+  }
+
+  // Every non-platform permission key that exists — the actual definition of
+  // "owner always has everything." Excludes resource='superadmin' the same
+  // way AccessControlRepository.listPermissionsCatalog(false) does: owner
+  // has full access within their own tenant, not platform-level access.
+  private async fetchAllTenantPermissionKeys(): Promise<string[]> {
+    const { data, error } = await this.supabase
+      .from('permissions')
+      .select('name')
+      .neq('resource', 'superadmin');
+
+    if (error || !data) return [];
+    return data.map((row) => row.name);
   }
 
   private async fetchTenantOverrides(
