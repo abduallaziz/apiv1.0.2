@@ -35,8 +35,12 @@ export class PermissionGuard implements CanActivate {
 
     if (!user) throw new ForbiddenException('No authenticated user');
 
+    // Phase 2 of the multi-role migration — user.roles may be absent on a
+    // JWT signed before this field existed, so fall back to [user.role].
+    const roles: string[] = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+
     // Superadmin bypasses all permission checks
-    if (user.role === 'superadmin') return true;
+    if (roles.includes('superadmin')) return true;
 
     // Internal QA/demo tenant bypasses all permission checks
     if (UNRESTRICTED_TEST_TENANT_IDS.includes(user.tenant_id)) return true;

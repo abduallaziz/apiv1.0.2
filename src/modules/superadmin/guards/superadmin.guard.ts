@@ -11,7 +11,11 @@ export class SuperAdminGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user || user.role !== 'superadmin') {
+    // Phase 2 of the multi-role migration — user.roles may be absent on a
+    // JWT signed before this field existed, so fall back to [user.role].
+    const roles: string[] = Array.isArray(user?.roles) ? user.roles : (user?.role ? [user.role] : []);
+
+    if (!user || !roles.includes('superadmin')) {
       throw new ForbiddenException('SuperAdmin access required');
     }
 

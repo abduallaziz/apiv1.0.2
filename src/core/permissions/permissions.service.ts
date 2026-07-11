@@ -21,6 +21,14 @@ const PERMISSIONS_TTL = 600;
 const cacheKey = (role: string, tenantId?: string | null) =>
   tenantId ? `permissions:tenant:${tenantId}:role:${role}` : `permissions:role:${role}`;
 
+// Phase 2 of the multi-role migration (see STATUS.md) — deliberately a
+// separate key namespace from cacheKey() above (permissions:user:* vs
+// permissions:role:*), so caching a user's merged multi-role result can
+// never collide with or invalidate a single-role cache entry used by the
+// still-untouched hasPermission()/getGrantedSet() path.
+const userCacheKey = (userId: string, tenantId?: string | null) =>
+  tenantId ? `permissions:user:${userId}:tenant:${tenantId}` : `permissions:user:${userId}`;
+
 // INTERMEDIATE API — hasPermission(role, permissionKey, tenantId) is Stage B
 // of the tenant-aware authorization migration. It intentionally does NOT yet
 // support multiple roles per user, user-level exceptions, data scope, or
@@ -60,6 +68,67 @@ export class PermissionsService {
 
   async invalidateRole(role: string, tenantId?: string | null): Promise<void> {
     await this.cache.del(cacheKey(role, tenantId));
+  }
+
+  // Phase 2 of the multi-role migration — not called from anywhere yet (no
+  // write path assigns/revokes user_roles rows until Phase 3), but the cache
+  // it invalidates already exists via hasPermissionForUser below, so this is
+  // added now rather than left as a gap to remember later.
+  async invalidateUserPermissions(userId: string, tenantId?: string | null): Promise<void> {
+    await this.cache.del(userCacheKey(userId, tenantId));
+  }
+
+  // Phase 2 of the multi-role migration — union of every role a user holds
+  // via user_roles, replacing the single-role assumption hasPermission()
+  // above still makes. hasPermission() itself is untouched; this is a fully
+  // separate entry point existing guards do not call yet.
+  async hasPermissionForUser(
+    userId: string,
+    permissionKey: string,
+    tenantId?: string | null,
+  ): Promise<boolean> {
+    const roles = await this.fetchUserRoleNames(userId);
+
+    // Same force-true rule hasPermission() applies to 'owner' — if any role
+    // held by this user is 'owner', every permission resolves true,
+    // regardless of what the other held roles grant or deny.
+    if (roles.includes('owner')) return true;
+
+    const granted = await this.getGrantedSetForUser(userId, roles, tenantId);
+    return granted.has(permissionKey);
+  }
+
+  private async getGrantedSetForUser(
+    userId: string,
+    roles: string[],
+    tenantId?: string | null,
+  ): Promise<Set<string>> {
+    const key = userCacheKey(userId, tenantId);
+
+    const cached = await this.cache.get<string[]>(key);
+    if (cached) return new Set(cached);
+
+    const merged = new Set<string>();
+    for (const role of roles) {
+      const keys = await this.resolveGrantedKeys(role, tenantId);
+      for (const k of keys) merged.add(k);
+    }
+
+    const result = Array.from(merged);
+    await this.cache.set(key, result, PERMISSIONS_TTL);
+    return merged;
+  }
+
+  private async fetchUserRoleNames(userId: string): Promise<string[]> {
+    const { data, error } = await this.supabase
+      .from('user_roles')
+      .select('role:roles!user_roles_role_id_fkey(name)')
+      .eq('user_id', userId);
+
+    if (error || !data) return [];
+    return data
+      .map((row: any) => row.role?.name as string | undefined)
+      .filter((name): name is string => !!name);
   }
 
   // S5 Stage C — shared resolution detail for the access-control admin API.

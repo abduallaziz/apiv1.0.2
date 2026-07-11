@@ -113,6 +113,46 @@ export class UsersRepository extends ScopedRepository {
       .single();
   }
 
+  // Only resolves system roles (tenant_id IS NULL) — changeRole()'s DTO is
+  // typed to the fixed UserRole enum, never a custom tenant role, so this
+  // mirrors that same scope rather than silently accepting one.
+  async findSystemRoleId(roleName: string): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('roles')
+      .select('id')
+      .eq('name', roleName)
+      .is('tenant_id', null)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return data.id;
+  }
+
+  // user_roles is the source of truth going forward — users.role/role_id
+  // stay in sync as a legacy mirror (see changeRole()), but this is what
+  // guards/PermissionsService.hasPermissionForUser actually reads. Swaps
+  // whichever role was is_primary for this user to the new one; upsert
+  // (not plain insert) so re-assigning a role the user already held via a
+  // future Phase-3 multi-role grant doesn't collide with the UNIQUE
+  // (user_id, role_id) constraint.
+  async syncPrimaryRole(userId: string, roleId: string): Promise<void> {
+    const { error: clearError } = await this.supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+      .eq('is_primary', true)
+      .neq('role_id', roleId);
+    if (clearError) throw clearError;
+
+    const { error: upsertError } = await this.supabase
+      .from('user_roles')
+      .upsert(
+        { user_id: userId, role_id: roleId, is_primary: true },
+        { onConflict: 'user_id,role_id' },
+      );
+    if (upsertError) throw upsertError;
+  }
+
   async generateAttendanceToken(id: string, tenantId: string) {
     const token = randomBytes(24).toString('base64url');
     const { data, error } = await this.supabase

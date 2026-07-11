@@ -130,6 +130,24 @@ export class AuthService {
     }
   }
 
+  // Phase 2 of the multi-role migration — reads the full role set from
+  // user_roles (joined to roles.name, not the FK's UUID, since every Guard
+  // matches against string literals like 'superadmin'/'owner'). Falls back
+  // to [] on any error so a lookup failure degrades to "no extra roles"
+  // rather than breaking login; callers always OR this with the existing
+  // primary `role` before trusting the result.
+  private async getUserRoleNames(userId: string): Promise<string[]> {
+    const { data, error } = await this.supabase
+      .from('user_roles')
+      .select('role:roles!user_roles_role_id_fkey(name)')
+      .eq('user_id', userId);
+
+    if (error || !data) return [];
+    return data
+      .map((row: any) => row.role?.name as string | undefined)
+      .filter((name): name is string => !!name);
+  }
+
   private async getUserPermissions(role: string): Promise<string[]> {
     const { data } = await this.supabase
       .from('role_permissions')
@@ -243,11 +261,13 @@ export class AuthService {
       .single();
 
     const { business_type, activity } = await this.getTenantBusinessType(user.tenant_id);
+    const roleNames = await this.getUserRoleNames(user.id);
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      roles: roleNames.length > 0 ? roleNames : [user.role],
       tenant_id: user.tenant_id,
       session_id: session!.id,
       business_type,
@@ -363,6 +383,21 @@ export class AuthService {
     try {
       const password_hash = await bcrypt.hash(dto.password, 12);
 
+      // Fetched once, used to both backfill users.role_id (kept in sync with
+      // role, matching migration 060's original intent) and seed this user's
+      // primary user_roles row below — closes the gap flagged during Phase 2
+      // review where newly registered owners got no user_roles row at all.
+      const { data: ownerRole, error: ownerRoleError } = await this.supabase
+        .from('roles')
+        .select('id')
+        .eq('name', 'owner')
+        .is('tenant_id', null)
+        .single();
+
+      if (ownerRoleError || !ownerRole) {
+        throw new ServiceUnavailableException('Owner role is not configured');
+      }
+
       const { data: user, error: userError } = await this.supabase
         .from('users')
         .insert({
@@ -371,6 +406,7 @@ export class AuthService {
           password_hash,
           name: dto.ownerName,
           role: 'owner',
+          role_id: ownerRole.id,
           language,
           is_active: true,
         })
@@ -379,6 +415,22 @@ export class AuthService {
 
       if (userError || !user) {
         throw new ServiceUnavailableException('Failed to create owner account');
+      }
+
+      // Supabase-js has no real cross-table BEGIN/COMMIT, so atomicity here
+      // uses the same compensating pattern the rest of this block already
+      // relies on for branches/subscriptions: on any failure below, the
+      // catch deletes `tenant`, which cascades onto `users` (ON DELETE
+      // CASCADE) and from there onto `user_roles` (ON DELETE CASCADE via
+      // user_id) — this row can never survive a rolled-back registration.
+      const { error: userRoleError } = await this.supabase.from('user_roles').insert({
+        user_id: user.id,
+        role_id: ownerRole.id,
+        is_primary: true,
+      });
+
+      if (userRoleError) {
+        throw new ServiceUnavailableException('Failed to assign owner role');
       }
 
       const { error: branchError } = await this.supabase.from('branches').insert({
@@ -420,10 +472,13 @@ export class AuthService {
         .select('id')
         .single();
 
+      const roleNames = await this.getUserRoleNames(user.id);
+
       const payload: JwtPayload = {
         sub: user.id,
         email: user.email,
         role: user.role,
+        roles: roleNames.length > 0 ? roleNames : [user.role],
         tenant_id: user.tenant_id,
         session_id: session!.id,
         business_type: businessType,
@@ -552,11 +607,13 @@ export class AuthService {
       .eq('id', tokenRecord.id);
 
     const { business_type, activity } = await this.getTenantBusinessType(user.tenant_id);
+    const roleNames = await this.getUserRoleNames(user.id);
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      roles: roleNames.length > 0 ? roleNames : [user.role],
       tenant_id: user.tenant_id,
       session_id: session.id,
       business_type,

@@ -17,6 +17,7 @@ import { AuditService } from '../../core/audit/audit.service';
 import { UserRole } from '../../shared/types/enums';
 import { BillingService } from '../../core/billing/billing.service';
 import { AuthService } from '../auth/auth.service';
+import { PermissionsService } from '../../core/permissions/permissions.service';
 
 @Injectable()
 export class UsersService {
@@ -25,6 +26,7 @@ export class UsersService {
     private readonly auditService: AuditService,
     private readonly billingService: BillingService,
     private readonly authService: AuthService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
   // Disabling or deleting an employee must immediately cut them off, not just at
@@ -337,8 +339,26 @@ export class UsersService {
       throw new ForbiddenException('Cannot assign superadmin role');
     }
 
-    const { data, error } = await this.usersRepository.update(id, tenant.tenantId, { role: dto.role });
+    const roleId = await this.usersRepository.findSystemRoleId(dto.role);
+    if (!roleId) {
+      throw new BadRequestException(`Unknown system role: ${dto.role}`);
+    }
+
+    // users.role/role_id are kept in sync purely as a legacy mirror —
+    // user_roles (synced below) is what guards and
+    // PermissionsService.hasPermissionForUser actually read.
+    const { data, error } = await this.usersRepository.update(id, tenant.tenantId, {
+      role: dto.role,
+      role_id: roleId,
+    });
     if (error) throw new BadRequestException(error.message);
+
+    await this.usersRepository.syncPrimaryRole(id, roleId);
+    // The user's cached multi-role permission set (if any) is now stale —
+    // only hasPermissionForUser's cache uses this key; hasPermission()'s
+    // per-role cache is untouched since that role-wide entry is still valid
+    // for every other user still holding it.
+    await this.permissionsService.invalidateUserPermissions(id, tenant.tenantId);
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
