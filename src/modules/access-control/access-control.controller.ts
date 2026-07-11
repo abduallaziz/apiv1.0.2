@@ -43,6 +43,14 @@ export class AccessControlController {
     return this.service.listRoles(tenant);
   }
 
+  @Get('roles/:roleId/users')
+  getUsersByRole(
+    @Param('roleId') roleId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.service.getUsersByRole(roleId, tenant);
+  }
+
   @Post('roles')
   createRole(
     @Body() dto: CreateRoleDto,

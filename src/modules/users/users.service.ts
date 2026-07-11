@@ -373,6 +373,85 @@ export class UsersService {
     return data;
   }
 
+  // Phase 3 — full role listing for the user-detail "Roles" panel.
+  // findOne() throws NotFoundException if `id` isn't in this tenant, which
+  // is what scopes this to the caller's tenant (user_roles itself has no
+  // tenant_id column to filter on).
+  async getUserRoles(id: string, tenant: TenantContext) {
+    await this.findOne(id, tenant);
+    return this.usersRepository.findUserRoles(id);
+  }
+
+  // Grants an ADDITIONAL role alongside whatever the user already holds —
+  // distinct from changeRole(), which replaces the single primary role.
+  // Never touches is_primary of an existing row; the new role is only ever
+  // primary if the user somehow had zero roles beforehand (shouldn't happen
+  // given register()/086 backfill, but this keeps that edge case sane
+  // rather than leaving the user with zero primary role at all).
+  async addRole(id: string, roleId: string, tenant: TenantContext, actorId: string) {
+    await this.findOne(id, tenant);
+
+    const role = await this.usersRepository.findAccessibleRole(roleId, tenant.tenantId);
+    if (!role) throw new NotFoundException('Role not found');
+
+    const currentCount = await this.usersRepository.countUserRoles(id);
+
+    try {
+      await this.usersRepository.insertUserRole(id, roleId, currentCount === 0);
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new ConflictException(`User already has the "${role.name}" role`);
+      }
+      throw err;
+    }
+
+    await this.permissionsService.invalidateUserPermissions(id, tenant.tenantId);
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'user.role_added',
+      resource_type: 'user',
+      resource_id: id,
+      after_data: { role_id: roleId, role_name: role.name },
+    });
+
+    return { user_id: id, role_id: roleId, role_name: role.name };
+  }
+
+  // Rejects removing the currently-primary role (changeRole() is the
+  // intended path for swapping it — this endpoint only manages secondary
+  // roles) and rejects removing a user's only remaining role, so a user can
+  // never end up with zero roles through this endpoint.
+  async removeRole(id: string, roleId: string, tenant: TenantContext, actorId: string) {
+    await this.findOne(id, tenant);
+
+    const roles = await this.usersRepository.findUserRoles(id);
+    const target = roles.find((r: any) => r.role_id === roleId);
+    if (!target) throw new NotFoundException('User does not have this role');
+
+    if (roles.length === 1) {
+      throw new ForbiddenException('Cannot remove a user\'s only remaining role');
+    }
+    if (target.is_primary) {
+      throw new ForbiddenException('Cannot remove the primary role directly — change it via PATCH /users/:id/role instead');
+    }
+
+    await this.usersRepository.deleteUserRole(id, roleId);
+    await this.permissionsService.invalidateUserPermissions(id, tenant.tenantId);
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'user.role_removed',
+      resource_type: 'user',
+      resource_id: id,
+      before_data: { role_id: roleId, role_name: (target as any).role?.name },
+    });
+
+    return { user_id: id, role_id: roleId, removed: true };
+  }
+
   async remove(id: string, tenant: TenantContext, actorId: string) {
     const existing = await this.findOne(id, tenant);
 

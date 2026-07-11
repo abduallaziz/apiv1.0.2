@@ -135,6 +135,62 @@ export class UsersRepository extends ScopedRepository {
   // (not plain insert) so re-assigning a role the user already held via a
   // future Phase-3 multi-role grant doesn't collide with the UNIQUE
   // (user_id, role_id) constraint.
+  // Phase 3 — full role listing for the user-detail "Roles" panel. Not
+  // tenant-scoped by a query filter (user_roles has no tenant_id column of
+  // its own); callers must first confirm the user belongs to the caller's
+  // tenant via findOne()/findById(), same as changeRole() already does.
+  async findUserRoles(userId: string) {
+    const { data, error } = await this.supabase
+      .from('user_roles')
+      .select('id, role_id, is_primary, created_at, role:roles!user_roles_role_id_fkey(id, name, description, is_system)')
+      .eq('user_id', userId)
+      .order('is_primary', { ascending: false });
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  async countUserRoles(userId: string): Promise<number> {
+    const { count, error } = await this.supabase
+      .from('user_roles')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
+  // Resolves a role for the addRole()/removeRole() write path — accepts a
+  // system role (tenant_id IS NULL, usable by every tenant) or this
+  // tenant's own custom role, exactly the same accessibility rule
+  // AccessControlService.getAccessibleRoleOrThrow() applies on the
+  // access-control side, kept here rather than cross-importing that
+  // module's service into UsersService for one lookup.
+  async findAccessibleRole(roleId: string, tenantId: string): Promise<{ id: string; tenant_id: string | null; name: string } | null> {
+    const { data, error } = await this.supabase
+      .from('roles')
+      .select('id, tenant_id, name')
+      .eq('id', roleId)
+      .maybeSingle();
+    if (error || !data) return null;
+    if (data.tenant_id !== null && data.tenant_id !== tenantId) return null;
+    return data;
+  }
+
+  async insertUserRole(userId: string, roleId: string, isPrimary: boolean): Promise<void> {
+    const { error } = await this.supabase
+      .from('user_roles')
+      .insert({ user_id: userId, role_id: roleId, is_primary: isPrimary });
+    if (error) throw error;
+  }
+
+  async deleteUserRole(userId: string, roleId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+      .eq('role_id', roleId);
+    if (error) throw error;
+  }
+
   async syncPrimaryRole(userId: string, roleId: string): Promise<void> {
     const { error: clearError } = await this.supabase
       .from('user_roles')

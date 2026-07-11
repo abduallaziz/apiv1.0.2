@@ -6,6 +6,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
+import { AddRoleDto } from './dto/add-role.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -64,6 +65,36 @@ export class UsersController {
     @Request() req: any,
   ) {
     return this.usersService.changeRole(id, dto, tenant, req.user.sub);
+  }
+
+  @Get(':id/roles')
+  @RequirePermission('users.view')
+  getUserRoles(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.usersService.getUserRoles(id, tenant);
+  }
+
+  @Post(':id/roles')
+  @Audit('user.role.added')
+  @RequirePermission('users.manage')
+  addRole(
+    @Param('id') id: string,
+    @Body() dto: AddRoleDto,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    return this.usersService.addRole(id, dto.role_id, tenant, req.user.sub);
+  }
+
+  @Delete(':id/roles/:roleId')
+  @Audit('user.role.removed')
+  @RequirePermission('users.manage')
+  removeRole(
+    @Param('id') id: string,
+    @Param('roleId') roleId: string,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    return this.usersService.removeRole(id, roleId, tenant, req.user.sub);
   }
 
   @Delete(':id')

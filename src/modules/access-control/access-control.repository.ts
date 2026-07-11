@@ -138,6 +138,35 @@ export class AccessControlRepository {
     return data;
   }
 
+  // Phase 3 — backs the "Manage Users" panel. Deliberately reads user_roles
+  // (the source of truth for full role membership, including secondary
+  // roles), not users.role_id like countUsersForRole() above (which only
+  // reflects each user's PRIMARY role) — so a user holding this role as a
+  // secondary assignment still shows up here.
+  //
+  // !inner + eq('user.tenant_id', ...) is mandatory, not optional: a system
+  // role's id is shared across every tenant, so without this filter every
+  // tenant's users holding that system role would leak into the result.
+  async getUsersByRole(roleId: string, tenantId: string): Promise<
+    { id: string; name: string; email: string; is_active: boolean; is_primary: boolean }[]
+  > {
+    const { data, error } = await this.supabase
+      .from('user_roles')
+      .select('is_primary, user:users!user_roles_user_id_fkey!inner(id, name, email, is_active, tenant_id, deleted_at)')
+      .eq('role_id', roleId)
+      .eq('user.tenant_id', tenantId)
+      .is('user.deleted_at', null);
+
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({
+      id: row.user.id,
+      name: row.user.name,
+      email: row.user.email,
+      is_active: row.user.is_active,
+      is_primary: row.is_primary,
+    }));
+  }
+
   async countUsersForRole(roleId: string, tenantId: string): Promise<number> {
     const { count, error } = await this.supabase
       .from('users')

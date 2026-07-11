@@ -63,6 +63,13 @@ export class AccessControlService {
     );
   }
 
+  // Phase 3 — powers RoleCard's "Manage Users" button.
+  async getUsersByRole(roleId: string, tenant: TenantContext) {
+    const tenantId = this.requireTenantId(tenant);
+    await this.getAccessibleRoleOrThrow(roleId, tenantId);
+    return this.repo.getUsersByRole(roleId, tenantId);
+  }
+
   async createRole(name: string, description: string | null, tenant: TenantContext, actor: JwtPayload) {
     const tenantId = this.requireTenantId(tenant);
     const trimmed = name.trim();
