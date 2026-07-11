@@ -167,13 +167,21 @@ export class AccessControlRepository {
     }));
   }
 
+  // Deliberately reads user_roles — the exact same table getUsersByRole()
+  // above reads — instead of users.role_id. Two different sources of truth
+  // for "how many users hold this role" is what caused a real reported bug
+  // (RoleCard showing 3 users, RoleUsersSheet showing 0): users.role_id can
+  // go stale for any user whose role changed through a legacy write path
+  // that only touched users.role, not role_id/user_roles (see migration 088).
+  // Counting from user_roles here guarantees the card's number and the
+  // sheet's list can never disagree again, by construction.
   async countUsersForRole(roleId: string, tenantId: string): Promise<number> {
     const { count, error } = await this.supabase
-      .from('users')
-      .select('id', { count: 'exact', head: true })
+      .from('user_roles')
+      .select('id, user:users!user_roles_user_id_fkey!inner(id)', { count: 'exact', head: true })
       .eq('role_id', roleId)
-      .eq('tenant_id', tenantId)
-      .is('deleted_at', null);
+      .eq('user.tenant_id', tenantId)
+      .is('user.deleted_at', null);
 
     if (error) throw error;
     return count ?? 0;
