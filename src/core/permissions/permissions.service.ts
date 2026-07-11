@@ -72,7 +72,7 @@ export class PermissionsService {
       return { grantedKeys: new Set(globalKeys), overrides };
     }
 
-    const roleId = await this.lookupSystemRoleId(role);
+    const roleId = await this.lookupRoleId(role, tenantId);
     if (!roleId) {
       return { grantedKeys: new Set(globalKeys), overrides };
     }
@@ -104,7 +104,7 @@ export class PermissionsService {
 
     if (!tenantId) return globalKeys;
 
-    const roleId = await this.lookupSystemRoleId(role);
+    const roleId = await this.lookupRoleId(role, tenantId);
     if (!roleId) return globalKeys;
 
     const overrides = await this.fetchTenantOverrides(tenantId, roleId);
@@ -163,6 +163,38 @@ export class PermissionsService {
 
     if (error || !data) return null;
     this.systemRoleIdCache.set(role, data.id);
+    return data.id;
+  }
+
+  // Real bug found via live testing (user report: toggled permissions on a
+  // custom role reverted to ungranted after closing and reopening the
+  // sheet): resolveGrantedKeys/getResolutionDetail only ever called
+  // lookupSystemRoleId, which filters `tenant_id IS NULL` — a custom role's
+  // row always has tenant_id set, so the lookup silently returned null and
+  // both callers fell back to "no matching role -> just return global
+  // grants," meaning tenant_role_permissions overrides were never read back
+  // for any custom role, ever. The write path (upsertOverride) was always
+  // correct; only this read path ignored what it wrote.
+  //
+  // Deliberately NOT folded into systemRoleIdCache: that cache is keyed by
+  // name only, which is safe for the 7 globally-unique system roles but
+  // would be wrong for custom roles — two different tenants can each name a
+  // role "Supervisor" (unique only per-tenant, via idx_roles_tenant_name_unique),
+  // so caching by name alone here would leak tenant A's roleId into tenant
+  // B's lookup for the same name.
+  private async lookupRoleId(role: string, tenantId?: string | null): Promise<string | null> {
+    const systemId = await this.lookupSystemRoleId(role);
+    if (systemId) return systemId;
+    if (!tenantId) return null;
+
+    const { data, error } = await this.supabase
+      .from('roles')
+      .select('id')
+      .eq('name', role)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (error || !data) return null;
     return data.id;
   }
 }
