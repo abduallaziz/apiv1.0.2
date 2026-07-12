@@ -510,6 +510,33 @@ export class UsersService {
     return { user_id: id, permission_key: permissionKey, removed: true };
   }
 
+  // Frontend "Permission Checklist" panel — every active GRANT/DENY for
+  // this user, used to compute Inherited vs Customized per row alongside
+  // the base role's resolved permissions (fetched separately by the
+  // frontend via the existing GET /access-control/roles/:roleId/permissions).
+  async getPermissionOverrides(id: string, tenant: TenantContext) {
+    await this.findOne(id, tenant);
+    return this.permissionsService.getOverridesForUser(id);
+  }
+
+  // "Reset to Defaults" — clears every override for this user in one call
+  // rather than the frontend looping removePermissionOverride() per row.
+  async resetPermissionOverrides(id: string, tenant: TenantContext, actorId: string) {
+    await this.findOne(id, tenant);
+
+    await this.permissionsService.resetAllOverrides(id, tenant.tenantId);
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'user.permission_overrides_reset',
+      resource_type: 'user',
+      resource_id: id,
+    });
+
+    return { user_id: id, reset: true };
+  }
+
   async remove(id: string, tenant: TenantContext, actorId: string) {
     const existing = await this.findOne(id, tenant);
 

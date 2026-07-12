@@ -150,6 +150,31 @@ export class PermissionsService {
     return data;
   }
 
+  // Public read for the GET /users/:id/permissions/overrides endpoint —
+  // thin wrapper so the controller/service layer doesn't reach into the
+  // private fetchUserOverrides() directly.
+  async getOverridesForUser(
+    userId: string,
+  ): Promise<{ permission_key: string; action: 'GRANT' | 'DENY' }[]> {
+    return this.fetchUserOverrides(userId);
+  }
+
+  // "Reset to Defaults" — audit-friendly disable of every active override
+  // for this user (is_active = false), not a hard DELETE, same reasoning as
+  // removeOverride() below. A single UPDATE rather than N individual
+  // removeOverride() calls, so this is one round trip regardless of how
+  // many overrides the user has.
+  async resetAllOverrides(userId: string, tenantId?: string | null): Promise<void> {
+    const { error } = await this.supabase
+      .from('user_permissions_override')
+      .update({ is_active: false })
+      .eq('user_id', userId)
+      .eq('is_active', true);
+    if (error) throw error;
+
+    await this.invalidateUserPermissions(userId, tenantId);
+  }
+
   // Write path for the override endpoints — upserts onto the partial unique
   // index (idx_user_permission), so re-granting/re-denying the same
   // permission for the same user updates the existing active row instead of

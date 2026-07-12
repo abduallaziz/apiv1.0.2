@@ -128,6 +128,23 @@ export class UsersController {
     return this.usersService.removePermissionOverride(id, permissionKey, tenant, req.user.sub);
   }
 
+  @Get(':id/permissions/overrides')
+  @UseGuards(AccessControlAdminGuard)
+  getPermissionOverrides(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.usersService.getPermissionOverrides(id, tenant);
+  }
+
+  @Delete(':id/permissions/overrides/reset-all')
+  @Audit('user.permission_overrides.reset')
+  @UseGuards(AccessControlAdminGuard)
+  resetPermissionOverrides(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    return this.usersService.resetPermissionOverrides(id, tenant, req.user.sub);
+  }
+
   @Delete(':id')
   @RequirePermission('users.manage')
   remove(
