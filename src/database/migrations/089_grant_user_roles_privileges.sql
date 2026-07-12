@@ -1,0 +1,27 @@
+-- Same recurring gotcha migration 066 already documented and fixed once
+-- (059/064/065 created tables without granting service_role privileges,
+-- causing every /access-control/* request to fail with 42501 "permission
+-- denied"). Migration 086 made the identical mistake with user_roles: table
+-- created, RLS left enabled by default with zero policies, and service_role
+-- was never GRANTed SELECT/INSERT/UPDATE/DELETE on it.
+--
+-- Confirmed directly against production via a real PostgREST request as
+-- service_role: "permission denied for table user_roles" (42501), with the
+-- hint "GRANT the required privileges ... TO service_role". service_role
+-- has rolbypassrls = true (confirmed), which only skips row-level policies —
+-- it does not substitute for the table-level GRANT Postgres still requires.
+--
+-- This was actively broken in production: countUsersForRole()/
+-- getUsersByRole() (both switched to read user_roles) and register()'s
+-- user_roles insert were all silently failing at the real API layer, even
+-- though direct superuser SQL (used to verify 088) never hit this at all —
+-- masking the bug during verification.
+GRANT ALL PRIVILEGES ON public.user_roles TO service_role;
+
+-- ============================================================
+-- VERIFICATION (run manually after apply)
+-- ============================================================
+-- SELECT table_name, privilege_type
+-- FROM information_schema.role_table_grants
+-- WHERE table_name = 'user_roles' AND grantee = 'service_role'
+-- ORDER BY privilege_type;
