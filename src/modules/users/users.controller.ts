@@ -7,9 +7,11 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { AddRoleDto } from './dto/add-role.dto';
+import { SetPermissionOverrideDto } from './dto/set-permission-override.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
+import { AccessControlAdminGuard } from '../access-control/guards/access-control-admin.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
@@ -95,6 +97,35 @@ export class UsersController {
     @Request() req: any,
   ) {
     return this.usersService.removeRole(id, roleId, tenant, req.user.sub);
+  }
+
+  // "Who can manage permissions" is a hardcoded owner/superadmin check
+  // (AccessControlAdminGuard), never a customizable users.manage-gated
+  // permission — same S5 Stage C decision access-control.controller.ts
+  // already applies, so whoever currently holds users.manage could never
+  // grant/revoke this access for themselves via the very system it gates.
+  @Post(':id/permissions/overrides')
+  @Audit('user.permission_override.set')
+  @UseGuards(AccessControlAdminGuard)
+  setPermissionOverride(
+    @Param('id') id: string,
+    @Body() dto: SetPermissionOverrideDto,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    return this.usersService.setPermissionOverride(id, dto.permission_key, dto.action, tenant, req.user.sub);
+  }
+
+  @Delete(':id/permissions/overrides')
+  @Audit('user.permission_override.removed')
+  @UseGuards(AccessControlAdminGuard)
+  removePermissionOverride(
+    @Param('id') id: string,
+    @Body('permission_key') permissionKey: string,
+    @GetTenant() tenant: TenantContext,
+    @Request() req: any,
+  ) {
+    return this.usersService.removePermissionOverride(id, permissionKey, tenant, req.user.sub);
   }
 
   @Delete(':id')

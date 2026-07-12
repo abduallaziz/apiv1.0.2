@@ -98,6 +98,14 @@ export class PermissionsService {
     return granted.has(permissionKey);
   }
 
+  // Phase B of the Hybrid RBAC+ABAC model — merges per-user
+  // GRANT/DENY overrides on top of the role-based union, the same way
+  // resolveGrantedKeys() already merges tenant_role_permissions on top of
+  // role_permissions. Merged INSIDE this cached function (not applied
+  // after a cache hit) so invalidateUserPermissions() — already called by
+  // the override write path below — correctly busts the exact entry that
+  // needs recomputing; there's no second, separately-cached layer to
+  // forget about.
   private async getGrantedSetForUser(
     userId: string,
     roles: string[],
@@ -114,9 +122,74 @@ export class PermissionsService {
       for (const k of keys) merged.add(k);
     }
 
+    const overrides = await this.fetchUserOverrides(userId);
+    for (const o of overrides) {
+      if (o.action === 'GRANT') merged.add(o.permission_key);
+      else merged.delete(o.permission_key);
+    }
+
     const result = Array.from(merged);
     await this.cache.set(key, result, PERMISSIONS_TTL);
     return merged;
+  }
+
+  // Reads via idx_user_permissions_override_user_id (partial index, WHERE
+  // is_active) — this is the exact access pattern that index was added for:
+  // "every active override for one user," not a single (user_id,
+  // permission_key) lookup.
+  private async fetchUserOverrides(
+    userId: string,
+  ): Promise<{ permission_key: string; action: 'GRANT' | 'DENY' }[]> {
+    const { data, error } = await this.supabase
+      .from('user_permissions_override')
+      .select('permission_key, action')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (error || !data) return [];
+    return data;
+  }
+
+  // Write path for the override endpoints — upserts onto the partial unique
+  // index (idx_user_permission), so re-granting/re-denying the same
+  // permission for the same user updates the existing active row instead of
+  // violating the constraint. Invalidates the merged cache immediately so
+  // the next hasPermissionForUser() call reflects it, not up to
+  // PERMISSIONS_TTL seconds later.
+  async setOverride(
+    userId: string,
+    permissionKey: string,
+    action: 'GRANT' | 'DENY',
+    tenantId?: string | null,
+  ): Promise<void> {
+    const { error } = await this.supabase
+      .from('user_permissions_override')
+      .upsert(
+        { user_id: userId, permission_key: permissionKey, action, is_active: true },
+        { onConflict: 'user_id,permission_key' },
+      );
+    if (error) throw error;
+
+    await this.invalidateUserPermissions(userId, tenantId);
+  }
+
+  // Audit-friendly disable (is_active = false), not a hard DELETE — matches
+  // the schema's stated intent (see 090_create_user_permissions_override.sql)
+  // of keeping a revoked override's history instead of erasing it.
+  async removeOverride(
+    userId: string,
+    permissionKey: string,
+    tenantId?: string | null,
+  ): Promise<void> {
+    const { error } = await this.supabase
+      .from('user_permissions_override')
+      .update({ is_active: false })
+      .eq('user_id', userId)
+      .eq('permission_key', permissionKey)
+      .eq('is_active', true);
+    if (error) throw error;
+
+    await this.invalidateUserPermissions(userId, tenantId);
   }
 
   private async fetchUserRoleNames(userId: string): Promise<string[]> {

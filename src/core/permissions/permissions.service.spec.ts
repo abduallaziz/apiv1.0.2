@@ -8,6 +8,8 @@ function buildFakeSupabase(fixtures: {
   systemRoleIds: Record<string, string>; // role name -> roles.id
   overrides: Record<string, { permission_key: string; is_granted: boolean }[]>; // `${tenantId}:${roleId}` -> rows
   allPermissionKeys?: string[]; // fixture for the `permissions` table (owner force-true path)
+  userRoles?: Record<string, string[]>; // userId -> role names (fetchUserRoleNames)
+  userOverrides?: Record<string, { permission_key: string; action: 'GRANT' | 'DENY' }[]>; // userId -> active overrides
 }) {
   return {
     from(table: string) {
@@ -55,6 +57,16 @@ function buildFakeSupabase(fixtures: {
           }
           if (table === 'permissions') {
             const rows = (fixtures.allPermissionKeys ?? []).map((name) => ({ name }));
+            return resolve({ data: rows, error: null });
+          }
+          if (table === 'user_roles') {
+            const userId = builder._eqs['user_id'] as string;
+            const names = fixtures.userRoles?.[userId] ?? [];
+            return resolve({ data: names.map((name) => ({ role: { name } })), error: null });
+          }
+          if (table === 'user_permissions_override') {
+            const userId = builder._eqs['user_id'] as string;
+            const rows = fixtures.userOverrides?.[userId] ?? [];
             return resolve({ data: rows, error: null });
           }
           return resolve({ data: [], error: null });
@@ -234,6 +246,58 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       const detail = await svc.getResolutionDetail('owner', TENANT_A);
       expect(detail.grantedKeys).toEqual(new Set(['expenses.view', 'expenses.approve', 'payroll.view']));
       expect(detail.overrides.size).toBe(0);
+    });
+  });
+
+  describe('Phase B — user_permissions_override (Hybrid RBAC+ABAC)', () => {
+    const USER_ID = 'user-1';
+    const MANAGER_ROLE_ID = 'role-manager-id';
+
+    it('owner bypass is unconditional — overrides are never even queried', async () => {
+      const supabase = {
+        from: jest.fn((table: string) => {
+          if (table === 'user_roles') {
+            return {
+              select: () => ({ eq: () => Promise.resolve({ data: [{ role: { name: 'owner' } }], error: null }) }),
+            };
+          }
+          throw new Error(`must not query ${table} for an owner`);
+        }),
+      };
+      const cache = buildNoopCache();
+      const svc = new PermissionsService(supabase as any, cache);
+
+      await expect(svc.hasPermissionForUser(USER_ID, 'anything.at.all', TENANT_A)).resolves.toBe(true);
+    });
+
+    it('GRANT override adds a permission the base role does not have', async () => {
+      const supabase = buildFakeSupabase({
+        globalGrants: { manager: ['expenses.view'] },
+        systemRoleIds: { manager: MANAGER_ROLE_ID },
+        overrides: {},
+        userRoles: { [USER_ID]: ['manager'] },
+        userOverrides: { [USER_ID]: [{ permission_key: 'payroll.view', action: 'GRANT' }] },
+      });
+      const cache = buildNoopCache();
+      const svc = new PermissionsService(supabase as any, cache);
+
+      await expect(svc.hasPermissionForUser(USER_ID, 'expenses.view', TENANT_A)).resolves.toBe(true);
+      await expect(svc.hasPermissionForUser(USER_ID, 'payroll.view', TENANT_A)).resolves.toBe(true);
+    });
+
+    it('DENY override removes a permission the base role otherwise grants', async () => {
+      const supabase = buildFakeSupabase({
+        globalGrants: { manager: ['expenses.view', 'expenses.approve'] },
+        systemRoleIds: { manager: MANAGER_ROLE_ID },
+        overrides: {},
+        userRoles: { [USER_ID]: ['manager'] },
+        userOverrides: { [USER_ID]: [{ permission_key: 'expenses.approve', action: 'DENY' }] },
+      });
+      const cache = buildNoopCache();
+      const svc = new PermissionsService(supabase as any, cache);
+
+      await expect(svc.hasPermissionForUser(USER_ID, 'expenses.view', TENANT_A)).resolves.toBe(true);
+      await expect(svc.hasPermissionForUser(USER_ID, 'expenses.approve', TENANT_A)).resolves.toBe(false);
     });
   });
 });

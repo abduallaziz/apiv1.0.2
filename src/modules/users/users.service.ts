@@ -452,6 +452,64 @@ export class UsersService {
     return { user_id: id, role_id: roleId, removed: true };
   }
 
+  // Phase B of the Hybrid RBAC+ABAC model — per-user GRANT/DENY on top of
+  // whatever their role(s) already resolve to. findOne() scopes this to the
+  // caller's tenant the same way every other user-scoped write in this
+  // service does; the actual GRANT/DENY merge logic lives in
+  // PermissionsService.getGrantedSetForUser(), not here.
+  async setPermissionOverride(
+    id: string,
+    permissionKey: string,
+    action: 'GRANT' | 'DENY',
+    tenant: TenantContext,
+    actorId: string,
+  ) {
+    await this.findOne(id, tenant);
+
+    try {
+      await this.permissionsService.setOverride(id, permissionKey, action, tenant.tenantId);
+    } catch (err: any) {
+      // user_permissions_override.permission_key REFERENCES permissions(name)
+      if (err?.code === '23503') {
+        throw new NotFoundException(`Unknown permission: ${permissionKey}`);
+      }
+      throw err;
+    }
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'user.permission_override_set',
+      resource_type: 'user',
+      resource_id: id,
+      after_data: { permission_key: permissionKey, action },
+    });
+
+    return { user_id: id, permission_key: permissionKey, action };
+  }
+
+  async removePermissionOverride(
+    id: string,
+    permissionKey: string,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
+    await this.findOne(id, tenant);
+
+    await this.permissionsService.removeOverride(id, permissionKey, tenant.tenantId);
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      action: 'user.permission_override_removed',
+      resource_type: 'user',
+      resource_id: id,
+      before_data: { permission_key: permissionKey },
+    });
+
+    return { user_id: id, permission_key: permissionKey, removed: true };
+  }
+
   async remove(id: string, tenant: TenantContext, actorId: string) {
     const existing = await this.findOne(id, tenant);
 
