@@ -175,25 +175,39 @@ export class PermissionsService {
     await this.invalidateUserPermissions(userId, tenantId);
   }
 
-  // Write path for the override endpoints — upserts onto the partial unique
-  // index (idx_user_permission), so re-granting/re-denying the same
-  // permission for the same user updates the existing active row instead of
-  // violating the constraint. Invalidates the merged cache immediately so
-  // the next hasPermissionForUser() call reflects it, not up to
-  // PERMISSIONS_TTL seconds later.
+  // Write path for the override endpoints. NOT a real .upsert() —
+  // idx_user_permission is a PARTIAL unique index (WHERE is_active = TRUE),
+  // and Postgres's ON CONFLICT (columns) inference cannot match a partial
+  // index unless the WHERE predicate is also specified in the ON CONFLICT
+  // clause, which supabase-js's upsert() has no way to express. Confirmed
+  // live: .upsert({ onConflict: 'user_id,permission_key' }) 500ed with "no
+  // unique or exclusion constraint matching the ON CONFLICT specification"
+  // on every real call. Same manual update-then-insert pattern
+  // UsersRepository.syncPrimaryRole() already uses for the same reason.
+  // Invalidates the merged cache immediately so the next
+  // hasPermissionForUser() call reflects it, not up to PERMISSIONS_TTL
+  // seconds later.
   async setOverride(
     userId: string,
     permissionKey: string,
     action: 'GRANT' | 'DENY',
     tenantId?: string | null,
   ): Promise<void> {
-    const { error } = await this.supabase
+    const { data: updated, error: updateError } = await this.supabase
       .from('user_permissions_override')
-      .upsert(
-        { user_id: userId, permission_key: permissionKey, action, is_active: true },
-        { onConflict: 'user_id,permission_key' },
-      );
-    if (error) throw error;
+      .update({ action })
+      .eq('user_id', userId)
+      .eq('permission_key', permissionKey)
+      .eq('is_active', true)
+      .select('id');
+    if (updateError) throw updateError;
+
+    if (!updated || updated.length === 0) {
+      const { error: insertError } = await this.supabase
+        .from('user_permissions_override')
+        .insert({ user_id: userId, permission_key: permissionKey, action, is_active: true });
+      if (insertError) throw insertError;
+    }
 
     await this.invalidateUserPermissions(userId, tenantId);
   }
