@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: Date-picker hardening — single-date variant, portal positioning, z-index fix — June 26, 2026
+# Last Updated: Order-notes feature — real note-presets backend module (§90) — July 17, 2026
 
 ---
 
@@ -3119,3 +3119,22 @@ Backend: جاهز، مُختبَر، مدفوع. Frontend: مبني بالكام
 
 ## الحالة النهائية
 جاهز للدفع. `superadmin` غير مرئي إطلاقًا، `owner` ظاهر ومقفل بصلاحيات كاملة مضمونة برمجيًا، بقية الأدوار النظامية قابلة للتعديل الكامل، الأدوار المخصصة بلا تغيير.
+
+---
+
+# 90. ميزة "ملاحظات الطلب" — وحدة backend حقيقية كاملة (note-presets) — يوليو 17, 2026
+
+## السياق
+جزء من إعادة بناء واجهة POS بمشروع `web` لمطابقة تصميم `pos-cloud` (انظر `web/docs/rebuild/PARKING_LOT.md`). المرجع البصري أظهر قسم ملاحظات جاهزة يختارها الكاشير من قائمة بدل الكتابة اليدوية في كل مرة. طلب المستخدم صراحة: **تنفيذ كامل بباكند حقيقي، وليس حلاً مؤقتاً بواجهة فقط** — "أنشئ Backend + Database + API + لوحة تحكم + واجهة POS".
+
+## ما نُفِّذ
+- **Migration جديدة** `091_order_note_presets.sql`: جدول `note_presets` (tenant-scoped: `text`, `sort_order`, `is_active`, soft-delete عبر `deleted_at`) + فهرس `(tenant_id, is_active, sort_order)` + RLS (`tenant_session_isolation` policy، بنفس نمط migration 083) + `GRANT ALL ... TO service_role` بنفس ملف الإنشاء (التزامًا بالدرس المستفاد من §48/§68/§71 — منع تكرار حادثة جدول بلا grant). **لم تُشغَّل بعد على أي بيئة فعلية** — يدوياً عبر Supabase SQL Editor حسب `src/database/README.md`، بانتظار المستخدم.
+- **وحدة `note-presets` كاملة** (`repository`/`service`/`controller`/DTOs) بنفس بنية وحدة `coupons` حرفياً: CRUD كامل + `PATCH /note-presets/reorder` (يعيد كتابة `sort_order` لكل معرّف بالترتيب المُرسَل، بعد تحقق أن القائمة المُرسَلة تطابق تماماً معرّفات المستأجر الحالية — لا نقص ولا معرّف غريب) + `GET /note-presets/active` للقراءة فقط (مفعّل فقط، مرتّب)، محمي بصلاحية `invoice.create.own` (نفس صلاحية `/coupons/validate`) لأن أي كاشير يحتاجها وقت الدفع، لا فقط من يدير القائمة.
+- **صلاحية جديدة** `note_presets.manage` — أُضيفت لـ`permissions.seed.ts` ومُنحت لـ`superadmin`/`owner`/`manager` (نفس نمط `coupons.manage`).
+- **العقد الحالي لم يتغيّر إطلاقاً**: `Order.notes` (عمود نصي حر موجود منذ migration 001) بقي كما هو تماماً — الميزة الجديدة فقط تضيف مصدراً حقيقياً لنص يُدمَج فيه من الواجهة، وليست حقلاً/بنية جديدة بجدول `orders`.
+
+## التحقق
+`tsc --noEmit` و`nest build` نظيفان. `eslint --fix` طبَّق تنسيق prettier فقط على الملفات الجديدة؛ أخطاء `no-unsafe-*` المتبقية هي نفس النمط القائم بكل وحدات Supabase غير المكتوبة (`coupons`/`gift-cards`) وليست تراجعاً جديداً.
+
+## الحالة النهائية
+الكود مدفوع لـ`main` (commit `4701c76`) وRailway نشره تلقائياً (تأكَّد عبر `curl` على `/note-presets/active` → `401` بدل `404`، أي الراوت مسجَّل والحارس يعمل). **الجدول نفسه غير موجود بعد بقاعدة البيانات الفعلية** — أي استدعاء حقيقي سيفشل حتى يُشغَّل `091_order_note_presets.sql` يدوياً. هذا العائق الوحيد المتبقي قبل عمل الميزة فعلياً E2E؛ الواجهة (`web`) والتوثيق (`PARKING_LOT.md`) جاهزان بالكامل بانتظاره.
