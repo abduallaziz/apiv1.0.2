@@ -28,6 +28,7 @@ import { AccessControlModule } from './modules/access-control/access-control.mod
 import { TablesModule } from './modules/tables/tables.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { GiftCardsModule } from './modules/gift-cards/gift-cards.module';
+import { NotePresetsModule } from './modules/note-presets/note-presets.module';
 import { BillingModule } from './core/billing/billing.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
@@ -95,6 +96,7 @@ import Redis from 'ioredis';
     AccessControlModule,
     TablesModule,
     CouponsModule,
+    NotePresetsModule,
     GiftCardsModule,
     PlansModule,
     SubscriptionsModule,
