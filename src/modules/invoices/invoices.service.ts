@@ -135,6 +135,15 @@ export class InvoicesService {
     }
     const amountDueAfterGiftCard = parseFloat((built.total - giftCardAmount).toFixed(2));
 
+    // A gift card that covers the entire total means no cash/card/etc. ever
+    // actually changed hands — whatever payment_method the frontend happened
+    // to have selected (defaults to 'cash') is a leftover UI selection, not a
+    // real payment. Overriding it here (not trusting the client) is the only
+    // honest thing to store — matches the same "server is source of truth"
+    // reasoning already applied to gift_card_amount/coupon discounts above.
+    const storedPaymentMethod =
+      amountDueAfterGiftCard <= 0 ? 'gift_card' : dto.payment_method;
+
     if (amountDueAfterGiftCard > 0) {
       if (dto.payment_method === 'cash') {
         if (!dto.cash_tendered) {
@@ -196,7 +205,7 @@ export class InvoicesService {
           discount: built.discount_amount,
           tax: built.tax_amount,
           total: built.total,
-          payment_method: dto.payment_method,
+          payment_method: storedPaymentMethod,
           notes: dto.notes ?? null,
           coupon_code: coupon?.code ?? null,
           gift_card_code: giftCard?.code ?? null,
@@ -214,7 +223,7 @@ export class InvoicesService {
         discount: built.discount_amount,
         tax: built.tax_amount,
         total: built.total,
-        payment_method: dto.payment_method,
+        payment_method: storedPaymentMethod,
         notes: dto.notes ?? null,
         coupon_code: coupon?.code ?? null,
         gift_card_code: giftCard?.code ?? null,
@@ -245,7 +254,7 @@ export class InvoicesService {
       resource_id: invoice.id,
       after_data: {
         total: built.total,
-        payment_method: dto.payment_method,
+        payment_method: storedPaymentMethod,
         tax_rate: taxRate,
       },
       ip_address: ip,
