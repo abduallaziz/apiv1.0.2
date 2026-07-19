@@ -70,6 +70,12 @@ export class CreateInvoiceDto {
   @IsUUID()
   customer_id?: string;
 
+  // 'gift_card' is included here even though InvoicesService always
+  // re-derives/overrides it server-side when the gift card covers the whole
+  // total (never trusting the client for that) — the frontend now sends
+  // 'gift_card' directly in that case too (see PaymentModal.handleConfirm
+  // in web), so the DTO must accept it as valid input or validation rejects
+  // the request before the service's own override logic ever runs.
   @IsEnum([
     'cash',
     'card',
@@ -81,6 +87,7 @@ export class CreateInvoiceDto {
     'stc_pay',
     'apple_pay',
     'tab',
+    'gift_card',
   ])
   payment_method:
     | 'cash'
@@ -92,7 +99,8 @@ export class CreateInvoiceDto {
     | 'mastercard'
     | 'stc_pay'
     | 'apple_pay'
-    | 'tab';
+    | 'tab'
+    | 'gift_card';
 
   @IsOptional()
   @IsNumber()
