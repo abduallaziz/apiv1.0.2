@@ -46,7 +46,10 @@ function ipTracker(req: Record<string, unknown>): string {
  * the same IP, but the only failure mode of that race is the window
  * occasionally running a few ms longer than 60s, which is harmless.
  */
-async function distinctTenantsPerIp(redis: Redis, req: Record<string, unknown>): Promise<number> {
+async function distinctTenantsPerIp(
+  redis: Redis,
+  req: Record<string, unknown>,
+): Promise<number> {
   const ip = (req['realIp'] as string) ?? 'unknown';
   const tenantId = decodeTenantId(req) ?? 'anon';
   const key = `throttle:ip-tenants:${ip}`;
@@ -82,10 +85,26 @@ export function createThrottlers(redis: Redis): ThrottlerOptions[] {
       getTracker: ipTracker,
     },
     {
-      // Tighter limit for authentication endpoints to slow credential stuffing
+      // Tighter limit for credential-guessing-prone endpoints (login/register)
+      // to slow credential stuffing.
       name: 'auth',
       ttl: WINDOW_MS,
       limit: 10,
+    },
+    {
+      // Session maintenance (refresh/logout) is NOT a credential-guessing
+      // surface — refresh is gated by an unguessable 64-byte random token in
+      // an httpOnly cookie, not a password, so brute-force protection isn't
+      // the relevant threat model here. It previously shared the 10/60s
+      // 'auth' bucket with login/register, which real usage burns through
+      // fast: an app open (1 refresh) + an incidental 401 retry (1 more) +
+      // logout (1 more), multiplied by every device behind the same IP
+      // (single-IP shops with multiple registers) exhausts it almost
+      // immediately, logging everyone out for the rest of the window. See
+      // STATUS.md / this fix's commit for the incident this traces back to.
+      name: 'session',
+      ttl: WINDOW_MS,
+      limit: 60,
     },
   ];
 }

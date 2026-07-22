@@ -72,15 +72,21 @@ export class InvoicesService {
     // الولاء) — كانت تُنفَّذ بالتسلسل رغم عدم اعتماد أي منها على نتيجة الآخر، فتضيف
     // زمن استجابة (round-trip) إضافيًا لكل عملية بيع واحدة. تُنفَّذ الآن بالتوازي.
     const [, taxRate, loyaltySettings] = await Promise.all([
-      dto.customer_id ? this.customersService.findById(tenant, dto.customer_id) : Promise.resolve(null),
-      tenant.tenantId ? this.tenantsRepo.getTaxRate(tenant.tenantId) : Promise.resolve(0),
+      dto.customer_id
+        ? this.customersService.findById(tenant, dto.customer_id)
+        : Promise.resolve(null),
+      tenant.tenantId
+        ? this.tenantsRepo.getTaxRate(tenant.tenantId)
+        : Promise.resolve(0),
       this.loyaltyService.getSettings(tenant.tenantId),
     ]);
 
     let loyaltyDiscountAmount = 0;
     if (dto.redeem_points) {
       if (!loyaltySettings.enabled) {
-        throw new BadRequestException('Loyalty program is disabled for this tenant');
+        throw new BadRequestException(
+          'Loyalty program is disabled for this tenant',
+        );
       }
       if (!dto.customer_id) {
         throw new BadRequestException(
@@ -88,8 +94,14 @@ export class InvoicesService {
         );
       }
       const balance = this.config.get<boolean>('POOLED_LOYALTY_WRITES_ENABLED')
-        ? await this.loyaltyService.getBalancePooled(tenant.tenantId, dto.customer_id)
-        : await this.loyaltyService.getBalance(tenant.tenantId, dto.customer_id);
+        ? await this.loyaltyService.getBalancePooled(
+            tenant.tenantId,
+            dto.customer_id,
+          )
+        : await this.loyaltyService.getBalance(
+            tenant.tenantId,
+            dto.customer_id,
+          );
       if (balance < dto.redeem_points) {
         throw new BadRequestException('Insufficient loyalty points balance');
       }
@@ -99,26 +111,47 @@ export class InvoicesService {
       );
     }
 
-    const manualBuilt = this.posEngine.buildInvoice(dto.items, dto.discount, taxRate);
+    const manualBuilt = this.posEngine.buildInvoice(
+      dto.items,
+      dto.discount,
+      taxRate,
+    );
 
     let couponDiscountAmount = 0;
     let coupon: Coupon | null = null;
     if (dto.coupon_code) {
-      coupon = await this.couponsService.validate(tenant, dto.coupon_code, manualBuilt.subtotal);
-      couponDiscountAmount = this.couponsService.calculateDiscount(coupon, manualBuilt.subtotal);
+      coupon = await this.couponsService.validate(
+        tenant,
+        dto.coupon_code,
+        manualBuilt.subtotal,
+      );
+      couponDiscountAmount = this.couponsService.calculateDiscount(
+        coupon,
+        manualBuilt.subtotal,
+      );
     }
 
     const combinedDiscountAmount = Math.min(
-      manualBuilt.discount_amount + loyaltyDiscountAmount + couponDiscountAmount,
+      manualBuilt.discount_amount +
+        loyaltyDiscountAmount +
+        couponDiscountAmount,
       manualBuilt.subtotal,
     );
-    const taxAmount = this.posEngine.applyTax(manualBuilt.subtotal, combinedDiscountAmount, taxRate);
+    const taxAmount = this.posEngine.applyTax(
+      manualBuilt.subtotal,
+      combinedDiscountAmount,
+      taxRate,
+    );
     const built = {
       items: manualBuilt.items,
       subtotal: manualBuilt.subtotal,
       discount_amount: combinedDiscountAmount,
       tax_amount: taxAmount,
-      total: this.posEngine.calculateTotal(manualBuilt.subtotal, combinedDiscountAmount, taxAmount),
+      total: this.posEngine.calculateTotal(
+        manualBuilt.subtotal,
+        combinedDiscountAmount,
+        taxAmount,
+      ),
     };
 
     // بطاقة الهدايا تسدّد جزءًا أو كامل الفاتورة مباشرة (رصيد مخزَّن حقيقي) — بخلاف
@@ -128,12 +161,20 @@ export class InvoicesService {
     let giftCardAmount = 0;
     if (dto.gift_card_code) {
       if (!dto.gift_card_amount) {
-        throw new BadRequestException('gift_card_amount required when gift_card_code is provided');
+        throw new BadRequestException(
+          'gift_card_amount required when gift_card_code is provided',
+        );
       }
-      giftCard = await this.giftCardsService.validate(tenant, dto.gift_card_code, dto.gift_card_amount);
+      giftCard = await this.giftCardsService.validate(
+        tenant,
+        dto.gift_card_code,
+        dto.gift_card_amount,
+      );
       giftCardAmount = Math.min(dto.gift_card_amount, built.total);
     }
-    const amountDueAfterGiftCard = parseFloat((built.total - giftCardAmount).toFixed(2));
+    const amountDueAfterGiftCard = parseFloat(
+      (built.total - giftCardAmount).toFixed(2),
+    );
 
     // A gift card that covers the entire total means no cash/card/etc. ever
     // actually changed hands — whatever payment_method the frontend happened
@@ -151,7 +192,10 @@ export class InvoicesService {
             'cash_tendered required for cash payment',
           );
         }
-        this.paymentEngine.processCashPayment(amountDueAfterGiftCard, dto.cash_tendered);
+        this.paymentEngine.processCashPayment(
+          amountDueAfterGiftCard,
+          dto.cash_tendered,
+        );
       } else if (dto.payment_method === 'split') {
         if (dto.cash_amount === undefined || dto.card_amount === undefined) {
           throw new BadRequestException(
@@ -179,9 +223,17 @@ export class InvoicesService {
     // هذا هو أقرب موضع ممكن لعملية الإنشاء الفعلية مع إبقاء الاسترداد قبلها لا بعدها.
     if (dto.redeem_points) {
       if (this.config.get<boolean>('POOLED_LOYALTY_WRITES_ENABLED')) {
-        await this.loyaltyService.redeemPointsPooled(tenant.tenantId, dto.customer_id!, dto.redeem_points);
+        await this.loyaltyService.redeemPointsPooled(
+          tenant.tenantId,
+          dto.customer_id,
+          dto.redeem_points,
+        );
       } else {
-        await this.loyaltyService.redeemPoints(tenant.tenantId, dto.customer_id!, dto.redeem_points);
+        await this.loyaltyService.redeemPoints(
+          tenant.tenantId,
+          dto.customer_id,
+          dto.redeem_points,
+        );
       }
     }
 
@@ -190,7 +242,9 @@ export class InvoicesService {
     // TASKS.md "SAFETY & SCALE INITIATIVE"). Do not remove the PostgREST
     // branch when enabling this — it's not a temporary shim, it's what every
     // repository not yet migrated onto TenantSessionService still relies on.
-    const usePooledWrite = this.config.get<boolean>('POOLED_INVOICE_WRITES_ENABLED');
+    const usePooledWrite = this.config.get<boolean>(
+      'POOLED_INVOICE_WRITES_ENABLED',
+    );
 
     let invoice: { id: string };
     if (usePooledWrite) {
@@ -267,17 +321,23 @@ export class InvoicesService {
       await this.couponsService.redeem(coupon.id, invoice.id);
     }
     if (giftCard) {
-      await this.giftCardsService.redeem(giftCard.id, giftCardAmount, invoice.id);
+      await this.giftCardsService.redeem(
+        giftCard.id,
+        giftCardAmount,
+        invoice.id,
+      );
     }
 
-    // خصم المخزون: أفضل-محاولة (best-effort) — مشكلة بالمخزون لا توقف بيعًا مكتمِلًا أبدًا.
-    // يُخصَم فقط إن كان للفرع مستودع افتراضي معيَّن (default_warehouse_id)، وفقط للعناصر
-    // المُتتبَّعة فعليًا بالمخزون (items.has_inventory) — كلاهما يُفحَص داخل الدالة الذرّية.
-    // راجع STATUS.md §64 لتفاصيل القرار.
+    // خصم المخزون: أفضل-محاولة (best-effort) — مشكلة بالمخزون لا توقف بيعًا مكتمِلًا أبدًا
+    // (قرار منتج صريح، راجع STATUS.md §64)، لكنها لم تعد تُبتلَع بصمت: أي فشل هنا يُسجَّل،
+    // يُرسَل كإشعار داخلي للكاشير، ويُرجَع صراحةً في استجابة الـ API (stock_warning) بدل ما
+    // يظل غير مرئي إلا في سجلات السيرفر. يُخصَم فقط إن كان للفرع مستودع افتراضي معيَّن
+    // (default_warehouse_id)، وفقط للعناصر المُتتبَّعة فعليًا بالمخزون (items.has_inventory).
+    let stockWarning: string | null = null;
     const warehouseId = await this.repo.getBranchDefaultWarehouse(branchId);
     if (warehouseId) {
-      this.repo
-        .deductStockForSale(
+      try {
+        await this.repo.deductStockForSale(
           tenant.tenantId,
           warehouseId,
           invoice.id,
@@ -287,27 +347,65 @@ export class InvoicesService {
             variant_id: item.variant_id ?? null,
             quantity: item.quantity,
           })),
-        )
-        .catch((err) => {
-          this.logger.warn(
-            `Stock deduction failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${err?.message ?? err}`,
-          );
-        });
+        );
+      } catch (err) {
+        // The repo throws Supabase's raw PostgrestError ({message, details,
+        // hint, code}) rather than a real Error instance for RPC failures,
+        // so `err instanceof Error` is false and `String(err)` degrades to
+        // "[object Object]" — extract .message explicitly instead.
+        const message =
+          err && typeof err === 'object' && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
+        this.logger.warn(
+          `Stock deduction failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${message}`,
+        );
+        stockWarning = message;
+        this.notificationService
+          .notify({
+            userId: cashierId,
+            tenantId: tenant.tenantId,
+            type: NOTIFICATION_TYPES.INVENTORY_STOCK_DEDUCTION_FAILED,
+            channels: [NOTIFICATION_CHANNELS.IN_APP],
+            data: {
+              invoice_id: invoice.id,
+              warehouse_id: warehouseId,
+              error: message,
+            },
+          })
+          .catch(() => {}); // الإشعار نفسه لا يجب أن يوقف الاستجابة لو فشل إرساله
+      }
     }
 
     if (dto.customer_id && loyaltySettings.enabled) {
       // (استرداد نقاط الولاء المطلوب، لو طُلب، يكون قد صار فعليًا قبل إنشاء الفاتورة أعلاه)
       // نقاط الولاء تُحتسب على المبلغ الفعلي المدفوع (بعد أي خصم، بما فيه استرداد النقاط)
       // لمنع "إعادة تدوير" النقاط (شراء نقاط جديدة بنقاط سابقة)
-      const basePoints = this.loyaltyService.calculatePointsEarned(built.total, loyaltySettings);
+      const basePoints = this.loyaltyService.calculatePointsEarned(
+        built.total,
+        loyaltySettings,
+      );
       // مضاعِف الفئة (tier) يُحسَب على lifetime_points_earned *قبل* هذه العملية —
       // نفس فلسفة نقاط الولاء نفسها: من رصيده الحالي يمكن أن يهبط بالاسترداد، لكن
       // إجمالي ما اكتسبه لا ينخفض أبدًا، فالفئة لا تتذبذب صعودًا وهبوطًا مع كل عملية استرداد.
-      const tierMultiplier = await this.loyaltyService.getTierMultiplier(tenant.tenantId, dto.customer_id);
+      const tierMultiplier = await this.loyaltyService.getTierMultiplier(
+        tenant.tenantId,
+        dto.customer_id,
+      );
       const pointsEarned = Math.floor(basePoints * tierMultiplier);
-      const awardCall = this.config.get<boolean>('POOLED_LOYALTY_WRITES_ENABLED')
-        ? this.loyaltyService.awardPointsPooled(tenant.tenantId, dto.customer_id, pointsEarned)
-        : this.loyaltyService.awardPoints(tenant.tenantId, dto.customer_id, pointsEarned);
+      const awardCall = this.config.get<boolean>(
+        'POOLED_LOYALTY_WRITES_ENABLED',
+      )
+        ? this.loyaltyService.awardPointsPooled(
+            tenant.tenantId,
+            dto.customer_id,
+            pointsEarned,
+          )
+        : this.loyaltyService.awardPoints(
+            tenant.tenantId,
+            dto.customer_id,
+            pointsEarned,
+          );
       awardCall.catch(() => {});
     }
 
@@ -324,7 +422,12 @@ export class InvoicesService {
 
     await this.invalidateList(tenant.tenantId);
 
-    return { id: invoice.id, total: built.total, tax_rate: taxRate };
+    return {
+      id: invoice.id,
+      total: built.total,
+      tax_rate: taxRate,
+      stock_warning: stockWarning,
+    };
   }
 
   async findAll(
@@ -347,10 +450,20 @@ export class InvoicesService {
       pagination.perPage,
     );
 
-    const cached = await this.cache.get<Awaited<ReturnType<InvoicesRepository['findAll']>>>(cacheKey);
+    const cached =
+      await this.cache.get<Awaited<ReturnType<InvoicesRepository['findAll']>>>(
+        cacheKey,
+      );
     if (cached) return cached;
 
-    const data = await this.repo.findAll(tenant, branchId, dateFrom, dateTo, pagination, status);
+    const data = await this.repo.findAll(
+      tenant,
+      branchId,
+      dateFrom,
+      dateTo,
+      pagination,
+      status,
+    );
     await this.cache.set(cacheKey, data, INVOICES_LIST_TTL);
     return data;
   }
@@ -402,9 +515,13 @@ export class InvoicesService {
     this.metricsService.recordInvoice(tenant.tenantId, 'cancelled');
 
     // يعكس أي خصم مخزون تم فعليًا عند البيع (لا شيء إن لم يُخصَم أصلًا) — best-effort أيضًا
-    this.repo.reverseSaleStockDeduction(tenant.tenantId, id, actorId).catch((err) => {
-      this.logger.warn(`Stock restock failed for cancelled invoice ${id}: ${err?.message ?? err}`);
-    });
+    this.repo
+      .reverseSaleStockDeduction(tenant.tenantId, id, actorId)
+      .catch((err) => {
+        this.logger.warn(
+          `Stock restock failed for cancelled invoice ${id}: ${err?.message ?? err}`,
+        );
+      });
 
     await this.invalidateList(tenant.tenantId);
 

@@ -43,6 +43,10 @@
     "title": "Shift closed",
     "body": "The shift was closed by {{cashier_name}}. Total: {{amount}} SAR."
   },
+  "inventory_stock_deduction_failed": {
+    "title": "Warning: Stock not deducted",
+    "body": "The sale completed successfully but automatic stock deduction failed. Please review inventory manually."
+  },
   "new_notification": {
     "title": "New notification",
     "body": "You have a new notification."

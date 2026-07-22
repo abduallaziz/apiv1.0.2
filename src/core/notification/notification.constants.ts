@@ -20,6 +20,7 @@ export const NOTIFICATION_TYPES = {
   EXPENSE_REJECTED: 'expense.rejected',
   SHIFT_OPENED: 'shift.opened',
   SHIFT_CLOSED: 'shift.closed',
+  INVENTORY_STOCK_DEDUCTION_FAILED: 'inventory.stock_deduction_failed',
 } as const;
 
 export type NotificationType =
@@ -29,7 +30,9 @@ export type NotificationType =
 // Only covers types that are ever actually sent over email (billing/dunning flow) —
 // expense.*/shift.* are in-app only today, so there's no email toggle to offer for them yet.
 // Security-critical types (login/session) are intentionally excluded — always sent, not user-toggleable.
-export const NOTIFICATION_PREFERENCE_KEYS: Partial<Record<NotificationType, string>> = {
+export const NOTIFICATION_PREFERENCE_KEYS: Partial<
+  Record<NotificationType, string>
+> = {
   [NOTIFICATION_TYPES.SUBSCRIPTION_EXPIRED]: 'subscription_expired',
   [NOTIFICATION_TYPES.PAYMENT_FAILED]: 'payment_failed',
   [NOTIFICATION_TYPES.PAYMENT_SUCCESS]: 'payment_success',

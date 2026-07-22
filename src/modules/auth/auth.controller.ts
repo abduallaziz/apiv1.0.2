@@ -9,7 +9,8 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
+import { EmailLoginThrottleGuard } from '../../core/security/email-login-throttle.guard';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -20,23 +21,34 @@ import { JwtPayload } from '../../shared/types/jwt-payload.type';
 
 const REFRESH_COOKIE = 'sefay_refresh';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-const COOKIE_OPTIONS = {
+const COOKIE_OPTIONS: {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'none' | 'lax';
+  maxAge: number;
+  path: string;
+} = {
   httpOnly: true,
   secure: IS_PRODUCTION,
   // SameSite=None requires Secure, which browsers reject over plain HTTP.
   // Cross-site (Vercel <-> Railway) needs 'none' in prod; same-origin localhost uses 'lax'.
-  sameSite: (IS_PRODUCTION ? 'none' : 'lax') as 'none' | 'lax',
+  sameSite: IS_PRODUCTION ? 'none' : 'lax',
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
 
 @Controller('auth')
-@Throttle({ auth: { limit: 10, ttl: 60000 } })
+// IP-scoped ceiling: generous enough for several real cashiers logging in
+// from the same shop network within the same minute (see
+// EmailLoginThrottleGuard for the actual brute-force protection, which is
+// scoped per-email, not per-IP).
+@Throttle({ auth: { limit: 30, ttl: 60000 } })
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(EmailLoginThrottleGuard)
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
@@ -57,6 +69,7 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(EmailLoginThrottleGuard)
   async register(
     @Body() dto: RegisterDto,
     @Req() req: Request,
@@ -77,6 +90,8 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @SkipThrottle({ auth: true })
+  @Throttle({ session: { limit: 60, ttl: 60000 } })
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -98,16 +113,18 @@ export class AuthController {
 
     res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
 
-    return { access_token: result.access_token, realtime_token: result.realtime_token };
+    return {
+      access_token: result.access_token,
+      realtime_token: result.realtime_token,
+    };
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  @SkipThrottle({ auth: true })
+  @Throttle({ session: { limit: 60, ttl: 60000 } })
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const user = req.user as JwtPayload;
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const ua = req.headers['user-agent'] || '';

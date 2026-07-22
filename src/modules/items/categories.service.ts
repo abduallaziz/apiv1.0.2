@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CategoriesRepository } from './repositories/categories.repository';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -28,6 +32,15 @@ export class CategoriesService {
 
   async remove(id: string, tenantId: string) {
     await this.findById(id, tenantId);
+    const hasLinkedItems = await this.categoriesRepo.hasLinkedItems(
+      id,
+      tenantId,
+    );
+    if (hasLinkedItems) {
+      throw new ConflictException(
+        'Cannot delete a category with linked items — deactivate it instead',
+      );
+    }
     await this.categoriesRepo.softDelete(id, tenantId);
   }
 }

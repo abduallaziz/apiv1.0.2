@@ -1,4 +1,7 @@
-import { NotificationType, NOTIFICATION_TYPES } from '../notification.constants';
+import {
+  NotificationType,
+  NOTIFICATION_TYPES,
+} from '../notification.constants';
 import { I18nService } from '../../i18n/i18n.service';
 
 interface NotificationTemplate {
@@ -25,17 +28,23 @@ export function buildNotificationTemplate(
     [NOTIFICATION_TYPES.EXPENSE_REJECTED]: 'expense_rejected',
     [NOTIFICATION_TYPES.SHIFT_OPENED]: 'shift_opened',
     [NOTIFICATION_TYPES.SHIFT_CLOSED]: 'shift_closed',
+    [NOTIFICATION_TYPES.INVENTORY_STOCK_DEDUCTION_FAILED]:
+      'inventory_stock_deduction_failed',
   };
 
   // Default fallbacks via locale keys
   const defaults: Record<string, unknown> = {
-    device_name: i18n.t('notifications', 'login_new_device.unknown_device', lang) || 'unknown',
+    device_name:
+      i18n.t('notifications', 'login_new_device.unknown_device', lang) ||
+      'unknown',
     days_remaining: 3,
     amount: '',
     currency: 'SAR',
     cashier_name: 'cashier',
     branch_name: '',
-    reason: i18n.t('notifications', 'expense_rejected.unspecified', lang) || 'unspecified',
+    reason:
+      i18n.t('notifications', 'expense_rejected.unspecified', lang) ||
+      'unspecified',
     total: '',
   };
 
