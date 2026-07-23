@@ -1,9 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
 
 // ملاحظة: stock_quantity أصبح حقلاً قديماً (legacy) منذ إدخال وحدة المخزون
 // (stock_levels/stock_movements). لا يجوز ضبطه عبر هذا الـ DTO؛ استخدم

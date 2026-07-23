@@ -69,7 +69,10 @@ export class ItemsController {
 
   @Get(':itemId/variants')
   @RequirePermission('items.view')
-  findVariants(@Param('itemId') itemId: string, @GetTenant() tenant: TenantContext) {
+  findVariants(
+    @Param('itemId') itemId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.itemsService.findVariants(itemId, tenant.tenantId);
   }
 
@@ -91,7 +94,12 @@ export class ItemsController {
     @Body() dto: UpdateVariantDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.itemsService.updateVariant(variantId, itemId, tenant.tenantId, dto);
+    return this.itemsService.updateVariant(
+      variantId,
+      itemId,
+      tenant.tenantId,
+      dto,
+    );
   }
 
   @Delete(':itemId/variants/:variantId')

@@ -14,6 +14,9 @@ import { BrandsRepository } from './repositories/brands.repository';
 import { ItemBarcodesController } from './item-barcodes.controller';
 import { ItemBarcodesService } from './item-barcodes.service';
 import { ItemBarcodesRepository } from './repositories/item-barcodes.repository';
+import { SupplierCatalogController } from './supplier-catalog.controller';
+import { SupplierCatalogService } from './supplier-catalog.service';
+import { SupplierCatalogRepository } from './repositories/supplier-catalog.repository';
 import {
   SupabaseModule,
   SUPABASE_CLIENT,
@@ -29,6 +32,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
     UnitsController,
     BrandsController,
     ItemBarcodesController,
+    SupplierCatalogController,
   ],
   providers: [
     ItemsService,
@@ -36,6 +40,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
     UnitsService,
     BrandsService,
     ItemBarcodesService,
+    SupplierCatalogService,
     {
       provide: ItemsRepository,
       useFactory: (supabase: SupabaseClient) => new ItemsRepository(supabase),
@@ -61,6 +66,12 @@ import { SupabaseClient } from '@supabase/supabase-js';
       provide: ItemBarcodesRepository,
       useFactory: (supabase: SupabaseClient) =>
         new ItemBarcodesRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: SupplierCatalogRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new SupplierCatalogRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],

@@ -25,7 +25,10 @@ export class ItemsRepository extends ScopedRepository {
     };
   }
 
-  async findAll(tenantId: string, pagination: PaginationDto = new PaginationDto()) {
+  async findAll(
+    tenantId: string,
+    pagination: PaginationDto = new PaginationDto(),
+  ) {
     const [from, to] = pagination.range;
     const { data, error } = await this.scopedQuery('items', this.ctx(tenantId))
       .select(
@@ -95,10 +98,19 @@ export class ItemsRepository extends ScopedRepository {
     return data;
   }
 
-  async createVariant(itemId: string, tenantId: string, payload: Record<string, unknown>) {
+  async createVariant(
+    itemId: string,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('item_variants')
-      .insert({ ...payload, item_id: itemId, tenant_id: tenantId, is_active: true })
+      .insert({
+        ...payload,
+        item_id: itemId,
+        tenant_id: tenantId,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;

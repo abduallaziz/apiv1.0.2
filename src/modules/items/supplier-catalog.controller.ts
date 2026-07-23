@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Post,
-  Patch,
   Delete,
   Body,
   Param,
@@ -15,9 +14,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ItemBarcodesService } from './item-barcodes.service';
-import { CreateItemBarcodeDto } from './dto/create-item-barcode.dto';
-import { UpdateItemBarcodeDto } from './dto/update-item-barcode.dto';
+import { SupplierCatalogService } from './supplier-catalog.service';
+import { CreateSupplierCatalogDto } from './dto/create-supplier-catalog.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -27,49 +25,34 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 import type { Express } from 'express';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
-@Controller('item-barcodes')
-export class ItemBarcodesController {
-  constructor(private readonly barcodesService: ItemBarcodesService) {}
+@Controller('supplier-catalog')
+export class SupplierCatalogController {
+  constructor(private readonly catalogService: SupplierCatalogService) {}
 
   @Get()
   @RequirePermission('items.view')
   findAll(
     @GetTenant() tenant: TenantContext,
-    @Query('item_id') itemId?: string,
-    @Query('variant_id') variantId?: string,
+    @Query('supplier_id') supplierId?: string,
   ) {
-    return this.barcodesService.findAll(tenant.tenantId, itemId, variantId);
-  }
-
-  // Must be registered before ':id' — otherwise Nest would route
-  // GET /item-barcodes/lookup/XXXX into the :id handler instead.
-  @Get('lookup/:barcode')
-  @RequirePermission('items.view')
-  lookup(
-    @Param('barcode') barcode: string,
-    @GetTenant() tenant: TenantContext,
-  ) {
-    return this.barcodesService.lookup(barcode, tenant.tenantId);
+    return this.catalogService.findAll(tenant.tenantId, supplierId);
   }
 
   @Get(':id')
   @RequirePermission('items.view')
   findOne(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.barcodesService.findById(id, tenant.tenantId);
+    return this.catalogService.findById(id, tenant.tenantId);
   }
 
   @Post()
   @RequirePermission('items.manage')
   create(
-    @Body() dto: CreateItemBarcodeDto,
+    @Body() dto: CreateSupplierCatalogDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.barcodesService.create(tenant.tenantId, dto);
+    return this.catalogService.create(tenant.tenantId, dto);
   }
 
-  // CSV only — parsing real .xlsx binary would need a new dependency
-  // (e.g. `xlsx`), not added here; a supplier/tenant exporting from Excel
-  // can just save-as-CSV, which every spreadsheet tool supports natively.
   @Post('import')
   @RequirePermission('items.manage')
   @UseInterceptors(FileInterceptor('file'))
@@ -81,26 +64,24 @@ export class ItemBarcodesController {
       throw new BadRequestException(
         'No file uploaded (expected multipart field "file")',
       );
-    return this.barcodesService.importFromCsv(
+    return this.catalogService.importFromCsv(
       tenant.tenantId,
       file.buffer.toString('utf-8'),
     );
   }
 
-  @Patch(':id')
+  // Explicit promotion of one supplier_catalog row into a real
+  // item_barcodes row — never automatic, see SupplierCatalogService.sync().
+  @Post(':id/sync')
   @RequirePermission('items.manage')
-  update(
-    @Param('id') id: string,
-    @Body() dto: UpdateItemBarcodeDto,
-    @GetTenant() tenant: TenantContext,
-  ) {
-    return this.barcodesService.update(id, tenant.tenantId, dto);
+  sync(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.catalogService.sync(id, tenant.tenantId);
   }
 
   @Delete(':id')
   @RequirePermission('items.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.barcodesService.remove(id, tenant.tenantId);
+    return this.catalogService.remove(id, tenant.tenantId);
   }
 }

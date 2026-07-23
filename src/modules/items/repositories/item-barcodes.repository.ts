@@ -105,6 +105,40 @@ export class ItemBarcodesRepository extends ScopedRepository {
     if (error) throw error;
   }
 
+  // Atomic per-tenant sequence backing auto-generated barcodes — see
+  // migration 101. A single UPSERT...RETURNING under the hood, so
+  // concurrent callers for the same tenant (e.g. two POS terminals
+  // creating items simultaneously) never receive the same value.
+  async nextSequence(tenantId: string): Promise<number> {
+    const { data, error } = await this.supabase.rpc('fn_next_barcode_seq', {
+      p_tenant_id: tenantId,
+    });
+    if (error) throw error;
+    return data as number;
+  }
+
+  async hasPrimaryForItem(
+    tenantId: string,
+    itemId: string,
+    variantId: string | null,
+  ): Promise<boolean> {
+    let query = this.supabase
+      .from('item_barcodes')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('item_id', itemId)
+      .eq('is_primary', true)
+      .is('deleted_at', null);
+
+    query = variantId
+      ? query.eq('variant_id', variantId)
+      : query.is('variant_id', null);
+
+    const { count, error } = await query;
+    if (error) throw error;
+    return (count ?? 0) > 0;
+  }
+
   // Clears is_primary on every other barcode for the same item/variant —
   // used before setting a new primary so exactly one stays true.
   async clearPrimaryForItem(

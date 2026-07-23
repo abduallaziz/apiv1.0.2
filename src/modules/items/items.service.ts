@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ItemsRepository } from './repositories/items.repository';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
@@ -6,6 +6,7 @@ import { CreateItemDto } from './dto/create-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
+import { ItemBarcodesService } from './item-barcodes.service';
 
 const ITEMS_LIST_TTL = 300; // 5 minutes
 const itemsListCacheKey = (tenantId: string, page: number, perPage: number) =>
@@ -13,16 +14,26 @@ const itemsListCacheKey = (tenantId: string, page: number, perPage: number) =>
 
 @Injectable()
 export class ItemsService {
+  private readonly logger = new Logger(ItemsService.name);
+
   constructor(
     private readonly itemsRepo: ItemsRepository,
     private readonly cache: RedisCacheService,
+    private readonly barcodesService: ItemBarcodesService,
   ) {}
 
   async findAll(tenantId: string, page?: string, perPage?: string) {
     const pagination = new PaginationDto(page, perPage);
-    const cacheKey = itemsListCacheKey(tenantId, pagination.page, pagination.perPage);
+    const cacheKey = itemsListCacheKey(
+      tenantId,
+      pagination.page,
+      pagination.perPage,
+    );
 
-    const cached = await this.cache.get<Awaited<ReturnType<ItemsRepository['findAll']>>>(cacheKey);
+    const cached =
+      await this.cache.get<Awaited<ReturnType<ItemsRepository['findAll']>>>(
+        cacheKey,
+      );
     if (cached) return cached;
 
     const data = await this.itemsRepo.findAll(tenantId, pagination);
@@ -39,6 +50,16 @@ export class ItemsService {
   async create(tenantId: string, dto: CreateItemDto) {
     const item = await this.itemsRepo.create(tenantId, { ...dto });
     await this.invalidateList(tenantId);
+    // Best-effort: every new item gets an auto-generated primary barcode
+    // (create-item DTO has no barcode field, so this always applies). A
+    // generation failure must never block item creation itself.
+    this.barcodesService
+      .generateForItem(tenantId, item.id, null)
+      .catch((err) => {
+        this.logger.warn(
+          `Auto barcode generation failed for item ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     return item;
   }
 
@@ -67,7 +88,17 @@ export class ItemsService {
 
   async createVariant(itemId: string, tenantId: string, dto: CreateVariantDto) {
     await this.findById(itemId, tenantId);
-    return this.itemsRepo.createVariant(itemId, tenantId, { ...dto });
+    const variant = await this.itemsRepo.createVariant(itemId, tenantId, {
+      ...dto,
+    });
+    this.barcodesService
+      .generateForItem(tenantId, itemId, variant.id)
+      .catch((err) => {
+        this.logger.warn(
+          `Auto barcode generation failed for variant ${variant.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    return variant;
   }
 
   async updateVariant(
@@ -77,7 +108,9 @@ export class ItemsService {
     dto: UpdateVariantDto,
   ) {
     await this.findById(itemId, tenantId);
-    return this.itemsRepo.updateVariant(variantId, itemId, tenantId, { ...dto });
+    return this.itemsRepo.updateVariant(variantId, itemId, tenantId, {
+      ...dto,
+    });
   }
 
   async removeVariant(variantId: string, itemId: string, tenantId: string) {
