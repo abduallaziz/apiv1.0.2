@@ -13,6 +13,11 @@ export enum ItemType {
   PRODUCT = 'product',
   SERVICE = 'service',
   CUSTOM = 'custom',
+  RAW_MATERIAL = 'raw_material',
+  SEMI_FINISHED = 'semi_finished',
+  FINISHED_GOODS = 'finished_goods',
+  ASSET = 'asset',
+  CONSUMABLE = 'consumable',
 }
 
 export enum OperationType {
