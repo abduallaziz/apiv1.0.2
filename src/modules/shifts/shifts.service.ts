@@ -124,6 +124,36 @@ export class ShiftsService {
     return { shift: closed, summary };
   }
 
+  // No physical cash-drawer hardware integration exists in this codebase
+  // (confirmed — no printer/terminal driver, no drawer table). This just
+  // records the action for accountability, same audit_logs table shifts
+  // themselves already write to. A real hardware trigger can be added
+  // later without changing this call site.
+  async logDrawerOpen(
+    tenant: TenantContext,
+    actorId: string,
+    actorRole: string,
+    ip: string,
+    device: string,
+  ) {
+    const shift = await this.repo.findOpenByUser(actorId, tenant.tenantId);
+    if (!shift) throw new BadRequestException('No open shift — open a shift before opening the drawer');
+
+    await this.audit.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      actor_role: actorRole,
+      action: 'pos.drawer_opened',
+      resource_type: 'shift',
+      resource_id: shift.id,
+      after_data: { branch_id: shift.branch_id, opened_at: new Date().toISOString() },
+      ip_address: ip,
+      device,
+    });
+
+    return { logged: true, shift_id: shift.id };
+  }
+
   async findAll(tenant: TenantContext, branchId?: string) {
     return this.repo.findAll(tenant.tenantId, branchId);
   }

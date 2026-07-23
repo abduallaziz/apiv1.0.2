@@ -51,6 +51,18 @@ export class ShiftsController {
     return this.service.closeShift(id, dto, tenant, user.sub, user.role, ip, device);
   }
 
+  @Post('drawer-open')
+  @RequirePermission('shift.open')
+  drawerOpen(
+    @GetTenant() tenant: TenantContext,
+    @Req() req: Request,
+  ) {
+    const user = (req as any).user;
+    const ip = req.headers['x-forwarded-for'] as string ?? req.socket.remoteAddress ?? '';
+    const device = req.headers['user-agent'] ?? '';
+    return this.service.logDrawerOpen(tenant, user.sub, user.role, ip, device);
+  }
+
   @Get()
   @RequirePermission('shift.view.branch')
   findAll(
