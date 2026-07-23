@@ -50,16 +50,23 @@ export class ItemsService {
   async create(tenantId: string, dto: CreateItemDto) {
     const item = await this.itemsRepo.create(tenantId, { ...dto });
     await this.invalidateList(tenantId);
-    // Best-effort: every new item gets an auto-generated primary barcode
-    // (create-item DTO has no barcode field, so this always applies). A
-    // generation failure must never block item creation itself.
-    this.barcodesService
-      .generateForItem(tenantId, item.id, null)
-      .catch((err) => {
-        this.logger.warn(
-          `Auto barcode generation failed for item ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+    // Best-effort: a new item gets an auto-generated primary barcode
+    // (create-item DTO has no barcode field, so this always applies) —
+    // UNLESS it has_variants, in which case the parent item is never
+    // sellable on its own (POS always routes has_variants items through
+    // the variant picker, never adds the bare item to cart) and a
+    // parent-level barcode would be dead weight with no real use. Each
+    // variant gets its own barcode from createVariant() below instead.
+    // A generation failure must never block item creation itself.
+    if (!item.has_variants) {
+      this.barcodesService
+        .generateForItem(tenantId, item.id, null)
+        .catch((err) => {
+          this.logger.warn(
+            `Auto barcode generation failed for item ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    }
     return item;
   }
 
