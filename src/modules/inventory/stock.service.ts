@@ -30,6 +30,10 @@ export class StockService {
     return data;
   }
 
+  async findAtp(tenantId: string, warehouseId: string, itemId: string, variantId?: string) {
+    return this.stockRepo.findAtp(tenantId, warehouseId, itemId, variantId);
+  }
+
   async findLevelsEnriched(tenantId: string, filter: StockLevelEnrichedFilter) {
     const key =
       `${stockCachePrefix(tenantId)}levels-enriched:wh:${filter.warehouseId ?? 'all'}:item:${filter.itemId ?? 'all'}` +

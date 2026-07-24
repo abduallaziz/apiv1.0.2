@@ -12,6 +12,21 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 export class StockController {
   constructor(private readonly stockService: StockService) {}
 
+  // Available-To-Promise — spec item 3a (GET /items/:id/atp), exposed here
+  // under inventory/stock for consistency with every other stock read
+  // endpoint on this controller, with warehouse_id/variant_id as explicit
+  // query params since ATP is meaningless without a specific warehouse.
+  @Get('atp')
+  @RequirePermission('inventory.view')
+  findAtp(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId: string,
+    @Query('item_id') itemId: string,
+    @Query('variant_id') variantId?: string,
+  ) {
+    return this.stockService.findAtp(tenant.tenantId, warehouseId, itemId, variantId);
+  }
+
   @Get('levels')
   @RequirePermission('inventory.view')
   findLevels(

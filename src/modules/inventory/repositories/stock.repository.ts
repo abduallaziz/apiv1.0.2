@@ -55,6 +55,40 @@ export class StockRepository extends ScopedRepository {
     return data;
   }
 
+  // Deliberately no cache layer — ATP directly gates checkout/backorder
+  // decisions, a stale read here could let a cashier oversell against a
+  // number that's already wrong.
+  async findAtp(
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    variantId?: string,
+  ) {
+    let query = this.supabase
+      .from('v_stock_balance')
+      .select('quantity_on_hand, quantity_reserved, quantity_damaged, quantity_expired, quantity_backorder, quantity_available, quantity_incoming, quantity_atp')
+      .eq('tenant_id', tenantId)
+      .eq('warehouse_id', warehouseId)
+      .eq('item_id', itemId);
+
+    query = variantId ? query.eq('variant_id', variantId) : query.is('variant_id', null);
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return (
+      data ?? {
+        quantity_on_hand: 0,
+        quantity_reserved: 0,
+        quantity_damaged: 0,
+        quantity_expired: 0,
+        quantity_backorder: 0,
+        quantity_available: 0,
+        quantity_incoming: 0,
+        quantity_atp: 0,
+      }
+    );
+  }
+
   async findLevelsEnriched(tenantId: string, filter: StockLevelEnrichedFilter) {
     const { data, error } = await this.supabase.rpc('fn_inventory_stock_levels_enriched', {
       p_tenant_id: tenantId,
