@@ -25,6 +25,7 @@ import {
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CancelInvoiceDto } from './dto/cancel-invoice.dto';
+import { HoldOrderDto, HeldOrderVisibility } from './dto/hold-order.dto';
 
 const INVOICES_LIST_TTL = 240; // 4 minutes
 const invoicesListCacheKey = (
@@ -526,5 +527,102 @@ export class InvoicesService {
     await this.invalidateList(tenant.tenantId);
 
     return { id, status: 'cancelled' };
+  }
+
+  // Held orders — deliberately isolated from create() above: no payment,
+  // no stock deduction, no coupon/loyalty/gift-card processing. A held
+  // order becomes a real sale only when its items are loaded back into an
+  // active cart and checked out through the normal create() flow, which
+  // this section never touches.
+  async holdOrder(
+    tenant: TenantContext,
+    dto: HoldOrderDto,
+    actorId: string,
+    actorRole: string,
+  ) {
+    const subtotal = dto.items.reduce(
+      (sum, item) => sum + Number(item.quantity) * Number(item.unit_price),
+      0,
+    );
+
+    const order = await this.repo.create(tenant, {
+      branch_id: dto.branch_id,
+      shift_id: dto.shift_id ?? null,
+      cashier_id: actorId,
+      customer_id: dto.customer_id ?? null,
+      status: 'pending',
+      subtotal,
+      discount: 0,
+      tax: 0,
+      total: subtotal,
+      notes: dto.notes ?? null,
+      held: true,
+      held_visibility: dto.held_visibility ?? HeldOrderVisibility.SELF,
+      held_by: actorId,
+      held_at: new Date().toISOString(),
+    });
+
+    await this.repo.insertItems(
+      dto.items.map((item) => ({ ...item, order_id: order.id })),
+    );
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      actor_role: actorRole,
+      action: 'invoice.hold',
+      resource_type: 'invoice',
+      resource_id: order.id,
+      after_data: { branch_id: dto.branch_id, items_count: dto.items.length, subtotal },
+    });
+
+    return this.repo.findById(tenant, order.id);
+  }
+
+  async listHeldOrders(tenant: TenantContext, branchId: string, actorId: string) {
+    return this.repo.findHeldOrders(tenant, branchId, actorId);
+  }
+
+  async getHeldOrder(tenant: TenantContext, id: string) {
+    const order = await this.repo.findById(tenant, id);
+    if (!order || !(order as { held?: boolean }).held) {
+      throw new NotFoundException('Held order not found');
+    }
+    return order;
+  }
+
+  async updateHeldVisibility(
+    tenant: TenantContext,
+    id: string,
+    visibility: HeldOrderVisibility,
+  ) {
+    const updated = await this.repo.updateHeldVisibility(tenant, id, visibility);
+    if (!updated) {
+      throw new NotFoundException('Held order not found');
+    }
+    return updated;
+  }
+
+  async cancelHeldOrder(
+    tenant: TenantContext,
+    id: string,
+    actorId: string,
+    actorRole: string,
+  ) {
+    const cancelled = await this.repo.cancelHeldOrder(tenant, id);
+    if (!cancelled) {
+      throw new NotFoundException('Held order not found');
+    }
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      actor_role: actorRole,
+      action: 'invoice.hold_cancel',
+      resource_type: 'invoice',
+      resource_id: id,
+    });
+
+    return { id, held: false };
   }
 }

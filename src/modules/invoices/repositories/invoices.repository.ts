@@ -101,6 +101,7 @@ export class InvoicesRepository extends ScopedRepository {
     tax, total,
     payment_method, notes, created_at,
     cashier_id, customer_id, branch_id,
+    held, held_visibility, held_by, held_at,
     cashier:users!orders_cashier_id_fkey(name),
     customer:customers!orders_customer_id_fkey(full_name)
   `;
@@ -241,6 +242,61 @@ export class InvoicesRepository extends ScopedRepository {
       p_actor_id: actorId,
     });
     if (error) throw error;
+  }
+
+  // Held-orders: reuses create()/insertItems()/findById() above for the
+  // actual insert/fetch — these three are the only genuinely new queries
+  // the hold/resume feature needs (list-with-visibility-filter, toggle,
+  // soft-delete-on-cancel).
+  async findHeldOrders(tenant: TenantContext, branchId: string, actorId: string) {
+    let query = this.supabase
+      .from('orders')
+      .select(this.ORDER_SELECT)
+      .eq('held', true)
+      .is('deleted_at', null)
+      .eq('branch_id', branchId)
+      .or(`held_visibility.eq.all_cashiers,held_by.eq.${actorId}`);
+
+    if (tenant.tenantId) {
+      query = query.eq('tenant_id', tenant.tenantId);
+    }
+
+    const { data, error } = await query.order('held_at', { ascending: false });
+    if (error) throw error;
+
+    return (data ?? []).map((o: any) => ({
+      ...o,
+      cashier_name: (o.cashier as any)?.name ?? null,
+      customer_name: (o.customer as any)?.full_name ?? null,
+      cashier: undefined,
+      customer: undefined,
+    }));
+  }
+
+  async updateHeldVisibility(tenant: TenantContext, id: string, visibility: string) {
+    const query = this.supabase
+      .from('orders')
+      .update({ held_visibility: visibility })
+      .eq('id', id)
+      .eq('held', true);
+
+    const scoped = tenant.tenantId ? query.eq('tenant_id', tenant.tenantId) : query;
+    const { data, error } = await scoped.select('id, held_visibility').maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  async cancelHeldOrder(tenant: TenantContext, id: string) {
+    const query = this.supabase
+      .from('orders')
+      .update({ deleted_at: new Date().toISOString(), held: false })
+      .eq('id', id)
+      .eq('held', true);
+
+    const scoped = tenant.tenantId ? query.eq('tenant_id', tenant.tenantId) : query;
+    const { data, error } = await scoped.select('id').maybeSingle();
+    if (error) throw error;
+    return data;
   }
 
   async cancel(tenant: TenantContext, id: string, cancelledBy: string) {
