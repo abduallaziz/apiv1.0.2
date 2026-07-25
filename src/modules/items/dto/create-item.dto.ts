@@ -53,4 +53,26 @@ export class CreateItemDto {
   @IsBoolean()
   @IsOptional()
   has_variants?: boolean;
+
+  @IsUUID()
+  @IsOptional()
+  storage_unit_id?: string;
+
+  @IsUUID()
+  @IsOptional()
+  purchase_unit_id?: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  @IsOptional()
+  purchase_unit_factor?: number;
+
+  @IsUUID()
+  @IsOptional()
+  sale_unit_id?: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  @IsOptional()
+  sale_unit_factor?: number;
 }

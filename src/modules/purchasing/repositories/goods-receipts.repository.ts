@@ -33,6 +33,16 @@ export class GoodsReceiptsRepository extends ScopedRepository {
     return data;
   }
 
+  async convertToStorageUnit(itemId: string, quantity: number, unitId: string | null) {
+    const { data, error } = await this.supabase.rpc('fn_convert_to_storage_unit', {
+      p_item_id: itemId,
+      p_quantity: quantity,
+      p_unit_id: unitId,
+    });
+    if (error) throw error;
+    return data as number;
+  }
+
   async create(tenantId: string, payload: Record<string, unknown>, items: Record<string, unknown>[]) {
     const { data: receipt, error } = await this.supabase
       .from('goods_receipts')

@@ -35,10 +35,36 @@ export class GoodsReceiptsService {
   async create(tenantId: string, dto: CreateGoodsReceiptDto) {
     const { items, ...header } = dto;
 
+    const convertedLines = [];
     for (const line of items) {
       if (line.location_id) {
         await this.locationsService.findById(line.location_id, header.warehouse_id, tenantId);
       }
+
+      // A line entered in an alternate unit (e.g. "2 cartons") is converted
+      // to the item's storage unit once here, at data entry — everything
+      // downstream (fn_post_goods_receipt, cost_layers, stock_movements)
+      // stays exactly as it is today and never becomes unit-aware.
+      let quantityReceived = line.quantity_received;
+      let unitCost = line.unit_cost;
+      if (line.unit_id) {
+        const factor = await this.goodsReceiptsRepo.convertToStorageUnit(line.item_id, 1, line.unit_id);
+        quantityReceived = line.quantity_received * factor;
+        unitCost = factor > 0 ? line.unit_cost / factor : line.unit_cost;
+      }
+
+      convertedLines.push({
+        purchase_order_item_id: line.purchase_order_item_id ?? null,
+        item_id: line.item_id,
+        variant_id: line.variant_id ?? null,
+        quantity_received: quantityReceived,
+        unit_cost: unitCost,
+        batch_number: line.batch_number ?? null,
+        serial_number: line.serial_number ?? null,
+        expiration_date: line.expiration_date ?? null,
+        location_id: line.location_id ?? null,
+        unit_id: line.unit_id ?? null,
+      });
     }
 
     return this.goodsReceiptsRepo.create(
@@ -49,17 +75,7 @@ export class GoodsReceiptsService {
         receipt_number: header.receipt_number,
         notes: header.notes ?? null,
       },
-      items.map((line) => ({
-        purchase_order_item_id: line.purchase_order_item_id ?? null,
-        item_id: line.item_id,
-        variant_id: line.variant_id ?? null,
-        quantity_received: line.quantity_received,
-        unit_cost: line.unit_cost,
-        batch_number: line.batch_number ?? null,
-        serial_number: line.serial_number ?? null,
-        expiration_date: line.expiration_date ?? null,
-        location_id: line.location_id ?? null,
-      })),
+      convertedLines,
     );
   }
 

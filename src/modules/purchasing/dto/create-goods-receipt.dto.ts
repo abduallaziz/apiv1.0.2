@@ -47,6 +47,14 @@ export class GoodsReceiptLineDto {
   @IsUUID()
   @IsOptional()
   location_id?: string;
+
+  // Unit the human actually counted/entered this line in. When omitted,
+  // quantity_received/unit_cost are already in the item's storage unit
+  // (today's behavior, unchanged). When given, the service converts to
+  // storage-unit terms before persisting.
+  @IsUUID()
+  @IsOptional()
+  unit_id?: string;
 }
 
 export class CreateGoodsReceiptDto {
