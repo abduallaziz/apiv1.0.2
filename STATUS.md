@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: Purchasing item #9.2 — Purchase Request module + generic approval_history (§101) — July 25, 2026
+# Last Updated: Purchasing item #9.3 — RFQ + Supplier Quotes (version groups) + Award as independent document (§102) — July 25, 2026
 
 ---
 
@@ -3510,3 +3510,38 @@ Phase 2 (Migration + Backend + Frontend + POS) مكتملة ومُتحقَّقة
 
 ## الحالة النهائية
 9.2 مكتملة ومُتحقَّقة حيًا. `approval_history` أصبح فعليًا "البنية الموحدة" — مُستخدَم بوحدتين (PR وPO) من أول يوم، جاهز لأي وحدة مستقبلية بلا أي تعديل. المتبقي من مصفوفة #9: 9.3 (RFQ)، 9.4 (Lead Time)، 9.5 (Blanket PO، مؤجَّل)، 9.6 (Supplier Price History).
+
+---
+
+# 102. تنفيذ 9.3 — RFQ Container + Supplier Quotes (Version Groups) + Award كمستند مستقل — يوليو 25, 2026
+
+## التصميم المُعتمَد (بعد 3 جولات تدقيق معماري متتالية)
+1. **RFQ حاوية بحتة** — بلا أي سعر/خصم/عملة، ترسَل لعدة موردين بنفس الوقت (`rfq_suppliers`)، بلا حالة `'awarded'` إطلاقًا.
+2. **Supplier Quotes عبر Quote Groups** — لا سلسلة `supersedes_quote_id`. كل (RFQ, مورد) له `quote_group_id` ثابت؛ كل مراجعة = صف جديد بـ`version` أعلى تحت نفس المجموعة. "آخر إصدار"/"كل الإصدارات" استعلام مباشر، لا تتبع سلسلة.
+3. **Award مستند مستقل بالكامل** — `award_number`/`award_date`/`status`/`approved_by`/`approved_at` خاصة به (نفس نمط أي مستند مُعتمَد بالمشروع)، بدورة حياة منفصلة تمامًا عن RFQ (`draft→confirmed→cancelled`). عدة Awards لكل RFQ مسموحة (إعادة الترسية = مستند جديد، لا تعديل القديم).
+4. **Award Items تحتفظ بلقطة كاملة (Snapshot)** وقت الترسية: `awarded_unit_price/discount/currency/lead_time/tax_rate` — **تُنسَخ من `supplier_quote_items` من طرف الخادم فقط**، العميل لا يرسلها إطلاقًا (يمنع أي تلاعب، ويضمن ثبات السجل حتى لو عدّل المورد عرضه لاحقًا).
+5. **PO يُنشأ من Award حصرًا** — أبدًا من RFQ أو Supplier Quote مباشرة. يحتفظ بـ`source_rfq_id`+`source_supplier_quote_id`+`source_award_id` (ترويسة) و`source_supplier_quote_item_id`+`source_award_item_id` (بنود).
+6. **`ApprovalEngine` لـRFQ فقط** — Award بلا بوابة موافقة الآن (أعمدة `approved_by`/`approved_at` موجودة وجاهزة، غير مُستخدَمة).
+
+## Migrations 122-125
+- **122**: `rfqs` (`draft→submitted→approved→rejected→sent→cancelled`)، `rfq_items`، `rfq_suppliers`.
+- **123**: `quote_groups` (`UNIQUE(rfq_id,supplier_id)`)، `supplier_quotes` (`UNIQUE(quote_group_id,version)` + فهرس جزئي يضمن عرضًا نشطًا واحدًا فقط لكل مجموعة بأي لحظة)، `supplier_quote_items` (كل التسعير هنا حصرًا).
+- **124**: `awards`، `award_items` (اللقطة الكاملة).
+- **125**: 5 أعمدة nullable إضافية على `purchase_orders`/`purchase_order_items` — إضافي بحت، بلا أي كسر على مسار PO من الصفر بلا RFQ.
+
+## Backend
+`RfqsController/Service/Repository` (موافقة عبر `ApprovalEngine` + `approval_history`، صلاحيات جديدة `purchasing.rfq.approve`/`.reject`)، `SupplierQuotesController/Service/Repository` (منطق `createOrRevise()`: يبحث عن `quote_group` أو ينشئه، يحوّل الإصدار السابق النشط لـ`'superseded'`، يُدرج نسخة جديدة برقم إصدار أعلى)، `AwardsController/Service/Repository` (اللقطة تُبنى بقراءة `supplier_quote_items` مباشرة من الخادم؛ `createPurchaseOrders()` يُجمِّع بنود الترسية حسب المورد الفعلي — **PO واحد لكل مورد ممثَّل بالترسية**، فيدعم الترسية الجزئية المستقبلية بين عدة موردين بصفر منطق إضافي).
+
+## التحقق الحي (7 سيناريوهات، كلها ضد الكلاسات الفعلية)
+1. إنشاء RFQ بلا أي حقل سعر، مُرسَل لموردين معًا.
+2. موافقة RFQ عبر `ApprovalEngine` كاملة (submit→approve→send)، تأكيد `approval_history` مطابق تمامًا، **بلا وصول لحالة `'awarded'` إطلاقًا** (غير موجودة أصلًا بقيد الجدول).
+3. **مراجعة عرض مورد عبر Quote Group لا سلسلة**: إصدار 2 بنفس `quote_group_id` للإصدار 1، الإصدار الأول يتحول تلقائيًا لـ`'superseded'`.
+4. **لقطة الترسية مطابقة تمامًا لعرض المورد وقت الترسية** (سعر/خصم/مهلة توريد/ضريبة) — **وتأكيد الاستقلالية عن حالة RFQ** (اعتماد الترسية لا يغيّر `rfqs.status` إطلاقًا).
+5. **الاختبار الأهم**: بعد الترسية، المورد يراجع عرضه بسعر مختلف تمامًا (999 بدل 50) — **قيمة الترسية المُسجَّلة سابقًا تبقى 50 بلا أي تغيير** — إثبات مباشر إن Award سجل تاريخي حقيقي لا مرجع حي.
+6. **توليد PO من Award**: مورد واحد → PO واحد بالضبط، يحمل `source_rfq_id`+`source_supplier_quote_id`+`source_award_id` على الترويسة و`source_award_item_id` على البند، بكمية وتكلفة مطابقة للقطة الترسية بالضبط.
+7. **صفر تأثير على Inventory/Cost Layers/Goods Receipt** طوال دورة RFQ→Quote→Award الكاملة (حتى لحظة إنشاء PO فعليًا) — تأكَّد بعدّ `stock_movements`/`cost_layers` قبل وبعد، بلا أي تغيير.
+
+**كل السبعة نجحت بالضبط من أول تشغيل حي**. أُضيف Regression Suite دائم (`rfq-award.regression.spec.ts`، 7 اختبارات) — نجح مع باقي الـ4 حزم اختبار معًا (25 اختبارًا إجماليًا: transfers + PO + PR + RFQ/Award). `tsc --noEmit`/`nest build` نظيفان.
+
+## الحالة النهائية
+9.3 مكتملة ومُتحقَّقة حيًا بالكامل وفق كل جولات التدقيق المعماري الثلاث. المتبقي من مصفوفة #9: 9.4 (توحيد Vendor Lead Time)، 9.5 (Blanket PO، مؤجَّل)، 9.6 (Supplier Price History من Goods Receipt فقط).

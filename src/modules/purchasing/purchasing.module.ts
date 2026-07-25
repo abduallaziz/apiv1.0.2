@@ -16,6 +16,18 @@ import { PurchaseRequestsController } from './purchase-requests.controller';
 import { PurchaseRequestsService } from './purchase-requests.service';
 import { PurchaseRequestsRepository } from './repositories/purchase-requests.repository';
 
+import { RfqsController } from './rfqs.controller';
+import { RfqsService } from './rfqs.service';
+import { RfqsRepository } from './repositories/rfqs.repository';
+
+import { SupplierQuotesController } from './supplier-quotes.controller';
+import { SupplierQuotesService } from './supplier-quotes.service';
+import { SupplierQuotesRepository } from './repositories/supplier-quotes.repository';
+
+import { AwardsController } from './awards.controller';
+import { AwardsService } from './awards.service';
+import { AwardsRepository } from './repositories/awards.repository';
+
 import { PurchaseOrdersController } from './purchase-orders.controller';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { PurchaseOrdersRepository } from './repositories/purchase-orders.repository';
@@ -34,12 +46,18 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
   controllers: [
     SuppliersController,
     PurchaseRequestsController,
+    RfqsController,
+    SupplierQuotesController,
+    AwardsController,
     PurchaseOrdersController,
     GoodsReceiptsController,
   ],
   providers: [
     SuppliersService,
     PurchaseRequestsService,
+    RfqsService,
+    SupplierQuotesService,
+    AwardsService,
     PurchaseOrdersService,
     GoodsReceiptsService,
     {
@@ -52,6 +70,22 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
       provide: PurchaseRequestsRepository,
       useFactory: (supabase: SupabaseClient) =>
         new PurchaseRequestsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: RfqsRepository,
+      useFactory: (supabase: SupabaseClient) => new RfqsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: SupplierQuotesRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new SupplierQuotesRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: AwardsRepository,
+      useFactory: (supabase: SupabaseClient) => new AwardsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -70,6 +104,9 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
   exports: [
     SuppliersService,
     PurchaseRequestsService,
+    RfqsService,
+    SupplierQuotesService,
+    AwardsService,
     PurchaseOrdersService,
     GoodsReceiptsService,
   ],
