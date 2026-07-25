@@ -207,6 +207,7 @@ describe('RFQ + Supplier Quote + Award module (migrations 122-125)', () => {
       {
         rfq_id: rfq.id,
         supplier_id: supplierAId,
+        quote_number: `REGR-QUOTE-V1-${Date.now()}`,
         currency: 'SAR',
         items: [
           {
@@ -246,6 +247,12 @@ describe('RFQ + Supplier Quote + Award module (migrations 122-125)', () => {
 
     const v1After = await quotesService.findById(v1.id, TEST_TENANT_ID);
     expect(v1After.status).toBe('superseded');
+
+    // The document's number lives on the stable quote_group and is never
+    // re-specified on a revision — it stays identical across versions.
+    const v2Full = await quotesService.findById(v2.id, TEST_TENANT_ID);
+    expect((v2Full as any).quote_groups.quote_number).toBe((v1After as any).quote_groups.quote_number);
+    expect((v2Full as any).quote_groups.quote_number).toBeTruthy();
   }, 30_000);
 
   it('award snapshots quote pricing at award time and is independent of the RFQ status', async () => {
@@ -267,6 +274,7 @@ describe('RFQ + Supplier Quote + Award module (migrations 122-125)', () => {
       {
         rfq_id: rfq.id,
         supplier_id: supplierAId,
+        quote_number: `REGR-QUOTE-AWD-${Date.now()}`,
         currency: 'SAR',
         items: [
           {
@@ -334,6 +342,7 @@ describe('RFQ + Supplier Quote + Award module (migrations 122-125)', () => {
       {
         rfq_id: rfq.id,
         supplier_id: supplierAId,
+        quote_number: `REGR-QUOTE-IMM-${Date.now()}`,
         items: [
           {
             rfq_item_id: rfqItemId,
@@ -408,6 +417,7 @@ describe('RFQ + Supplier Quote + Award module (migrations 122-125)', () => {
       {
         rfq_id: rfq.id,
         supplier_id: supplierAId,
+        quote_number: `REGR-QUOTE-POGEN-${Date.now()}`,
         currency: 'SAR',
         items: [
           {
@@ -489,6 +499,7 @@ describe('RFQ + Supplier Quote + Award module (migrations 122-125)', () => {
       {
         rfq_id: rfq.id,
         supplier_id: supplierAId,
+        quote_number: `REGR-QUOTE-ISO-${Date.now()}`,
         items: [{ item_id: itemId, quantity_offered: 2, unit_price: 10 }],
       },
       userId,

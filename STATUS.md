@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: Purchasing item #9.3 — RFQ + Supplier Quotes (version groups) + Award as independent document (§102) — July 25, 2026
+# Last Updated: Document Lifecycle review closes #9.3 — quote_number added to Supplier Quotes (§103) — July 25, 2026
 
 ---
 
@@ -3545,3 +3545,30 @@ Phase 2 (Migration + Backend + Frontend + POS) مكتملة ومُتحقَّقة
 
 ## الحالة النهائية
 9.3 مكتملة ومُتحقَّقة حيًا بالكامل وفق كل جولات التدقيق المعماري الثلاث. المتبقي من مصفوفة #9: 9.4 (توحيد Vendor Lead Time)، 9.5 (Blanket PO، مؤجَّل)، 9.6 (Supplier Price History من Goods Receipt فقط).
+
+---
+
+# 103. مراجعة معمارية نهائية لـ"Document Lifecycle" عبر كل مستندات المشتريات + إضافة `quote_number` — يوليو 25, 2026
+
+## المراجعة (طلبها المستخدم قبل إغلاق #9.3 نهائيًا)
+راجعت 6 مبادئ صريحة (رقم مستقل، دورة حياة مستقلة، لا تعديل على مستند سابق، علاقات Source Reference لا Dependency، حفظ تاريخي كامل، FK اختيارية حيث يصح) عبر PR/RFQ/Supplier Quote/Award/PO. **4 انحرافات حقيقية اكتُشفت وذُكِرت بصراحة** (لا اعتماد أعمى):
+1. `quote_groups.rfq_id` بـ`ON DELETE CASCADE` (Dependency حقيقي لا مرجع).
+2. `awards.rfq_id` بـ`ON DELETE RESTRICT`.
+3. `goods_receipts.purchase_order_id` بنفس القيد (موجود مسبقًا، ليس من عمل هذي الجلسة).
+4. **Supplier Quote بلا رقم مستقل خاص بها** (كل مستند آخر له `xxx_number`، هذي فقط بـ`quote_group_id + version`).
+
+## قرار المستخدم
+- **1، 2، 3**: تُسجَّل كـ"توصيات مستقبلية موثَّقة فقط" — **بلا أي تعديل** — لأن المشروع يعتمد Soft Delete حصرًا (لا `DELETE` حقيقي على أي مستند غير مسودة)، فالقيود لا تُفعَّل عمليًا أبدًا. كما إن Supplier Quote/Award/Goods Receipt هي منطقيًا "Child Documents" لآبائها (RFQ، RFQ، PO على التوالي) — العلاقة الهرمية مقصودة، لا خلل.
+- **4**: **اعتُمد الإصلاح** — إضافة `quote_number`.
+
+## Migration 126
+`quote_number` أُضيف لـ**`quote_groups`** (لا `supplier_quotes`) — لأن `quote_groups` هي الهوية الثابتة الحقيقية للمستند (نفس الرقم يبقى عبر كل المراجعات، تمامًا كرقم مستند مُعدَّل يحتفظ برقمه الأصلي)؛ `supplier_quotes` تبقى مجرد إصداراته. `NOT NULL` مباشرة (تحقَّقت حيًا: صفر صفوف `quote_groups` حقيقية موجودة وقت التنفيذ، فلا حاجة Backfill). `UNIQUE(tenant_id, quote_number)`.
+
+## Backend
+`CreateSupplierQuoteDto.quote_number` اختياري — **إلزامي فقط عند أول عرض** لهذا (RFQ، مورد) — أي مراجعة لاحقة (المجموعة موجودة أصلًا) تتجاهله تمامًا وتحتفظ بالرقم الأصلي. `SupplierQuotesRepository` انقسمت `findOrCreateGroup()` لدالتين صريحتين (`findGroup()`/`createGroup()`) ليقدر `SupplierQuotesService` يميّز "إنشاء أول مرة" (يتطلب الرقم، `ConflictException` واضح لو غاب) عن "مراجعة" (لا يتطلبه إطلاقًا).
+
+## التحقق الحي
+أُضيف تحقق مباشر بالـRegression Suite الموجود: إنشاء عرض أول بـ`quote_number` صريح، ثم مراجعة (v2) **بلا** تمرير أي رقم — تأكَّد إن كلا الإصدارين (v1 المُتحوِّل لـ`superseded`، وv2 الحالي) يحملان **نفس** `quote_groups.quote_number` بالضبط. **نجح 7/7 اختبارات** بلا أي تغيير على البقية. `tsc --noEmit`/`nest build` نظيفان، 25 اختبار (كل حزم المشتريات/المخزون) نجحت معًا.
+
+## الحالة النهائية
+**البند #9.3 (RFQ) مُغلَق نهائيًا** بمراجعة معمارية شاملة موثَّقة. المتبقي من مصفوفة #9: **9.4** (توحيد Vendor Lead Time)، 9.5 (Blanket PO، مؤجَّل)، 9.6 (Supplier Price History).

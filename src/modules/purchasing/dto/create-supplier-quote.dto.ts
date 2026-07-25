@@ -64,6 +64,14 @@ export class CreateSupplierQuoteDto {
   @IsUUID()
   supplier_id: string;
 
+  // Required only the first time a quote for this (rfq, supplier) is
+  // created — the number belongs to the quote_group (the stable
+  // document identity) and stays the same across every later revision,
+  // so it's ignored on subsequent calls once the group already exists.
+  @IsString()
+  @IsOptional()
+  quote_number?: string;
+
   @IsString()
   @IsOptional()
   currency?: string;

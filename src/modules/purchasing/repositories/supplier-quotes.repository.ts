@@ -24,7 +24,7 @@ export class SupplierQuotesRepository extends ScopedRepository {
     const { data, error } = await this.supabase
       .from('supplier_quotes')
       .select(
-        '*, quote_groups(rfq_id, supplier_id, suppliers(name)), items:supplier_quote_items(*, items(name, sku))',
+        '*, quote_groups(rfq_id, supplier_id, quote_number, suppliers(name)), items:supplier_quote_items(*, items(name, sku))',
       )
       .eq('id', id)
       .eq('tenant_id', tenantId)
@@ -45,23 +45,26 @@ export class SupplierQuotesRepository extends ScopedRepository {
     return data;
   }
 
-  async findOrCreateGroup(tenantId: string, rfqId: string, supplierId: string) {
-    const { data: existing, error: findError } = await this.supabase
+  async findGroup(rfqId: string, supplierId: string, tenantId: string) {
+    const { data, error } = await this.supabase
       .from('quote_groups')
       .select('*')
       .eq('rfq_id', rfqId)
       .eq('supplier_id', supplierId)
+      .eq('tenant_id', tenantId)
       .maybeSingle();
-    if (findError) throw findError;
-    if (existing) return existing;
+    if (error) throw error;
+    return data;
+  }
 
-    const { data: created, error: createError } = await this.supabase
+  async createGroup(tenantId: string, rfqId: string, supplierId: string, quoteNumber: string) {
+    const { data, error } = await this.supabase
       .from('quote_groups')
-      .insert({ tenant_id: tenantId, rfq_id: rfqId, supplier_id: supplierId })
+      .insert({ tenant_id: tenantId, rfq_id: rfqId, supplier_id: supplierId, quote_number: quoteNumber })
       .select()
       .single();
-    if (createError) throw createError;
-    return created;
+    if (error) throw error;
+    return data;
   }
 
   async findLatestVersion(quoteGroupId: string, tenantId: string) {

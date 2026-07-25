@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -30,11 +31,17 @@ export class SupplierQuotesService {
     createdBy: string,
   ) {
     const { items, rfq_id, supplier_id, ...header } = dto;
-    const group = await this.supplierQuotesRepo.findOrCreateGroup(
-      tenantId,
-      rfq_id,
-      supplier_id,
-    );
+    let group = await this.supplierQuotesRepo.findGroup(rfq_id, supplier_id, tenantId);
+    if (!group) {
+      // quote_number identifies the document itself (the quote_group) and
+      // is only ever set once, on its first version — every later
+      // revision reuses it, exactly like an amended document keeps its
+      // original number.
+      if (!header.quote_number) {
+        throw new ConflictException('quote_number is required for the first quote to this supplier on this RFQ');
+      }
+      group = await this.supplierQuotesRepo.createGroup(tenantId, rfq_id, supplier_id, header.quote_number);
+    }
 
     const latest = await this.supplierQuotesRepo.findLatestVersion(
       group.id,
