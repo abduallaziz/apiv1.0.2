@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: Purchasing item #9.1 — PO approval migrated to ApprovalEngine + receipt enforcement gate (§100) — July 25, 2026
+# Last Updated: ApprovalEngine made truly generic (fixed closed-union gap found in review) — July 25, 2026
 
 ---
 
@@ -3469,3 +3469,18 @@ Phase 2 (Migration + Backend + Frontend + POS) مكتملة ومُتحقَّقة
 
 ## الحالة النهائية
 المرحلة 9.1 مكتملة ومُتحقَّقة حيًا. المتبقي من مصفوفة #9: 9.2 (PR)، 9.3 (RFQ)، 9.4 (Lead Time)، 9.5 (Blanket PO، مؤجَّل)، 9.6 (Supplier Price History).
+
+## مراجعة معمارية إضافية لـ`ApprovalEngine` نفسه (طلبها المستخدم قبل 9.2) — ثغرة حقيقية اكتُشفت وأُصلِحت
+المستخدم طلب صراحة تدقيق 4 أسئلة قبل اعتماد المحرك أساسًا لـPR/RFQ/PO. الإجابة الصادقة: **2 من 4 كانت "لا" فعليًا** بالصيغة اللي خرجت منها بعد 9.1 — `canApprove`/`canReject` كانا يقبلان `pendingStatus` كباراميتر (صح)، لكن نوعه كان `ApprovalStatus` — **union مغلق معرَّف داخل ملف المحرك نفسه**، وكنت أضفت `'submitted'` له يدويًا عشان الـPO يستخدمه. يعني أي وحدة مستقبلية (RFQ بحالة `'under_review'` مثلًا) كانت ستحتاج **تعديل ملف المحرك المشترك نفسه من جديد** — بالضبط النقيض مما يُفترض بمحرك "Generic".
+
+**الإصلاح**: فصل نوعين بدل واحد:
+- `ApprovalOutcome = 'approved' | 'rejected'` — **عقد المحرك الثابت** (مخرَج `approve()`/`reject()` نفسه، لا علاقة له بمفردات أي وحدة، يبقى مغلقًا بحق لأنه دائمًا نفس القيمتين بغض النظر عن المستدعي).
+- `canApprove(currentStatus: string, pendingStatus: string = 'pending')` / `canReject(...)` — الآن **`string` عامة حقًا**، لا union مغلق إطلاقًا. أي وحدة (PR بـ`'draft'`، RFQ بـ`'under_review'`، أي اسم مستقبلي) تمرر اسم حالتها كنص عادي — **صفر حاجة لتعديل ملف المحرك مرة أخرى أبدًا**.
+
+**تحقق الأربع أسئلة بعد الإصلاح**:
+1. Generic فعليًا؟ ✅ نعم — التحقق بـstring مقارنة نصية بحتة، بلا أي معرفة بأسماء حالات أي وحدة.
+2. حالات مخصَّصة بلا تعديل مستقبلي؟ ✅ نعم — مؤكَّد الآن بنوع `string` العام.
+3. المحرك مسؤول عن القرار فقط، والدورة الحياتية داخل كل وحدة؟ ✅ كان صحيحًا من البداية، لم يتغيّر (بلا حالة تخزين إطلاقًا).
+4. وحدات مستقبلية (Sales/Inventory/Returns Approval) بلا تعديل المحرك؟ ✅ نعم بعد الإصلاح.
+
+**تحقق فني**: `tsc --noEmit` و`nest build` نظيفان، كلا Regression Suite (transfers + PO approval، 12 اختبار) نجحا حيًا بعد التعديل بلا أي تغيير سلوكي — Expenses غير متأثرة إطلاقًا (نفس القيمة الافتراضية `'pending'`، نفس منطق المقارنة، فقط توسيع نوع TypeScript). المحرك الآن **مستقر فعليًا** وجاهز أساسًا لـPR/RFQ/PO بلا مفاجآت مستقبلية.

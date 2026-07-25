@@ -1,25 +1,24 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 
-// 'submitted' is included alongside 'pending' because some consumers
-// (e.g. purchase orders) already had an established pre-approval status
-// name before adopting this engine — canApprove/canReject accept it via
-// the pendingStatus param rather than forcing every consumer to rename
-// their status column values to match Expenses' vocabulary.
-export type ApprovalStatus =
-  | 'pending'
-  | 'submitted'
-  | 'approved'
-  | 'rejected'
-  | 'expired'
-  | 'cancelled';
+// The engine's own OUTPUT contract — approve()/reject() always resolve to
+// exactly one of these two, regardless of which module calls them. This is
+// NOT the module's full status vocabulary (draft/submitted/pending/
+// under_review/... are entirely up to each consumer) — it's just what a
+// single approve/reject decision itself always produces.
+export type ApprovalOutcome = 'approved' | 'rejected';
 
 export interface ApprovalResult {
-  status: ApprovalStatus;
+  status: ApprovalOutcome;
   resolvedAt: string;
   resolvedBy: string;
   reason?: string;
 }
 
+// Deliberately generic: a consuming module's pre-approval status name
+// (Expenses: 'pending', purchase orders: 'submitted', a future RFQ:
+// 'under_review', anything) is passed in by the caller as a plain string —
+// the engine never needs to know or enumerate it. Adding a new consumer
+// with its own status vocabulary requires zero changes to this file.
 @Injectable()
 export class ApprovalEngine {
   approve(approverId: string): ApprovalResult {
@@ -43,16 +42,13 @@ export class ApprovalEngine {
   }
 
   canApprove(
-    currentStatus: ApprovalStatus,
-    pendingStatus: ApprovalStatus = 'pending',
+    currentStatus: string,
+    pendingStatus: string = 'pending',
   ): boolean {
     return currentStatus === pendingStatus;
   }
 
-  canReject(
-    currentStatus: ApprovalStatus,
-    pendingStatus: ApprovalStatus = 'pending',
-  ): boolean {
+  canReject(currentStatus: string, pendingStatus: string = 'pending'): boolean {
     return currentStatus === pendingStatus || currentStatus === 'approved';
   }
 }
