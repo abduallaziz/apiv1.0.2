@@ -44,6 +44,10 @@ import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
 import { ReportsRepository } from './repositories/reports.repository';
 
+import { WmsController } from './wms.controller';
+import { WmsService } from './wms.service';
+import { WmsRepository } from './repositories/wms.repository';
+
 @Module({
   imports: [SupabaseModule, PermissionsModule],
   controllers: [
@@ -57,6 +61,7 @@ import { ReportsRepository } from './repositories/reports.repository';
     CountsController,
     AnalyticsController,
     ReportsController,
+    WmsController,
   ],
   providers: [
     WarehousesService,
@@ -69,6 +74,7 @@ import { ReportsRepository } from './repositories/reports.repository';
     CountsService,
     AnalyticsService,
     ReportsService,
+    WmsService,
     {
       provide: WarehousesRepository,
       useFactory: (supabase: SupabaseClient) => new WarehousesRepository(supabase),
@@ -118,6 +124,11 @@ import { ReportsRepository } from './repositories/reports.repository';
     {
       provide: ReportsRepository,
       useFactory: (supabase: SupabaseClient) => new ReportsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: WmsRepository,
+      useFactory: (supabase: SupabaseClient) => new WmsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],
