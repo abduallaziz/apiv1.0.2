@@ -12,6 +12,10 @@ import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
 import { SuppliersRepository } from './repositories/suppliers.repository';
 
+import { PurchaseRequestsController } from './purchase-requests.controller';
+import { PurchaseRequestsService } from './purchase-requests.service';
+import { PurchaseRequestsRepository } from './repositories/purchase-requests.repository';
+
 import { PurchaseOrdersController } from './purchase-orders.controller';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { PurchaseOrdersRepository } from './repositories/purchase-orders.repository';
@@ -29,17 +33,25 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
   ],
   controllers: [
     SuppliersController,
+    PurchaseRequestsController,
     PurchaseOrdersController,
     GoodsReceiptsController,
   ],
   providers: [
     SuppliersService,
+    PurchaseRequestsService,
     PurchaseOrdersService,
     GoodsReceiptsService,
     {
       provide: SuppliersRepository,
       useFactory: (supabase: SupabaseClient) =>
         new SuppliersRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: PurchaseRequestsRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new PurchaseRequestsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -55,6 +67,11 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
       inject: [SUPABASE_CLIENT],
     },
   ],
-  exports: [SuppliersService, PurchaseOrdersService, GoodsReceiptsService],
+  exports: [
+    SuppliersService,
+    PurchaseRequestsService,
+    PurchaseOrdersService,
+    GoodsReceiptsService,
+  ],
 })
 export class PurchasingModule {}

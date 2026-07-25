@@ -14,6 +14,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import { ApprovalEngine } from '../../../engines/approval-engine/approval.engine';
+import { ApprovalHistoryRepository } from '../../../engines/approval-engine/approval-history.repository';
 import { PurchaseOrdersRepository } from '../repositories/purchase-orders.repository';
 import { PurchaseOrdersService } from '../purchase-orders.service';
 import { GoodsReceiptsRepository } from '../repositories/goods-receipts.repository';
@@ -56,8 +57,13 @@ describe('purchase order approval engine + receipt gate (migration 120)', () => 
     );
 
     const approvalEngine = new ApprovalEngine();
+    const approvalHistory = new ApprovalHistoryRepository(supabase);
     const poRepo = new PurchaseOrdersRepository(supabase);
-    poService = new PurchaseOrdersService(poRepo, approvalEngine);
+    poService = new PurchaseOrdersService(
+      poRepo,
+      approvalEngine,
+      approvalHistory,
+    );
     const locRepo = new LocationsRepository(supabase);
     const locService = new LocationsService(locRepo, null);
     const grRepo = new GoodsReceiptsRepository(supabase);

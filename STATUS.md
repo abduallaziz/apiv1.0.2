@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: ApprovalEngine made truly generic (fixed closed-union gap found in review) — July 25, 2026
+# Last Updated: Purchasing item #9.2 — Purchase Request module + generic approval_history (§101) — July 25, 2026
 
 ---
 
@@ -3484,3 +3484,29 @@ Phase 2 (Migration + Backend + Frontend + POS) مكتملة ومُتحقَّقة
 4. وحدات مستقبلية (Sales/Inventory/Returns Approval) بلا تعديل المحرك؟ ✅ نعم بعد الإصلاح.
 
 **تحقق فني**: `tsc --noEmit` و`nest build` نظيفان، كلا Regression Suite (transfers + PO approval، 12 اختبار) نجحا حيًا بعد التعديل بلا أي تغيير سلوكي — Expenses غير متأثرة إطلاقًا (نفس القيمة الافتراضية `'pending'`، نفس منطق المقارنة، فقط توسيع نوع TypeScript). المحرك الآن **مستقر فعليًا** وجاهز أساسًا لـPR/RFQ/PO بلا مفاجآت مستقبلية.
+
+---
+
+# 101. تنفيذ 9.2 — Purchase Request (PR) + `approval_history` عام موحَّد — يوليو 25, 2026
+
+## القرارات النهائية المُعتمَدة قبل التنفيذ
+1. **Attachments/Comments لم تُبنَ الآن** (لا مستهلك حقيقي بعد = تخمين) — لكن **`approval_history` بُني فعليًا** لأنه مستهلَك من أول يوم (PR نفسه).
+2. **لا تسعير إطلاقًا بنواة PR** — لا `estimated_unit_cost` ولا أي عمود سعر على `purchase_request_items`. PR يعبّر عن "ماذا نحتاج" فقط، لا "بكم". الميزانية التقديرية (لو احتجناها لاحقًا) ستكون عمود واحد اختياري على مستوى الطلب الكامل، لا لكل بند — **لم يُنفَّذ**، مجرد قرار موضعي للمستقبل.
+3. **5 حالات فقط**: `draft/submitted/approved/rejected/cancelled` — بلا `'converted'`. معرفة تحويل PR لـRFQ/PO لاحقًا (مرحلة 9.3) ستكون استعلام علاقة (`source_pr_id`)، لا حالة إضافية.
+4. **`approval_history` عام حقًا**: `reference_type, reference_id, action, actor_id, previous_status, new_status, reason, created_at` — بلا أي عمود خاص بـPR. جدول Append-only (بلا `deleted_at`، بلا تعديل/حذف، نفس مبدأ سجل `stock_movements` الثابت).
+
+## Migration 121
+- **`purchase_requests`**: `draft→submitted→approved/rejected→cancelled`، **صفر FK إلزامي مع `purchase_orders`** (استقلالية كاملة كما طُلِب) — `branch_id`/`warehouse_id` اختياريان (الوجهة قد لا تُحدَّد وقت الطلب).
+- **`purchase_request_items`**: `item_id, variant_id, quantity_requested, notes` فقط — **بلا أي عمود تسعير**.
+- **`approval_history`**: جدول عام واحد، مكانه **`src/engines/approval-engine/`** (بجانب المحرك نفسه، لا داخل وحدة المشتريات) — تأكيدًا إنه "البنية الرسمية الموحدة" كما طلب المستخدم، لا شيء خاص بـPurchasing. `ApprovalHistoryRepository` جديد (`record()`/`findForReference()`) صُدِّر من `ApprovalEngineModule` نفسه، بحيث أي وحدة مستقبلية (RFQ، Sales Approval، Inventory Approval، Returns Approval) تحقنه مباشرة بلا أي اعتماد على وحدة المشتريات.
+
+## Backend
+`PurchaseRequestsController/Service/Repository` كاملة (نفس نمط PO حرفيًا) — `submit/approve/reject/cancel` كلها تسجّل بـ`approval_history` تلقائيًا (حتى `cancel`، وهو ليس قرار اعتماد/رفض تقنيًا، لكنه جزء من دورة الحياة يستحق التوثيق). صلاحيات جديدة `purchasing.pr.approve`/`purchasing.pr.reject` (نفس تسمية `purchasing.po.*`). **استكمال فوري لالتزام "لا محرك موافقات مستقل مستقبلًا"**: `PurchaseOrdersService` (من 9.1) رُجِّع وأُضيف له تسجيل `approval_history` أيضًا على `approve`/`reject` — بحيث الجدول العام مستخدَم فعليًا من أول يوم بوحدتين لا واحدة، و`endpoint` جديد `GET /purchase-orders/:id/history` بنفس نمط `GET /purchase-requests/:id/history`.
+
+## التحقق الحي
+ست سيناريوهات ضد كلاسات الخدمة الفعلية (لا محاكاة): (1) إنشاء PR والتأكد الفعلي إن السطر **بلا أي حقل سعر إطلاقًا**، (2) submit→approve عبر المحرك مع تأكيد صفّي `approval_history` بالضبط (submitted ثم approved، بالحالة السابقة/الجديدة الصحيحة)، (3) رفض اعتماد PR معتمَد مسبقًا (حارس `canApprove`)، (4) دورة رفض كاملة مع تسجيل السبب بـ`notes` والتاريخ، (5) إلغاء PR مسودة مع تسجيله بـ`approval_history` أيضًا، (6) **تأكيد استقلالية PR الكاملة**: صفر صفوف بـ`purchase_orders`/`stock_movements`/`cost_layers` نتيجة أي عملية PR. **كل الستة نجحت بالضبط**.
+
+أُضيف Regression Suite دائم (`purchase-request.regression.spec.ts`، 6 اختبارات) — نجح حيًا مرتين (قبل وبعد إعادة التنسيق). إصلاح صغير أثناء الاختبار: مقارنة عدد PO على مستوى المستأجر بالكامل كانت متقلبة (Flaky) بسبب تشغيل Jest لعدة ملفات اختبار بالتوازي على نفس المستأجر المشترك — صُحِّحت لتقارن بصنف الاختبار نفسه فقط (ليست مشكلة منتج حقيقية). `tsc --noEmit`/`nest build` نظيفان، 18 اختبار (transfers + PO + PR) نجحوا معًا.
+
+## الحالة النهائية
+9.2 مكتملة ومُتحقَّقة حيًا. `approval_history` أصبح فعليًا "البنية الموحدة" — مُستخدَم بوحدتين (PR وPO) من أول يوم، جاهز لأي وحدة مستقبلية بلا أي تعديل. المتبقي من مصفوفة #9: 9.3 (RFQ)، 9.4 (Lead Time)، 9.5 (Blanket PO، مؤجَّل)، 9.6 (Supplier Price History).

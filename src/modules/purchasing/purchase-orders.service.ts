@@ -10,7 +10,9 @@ import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { RejectPurchaseOrderDto } from './dto/reject-purchase-order.dto';
 import { ApprovalEngine } from '../../engines/approval-engine/approval.engine';
+import { ApprovalHistoryRepository } from '../../engines/approval-engine/approval-history.repository';
 
+const PO_REFERENCE_TYPE = 'purchase_order';
 const PO_PENDING_STATUS = 'submitted' as const;
 
 @Injectable()
@@ -18,6 +20,7 @@ export class PurchaseOrdersService {
   constructor(
     private readonly purchaseOrdersRepo: PurchaseOrdersRepository,
     private readonly approvalEngine: ApprovalEngine,
+    private readonly approvalHistory: ApprovalHistoryRepository,
   ) {}
 
   async findAll(
@@ -92,12 +95,22 @@ export class PurchaseOrdersService {
       );
     }
     const result = this.approvalEngine.approve(approvedBy);
-    return this.purchaseOrdersRepo.approve(
+    const updated = await this.purchaseOrdersRepo.approve(
       id,
       tenantId,
       result.resolvedBy,
       result.resolvedAt,
     );
+    await this.approvalHistory.record({
+      tenantId,
+      referenceType: PO_REFERENCE_TYPE,
+      referenceId: id,
+      action: 'approved',
+      actorId: approvedBy,
+      previousStatus: po.status,
+      newStatus: 'approved',
+    });
+    return updated;
   }
 
   async reject(
@@ -116,13 +129,24 @@ export class PurchaseOrdersService {
     const note = po.notes
       ? `${po.notes} | Rejected: ${result.reason}`
       : `Rejected: ${result.reason}`;
-    return this.purchaseOrdersRepo.reject(
+    const updated = await this.purchaseOrdersRepo.reject(
       id,
       tenantId,
       result.resolvedBy,
       result.resolvedAt,
       note,
     );
+    await this.approvalHistory.record({
+      tenantId,
+      referenceType: PO_REFERENCE_TYPE,
+      referenceId: id,
+      action: 'rejected',
+      actorId: rejectedBy,
+      previousStatus: po.status,
+      newStatus: 'rejected',
+      reason: result.reason,
+    });
+    return updated;
   }
 
   async cancel(id: string, tenantId: string) {
@@ -136,5 +160,14 @@ export class PurchaseOrdersService {
       throw new ForbiddenException('Only draft purchase orders can be deleted');
     }
     await this.purchaseOrdersRepo.softDelete(id, tenantId);
+  }
+
+  async history(id: string, tenantId: string) {
+    await this.findById(id, tenantId);
+    return this.approvalHistory.findForReference(
+      tenantId,
+      PO_REFERENCE_TYPE,
+      id,
+    );
   }
 }
