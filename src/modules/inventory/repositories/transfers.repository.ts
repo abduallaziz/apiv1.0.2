@@ -49,6 +49,24 @@ export class TransfersRepository extends ScopedRepository {
     return this.findById(transfer.id, tenantId);
   }
 
+  async approve(transferId: string, actorId: string) {
+    const { data, error } = await this.supabase.rpc('fn_transfer_approve', {
+      p_transfer_id: transferId,
+      p_actor_id: actorId,
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  async complete(transferId: string, actorId: string) {
+    const { data, error } = await this.supabase.rpc('fn_transfer_complete', {
+      p_transfer_id: transferId,
+      p_actor_id: actorId,
+    });
+    if (error) throw error;
+    return data;
+  }
+
   async dispatch(transferId: string, actorId: string) {
     const { data, error } = await this.supabase.rpc('fn_transfer_dispatch', {
       p_transfer_id: transferId,
@@ -73,7 +91,7 @@ export class TransfersRepository extends ScopedRepository {
       .update({ status: 'cancelled' })
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .eq('status', 'draft')
+      .in('status', ['draft', 'approved'])
       .select()
       .single();
     if (error) throw error;

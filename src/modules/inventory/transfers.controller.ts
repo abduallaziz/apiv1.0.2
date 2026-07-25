@@ -38,6 +38,28 @@ export class TransfersController {
     return this.transfersService.create(tenant.tenantId, dto);
   }
 
+  @Post(':id/approve')
+  @RequirePermission('inventory.transfer.approve')
+  @HttpCode(HttpStatus.OK)
+  approve(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.transfersService.approve(id, tenant.tenantId, user.sub);
+  }
+
+  @Post(':id/complete')
+  @RequirePermission('inventory.transfer')
+  @HttpCode(HttpStatus.OK)
+  complete(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.transfersService.complete(id, tenant.tenantId, user.sub);
+  }
+
   @Post(':id/dispatch')
   @RequirePermission('inventory.transfer')
   @HttpCode(HttpStatus.OK)

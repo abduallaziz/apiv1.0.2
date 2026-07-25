@@ -63,6 +63,24 @@ export class TransfersService {
     );
   }
 
+  async approve(id: string, tenantId: string, actorId: string) {
+    await this.findById(id, tenantId);
+    try {
+      return await this.transfersRepo.approve(id, actorId);
+    } catch (error) {
+      throwFromRpcError(error as { message: string; code?: string });
+    }
+  }
+
+  async complete(id: string, tenantId: string, actorId: string) {
+    await this.findById(id, tenantId);
+    try {
+      return await this.transfersRepo.complete(id, actorId);
+    } catch (error) {
+      throwFromRpcError(error as { message: string; code?: string });
+    }
+  }
+
   async dispatch(id: string, tenantId: string, actorId: string) {
     await this.findById(id, tenantId);
     try {
