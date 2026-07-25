@@ -1,19 +1,42 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { GoodsReceiptsRepository } from './repositories/goods-receipts.repository';
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
 import { throwFromRpcError } from '../inventory/rpc-error.util';
 import { LocationsService } from '../inventory/locations.service';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
+import { PurchaseOrdersService } from './purchase-orders.service';
+
+// A receipt can only be created against a PO that's actually been approved
+// — 'partially_received' is included because a PO naturally sits there
+// after its first receipt, and further receipts against it are entirely
+// normal (the real enforcement gap this closes is 'draft'/'submitted').
+const RECEIVABLE_PO_STATUSES = ['approved', 'partially_received'];
 
 @Injectable()
 export class GoodsReceiptsService {
   constructor(
     private readonly goodsReceiptsRepo: GoodsReceiptsRepository,
     private readonly locationsService: LocationsService,
+    private readonly purchaseOrdersService: PurchaseOrdersService,
   ) {}
 
-  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
-    return (await this.goodsReceiptsRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
+  async findAll(
+    tenantId: string,
+    status?: string,
+    page?: string,
+    perPage?: string,
+  ) {
+    return (
+      (await this.goodsReceiptsRepo.findAll(
+        tenantId,
+        status,
+        new PaginationDto(page, perPage),
+      )) ?? []
+    );
   }
 
   async findById(id: string, tenantId: string) {
@@ -35,10 +58,26 @@ export class GoodsReceiptsService {
   async create(tenantId: string, dto: CreateGoodsReceiptDto) {
     const { items, ...header } = dto;
 
+    if (header.purchase_order_id) {
+      const po = await this.purchaseOrdersService.findById(
+        header.purchase_order_id,
+        tenantId,
+      );
+      if (!RECEIVABLE_PO_STATUSES.includes(po.status)) {
+        throw new ConflictException(
+          `Cannot receive against purchase order with status '${po.status}' — it must be approved first`,
+        );
+      }
+    }
+
     const convertedLines = [];
     for (const line of items) {
       if (line.location_id) {
-        await this.locationsService.findById(line.location_id, header.warehouse_id, tenantId);
+        await this.locationsService.findById(
+          line.location_id,
+          header.warehouse_id,
+          tenantId,
+        );
       }
 
       // A line entered in an alternate unit (e.g. "2 cartons") is converted
@@ -48,7 +87,11 @@ export class GoodsReceiptsService {
       let quantityReceived = line.quantity_received;
       let unitCost = line.unit_cost;
       if (line.unit_id) {
-        const factor = await this.goodsReceiptsRepo.convertToStorageUnit(line.item_id, 1, line.unit_id);
+        const factor = await this.goodsReceiptsRepo.convertToStorageUnit(
+          line.item_id,
+          1,
+          line.unit_id,
+        );
         quantityReceived = line.quantity_received * factor;
         unitCost = factor > 0 ? line.unit_cost / factor : line.unit_cost;
       }

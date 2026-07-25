@@ -1,15 +1,38 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PurchaseOrdersRepository } from './repositories/purchase-orders.repository';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
+import { RejectPurchaseOrderDto } from './dto/reject-purchase-order.dto';
+import { ApprovalEngine } from '../../engines/approval-engine/approval.engine';
+
+const PO_PENDING_STATUS = 'submitted' as const;
 
 @Injectable()
 export class PurchaseOrdersService {
-  constructor(private readonly purchaseOrdersRepo: PurchaseOrdersRepository) {}
+  constructor(
+    private readonly purchaseOrdersRepo: PurchaseOrdersRepository,
+    private readonly approvalEngine: ApprovalEngine,
+  ) {}
 
-  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
-    return (await this.purchaseOrdersRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
+  async findAll(
+    tenantId: string,
+    status?: string,
+    page?: string,
+    perPage?: string,
+  ) {
+    return (
+      (await this.purchaseOrdersRepo.findAll(
+        tenantId,
+        status,
+        new PaginationDto(page, perPage),
+      )) ?? []
+    );
   }
 
   async findById(id: string, tenantId: string) {
@@ -62,8 +85,44 @@ export class PurchaseOrdersService {
   }
 
   async approve(id: string, tenantId: string, approvedBy: string) {
-    await this.findById(id, tenantId);
-    return this.purchaseOrdersRepo.approve(id, tenantId, approvedBy);
+    const po = await this.findById(id, tenantId);
+    if (!this.approvalEngine.canApprove(po.status, PO_PENDING_STATUS)) {
+      throw new BadRequestException(
+        `Cannot approve purchase order with status: ${po.status}`,
+      );
+    }
+    const result = this.approvalEngine.approve(approvedBy);
+    return this.purchaseOrdersRepo.approve(
+      id,
+      tenantId,
+      result.resolvedBy,
+      result.resolvedAt,
+    );
+  }
+
+  async reject(
+    id: string,
+    tenantId: string,
+    rejectedBy: string,
+    dto: RejectPurchaseOrderDto,
+  ) {
+    const po = await this.findById(id, tenantId);
+    if (!this.approvalEngine.canReject(po.status, PO_PENDING_STATUS)) {
+      throw new BadRequestException(
+        `Cannot reject purchase order with status: ${po.status}`,
+      );
+    }
+    const result = this.approvalEngine.reject(rejectedBy, dto.reason);
+    const note = po.notes
+      ? `${po.notes} | Rejected: ${result.reason}`
+      : `Rejected: ${result.reason}`;
+    return this.purchaseOrdersRepo.reject(
+      id,
+      tenantId,
+      result.resolvedBy,
+      result.resolvedAt,
+      note,
+    );
   }
 
   async cancel(id: string, tenantId: string) {

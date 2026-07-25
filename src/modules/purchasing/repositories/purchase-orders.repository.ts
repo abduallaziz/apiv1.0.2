@@ -9,13 +9,20 @@ export class PurchaseOrdersRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, status?: string, pagination: PaginationDto = new PaginationDto()) {
-    const { data, error } = await this.supabase.rpc('fn_purchase_orders_list_enriched', {
-      p_tenant_id: tenantId,
-      p_status: status ?? null,
-      p_limit: pagination.perPage,
-      p_offset: pagination.offset,
-    });
+  async findAll(
+    tenantId: string,
+    status?: string,
+    pagination: PaginationDto = new PaginationDto(),
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_purchase_orders_list_enriched',
+      {
+        p_tenant_id: tenantId,
+        p_status: status ?? null,
+        p_limit: pagination.perPage,
+        p_offset: pagination.offset,
+      },
+    );
     if (error) throw error;
     return data;
   }
@@ -23,7 +30,9 @@ export class PurchaseOrdersRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('purchase_orders')
-      .select('*, suppliers(name), warehouses(name, code), items:purchase_order_items(*, items(name, sku))')
+      .select(
+        '*, suppliers(name), warehouses(name, code), items:purchase_order_items(*, items(name, sku))',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
@@ -40,14 +49,25 @@ export class PurchaseOrdersRepository extends ScopedRepository {
   ) {
     const { data: po, error } = await this.supabase
       .from('purchase_orders')
-      .insert({ ...payload, tenant_id: tenantId, created_by: createdBy, status: 'draft' })
+      .insert({
+        ...payload,
+        tenant_id: tenantId,
+        created_by: createdBy,
+        status: 'draft',
+      })
       .select()
       .single();
     if (error) throw error;
 
     const { error: itemsError } = await this.supabase
       .from('purchase_order_items')
-      .insert(items.map((i) => ({ ...i, tenant_id: tenantId, purchase_order_id: po.id })));
+      .insert(
+        items.map((i) => ({
+          ...i,
+          tenant_id: tenantId,
+          purchase_order_id: po.id,
+        })),
+      );
     if (itemsError) throw itemsError;
 
     return this.findById(po.id, tenantId);
@@ -79,13 +99,48 @@ export class PurchaseOrdersRepository extends ScopedRepository {
     return data;
   }
 
-  async approve(id: string, tenantId: string, approvedBy: string) {
+  async approve(
+    id: string,
+    tenantId: string,
+    approvedBy: string,
+    resolvedAt: string,
+  ) {
     const { data, error } = await this.supabase
       .from('purchase_orders')
-      .update({ status: 'approved', approved_by: approvedBy, approved_at: new Date().toISOString() })
+      .update({
+        status: 'approved',
+        approved_by: approvedBy,
+        approved_at: resolvedAt,
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('status', 'submitted')
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async reject(
+    id: string,
+    tenantId: string,
+    rejectedBy: string,
+    resolvedAt: string,
+    note: string,
+  ) {
+    // Status eligibility (submitted, or reversing an approved PO) is already
+    // enforced by ApprovalEngine.canReject() in the service before this is
+    // called — mirrors ExpensesService.reject(), which does the same.
+    const { data, error } = await this.supabase
+      .from('purchase_orders')
+      .update({
+        status: 'rejected',
+        approved_by: rejectedBy,
+        approved_at: resolvedAt,
+        notes: note,
+      })
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
       .select()
       .single();
     if (error) throw error;

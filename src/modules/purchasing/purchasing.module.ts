@@ -1,8 +1,12 @@
 import { Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import {
+  SupabaseModule,
+  SUPABASE_CLIENT,
+} from '../../shared/supabase/supabase.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
 
 import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
@@ -17,25 +21,37 @@ import { GoodsReceiptsService } from './goods-receipts.service';
 import { GoodsReceiptsRepository } from './repositories/goods-receipts.repository';
 
 @Module({
-  imports: [SupabaseModule, PermissionsModule, InventoryModule],
-  controllers: [SuppliersController, PurchaseOrdersController, GoodsReceiptsController],
+  imports: [
+    SupabaseModule,
+    PermissionsModule,
+    InventoryModule,
+    ApprovalEngineModule,
+  ],
+  controllers: [
+    SuppliersController,
+    PurchaseOrdersController,
+    GoodsReceiptsController,
+  ],
   providers: [
     SuppliersService,
     PurchaseOrdersService,
     GoodsReceiptsService,
     {
       provide: SuppliersRepository,
-      useFactory: (supabase: SupabaseClient) => new SuppliersRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new SuppliersRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: PurchaseOrdersRepository,
-      useFactory: (supabase: SupabaseClient) => new PurchaseOrdersRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new PurchaseOrdersRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: GoodsReceiptsRepository,
-      useFactory: (supabase: SupabaseClient) => new GoodsReceiptsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new GoodsReceiptsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],

@@ -14,6 +14,7 @@ import {
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
+import { RejectPurchaseOrderDto } from './dto/reject-purchase-order.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -36,7 +37,12 @@ export class PurchaseOrdersController {
     @Query('page') page?: string,
     @Query('per_page') perPage?: string,
   ) {
-    return this.purchaseOrdersService.findAll(tenant.tenantId, status, page, perPage);
+    return this.purchaseOrdersService.findAll(
+      tenant.tenantId,
+      status,
+      page,
+      perPage,
+    );
   }
 
   @Get(':id')
@@ -73,7 +79,7 @@ export class PurchaseOrdersController {
   }
 
   @Post(':id/approve')
-  @RequirePermission('purchasing.approve')
+  @RequirePermission('purchasing.po.approve')
   @HttpCode(HttpStatus.OK)
   approve(
     @Param('id') id: string,
@@ -81,6 +87,23 @@ export class PurchaseOrdersController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.purchaseOrdersService.approve(id, tenant.tenantId, user.sub);
+  }
+
+  @Post(':id/reject')
+  @RequirePermission('purchasing.po.reject')
+  @HttpCode(HttpStatus.OK)
+  reject(
+    @Param('id') id: string,
+    @Body() dto: RejectPurchaseOrderDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.purchaseOrdersService.reject(
+      id,
+      tenant.tenantId,
+      user.sub,
+      dto,
+    );
   }
 
   @Post(':id/cancel')
