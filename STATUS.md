@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: Purchasing #9.4 — unified vendor lead time function (§105) — July 26, 2026
+# Last Updated: Purchasing #9.5.6.2 — Amendments backend complete (§106) — July 26, 2026
 
 ---
 
@@ -3660,3 +3660,31 @@ Phase 2 (Migration + Backend + Frontend + POS) مكتملة ومُتحقَّقة
 
 ## الحالة النهائية
 **9.4 مكتملة ومُتحقَّقة حيًا.** المتبقي من مصفوفة #9: 9.5 (Blanket PO)، 9.6 (Supplier Price History) — ثم الانتقال وفق التسلسل المُعتمَد بـ§104 لباقي الـ24 بند بلا تأجيل.
+
+---
+
+# 106. تنفيذ 9.5 (Purchasing Agreement) بالكامل: Agreements → Amendments → Releases → PO Source Refs — يوليو 26, 2026
+
+## السياق
+هذا البند (سابقًا "Blanket PO") تحوّل عبر مراجعة معمارية مكثّفة (~10 جولات) من فكرة بسيطة (committed_quantity/quantity_released) إلى نموذج نضج كامل: **Agreement** (المستند الجذر) → **Amendment** (تعديلات دلتا فقط، لا إعادة كتابة) → **Release** (مستند شراء فعلي كامل، Snapshot سعري مجمَّد) → **Purchase Order** (مرجع مصدر فقط). كل خطوة مرّت بنفس البروتوكول الثابت: Audit → Design → Business Rules → State Machine → Migration Matrix → اعتماد صريح ("Approved – Proceed with Implementation") → تنفيذ خطوة واحدة → Build/TypeCheck/Runtime Validation → مراجعة → الخطوة التالية.
+
+## Migrations 128-137 (كل واحدة مُتحقَّقة حيًا ببيانات حقيقية، Cleanup كامل بعدها)
+- **128**: `agreements` (مورّد واحد NOT NULL، عملة على الرأس فقط، `status: draft→submitted→approved→closed/cancelled/rejected`، `renewed_from_agreement_id` ذاتي المرجع لسلسلة التجديد)، `agreement_items` (Open Blanket = `committed_quantity`/`committed_value` كلاهما NULL).
+- **129**: قيدا CHECK حقيقيان اكتُشفا بالمراجعة (`expiration_date >= effective_date`، شكل عملة `^[A-Z]{3}$`).
+- **130**: `agreement_pricing` (جداول علائقية صريحة، **لا JSONB** — نفس القرار المعماري الثابت للمشروع بالكامل) + `agreement_pricing_tiers` (Tier أعلى غير محدود عبر `max_quantity` قابل لـNULL).
+- **131**: `agreement_amendments` (Delta-only فلسفيًا: تعديل بند قائم عبر دلتا، إضافة بند عبر صف حقيقي جديد في `agreement_items` موسوم `added_via_amendment_id`، إيقاف بند عبر علم ناعم — لا حذف فعلي أبدًا) + `agreement_amendment_items` + 3 أعمدة تتبّع على `agreement_items`. قاعدة الأهلية: الأنواع التجارية تتطلب `agreement.status='approved'`؛ `administrative_correction` مسموح دائمًا (Schema-only حتى 9.5.6.2).
+- **132**: `agreement_releases` (مستند كامل مستقل، `effective_amendment_id` يسجّل آخر تعديل معتمد وقت الإنشاء) + `agreement_release_items` (Snapshot سعري مُخزَّن لا مُشتَق — `released_amount` مطابق تمامًا لمبدأ `stock_movements.total_cost` — **مُثبَت حيًا**: تغيير `agreement_pricing.unit_price` بعد إنشاء Release لم يُغيّر `snapshot_unit_price`/`released_amount` إطلاقًا).
+- **133**: **فجوة سلامة بيانات حقيقية اكتُشفت بالمراجعة** — FK بسيط على `effective_amendment_id` كان يتحقق من الوجود فقط، لا من انتماء التعديل لنفس الاتفاقية. **الحل**: Composite Foreign Key (`UNIQUE(id, agreement_id)` + FK مركّب) بدل Trigger — قُورن الحلان صراحةً على 6 معايير، Composite FK فاز (Index أصلي، صفر كود إجرائي، أكثر اتساقًا مع فلسفة المشروع). **مُثبَت حيًا**: تعديل عبر Release يشير لتعديل من اتفاقية مختلفة يُرفَض من القاعدة مباشرة.
+- **134**: 4 أعمدة تتبّع مصدر Nullable على `purchase_orders`/`purchase_order_items` — بنفس تقنية Composite FK لضمان تطابق `source_release_item_id` مع `source_agreement_item_id` بنفس السطر.
+- **135**: **إعادة تصميم معمارية كبرى بعد نقاش عميق** — حذف عمودي المصدر من رأس `purchase_orders` بالكامل (`source_agreement_id`/`source_release_id`)، والاعتماد **حصرًا على مستوى البند**. القرار استند لمقارنة فعلية مع SAP/Oracle/Dynamics/ERPNext (الأربعة تُنمذج مرجع العقد/الاتفاقية على مستوى **البند**، لا الرأس) — نموذج "رأس واحد المصدر" كان سيتعارض حتمًا مع "بنود متعددة المصادر"، وهو بالضبط سبب الفجوة المكتشفة أولًا. **لا فقدان وظيفي** (كل استخدام تشغيلي مذكور — Badges/Filters/Dashboards — قابل للاشتقاق بـ`EXISTS`/`JOIN` بسيط).
+- **136**: عمود `action` صريح (`add`/`modify`/`discontinue`) NOT NULL بلا Default على `agreement_amendment_items`، بعد رفض بديلين (إنشاء `agreement_items` أثناء Draft — يؤثر على حالة تشغيلية قبل الاعتماد؛ نمط NULL ضمني للتمييز — غامض). `agreement_item_id` أصبح Nullable + عمودا `new_item_id`/`new_variant_id` لتخزين هوية البند المُضاف مؤقتًا حتى الاعتماد + قيد CHECK صريح يفرض الشكل الصحيح لكل نوع.
+- **137**: `fn_approve_agreement_amendment()` — دالة PostgreSQL واحدة تُطبِّق كل أثر الاعتماد (Modify/Add/Discontinue على `agreement_items` + تحديث حالة الـAmendment + تسجيل `approval_history`) **ذرّيًا بالكامل** (نفس نمط `fn_apply_stock_movement`/`fn_post_goods_receipt`) — اعتُمدت بعد رفض تنفيذ "معاملة" وهمية عبر استدعاءات REST متتابعة قابلة للفشل الجزئي. **مُثبَتة حيًا**: منع تطبيق دلتا كمية/قيمة على بند بقيمة `NULL` حالية (رفض صريح لا COALESCE صامت)، تقييد `modify`/`discontinue` بـ`tenant_id` **و**`agreement_id` معًا (منع تعديل بند تابع لاتفاقية أخرى)، واختبار حي مباشر أثبت التراجع التلقائي الكامل (Atomic Rollback) عند محاولة اعتماد Amendment يستهدف بندًا من اتفاقية مختلفة.
+
+## Backend
+- **9.5.6.1 (Agreements) — مكتمل ومُثبَّت بالكامل** (`AgreementsController/Service/Repository`، دورة حياة `draft→submitted→approved→closed`+`rejected`+`cancelled`، `ApprovalEngine` مع `reference_type='agreement'`، صلاحيتا `purchasing.agreement.approve/.reject` جديدتان لـ`superadmin/owner/manager`). **Commit**: `22def7d`. Full Regression Validation شاملة (DB Integrity، PO Regression، Inventory Regression، ApprovalEngine، Permissions، API Smoke Test) نُفِّذت قبل الاعتماد النهائي — صفر Regression على أي وحدة سابقة.
+- **9.5.6.2 (Amendments) — مكتمل ومُثبَّت بالكامل** (`AmendmentsController/Service/Repository`، دورة حياة `draft→submitted→approved`+`rejected`+`cancelled`، `approved` حالة نهائية بلا `cancel` بعدها بقرار صريح، `ApprovalEngine` مع `reference_type='agreement_amendment'`، صلاحيتا `purchasing.amendment.approve/.reject` جديدتان لنفس الأدوار الثلاثة). قاعدة أهلية 9.5.3 (Commercial يتطلب `agreement.status='approved'`، `administrative_correction` مسموح دائمًا) طُبِّقت فعليًا لأول مرة. `action` صريح (add/modify/discontinue) في الـDTO، بلا استنتاج من الحقول. `approve()` في الـService لا يسجّل `approval_history` بنفسه — الدالة الذرّية (137) تسجّله ضمن نفس المعاملة، تفاديًا للتكرار.
+  - **ملاحظة تقنية من التحقق**: اختبار واحد فشل بشكل غير متسق مع `expect(promise).rejects.toThrow()` رغم أن نفس الاستدعاء عبر `try/catch` يعمل بشكل صحيح ومتكرر — تأكَّد عبر تصحيح مباشر أن سلوك التطبيق (Service+RPC) صحيح 100% في كل الحالات؛ الخلل في مطابقة Jest نفسها لا في الكود. استُبدل بنمط `try/catch` صريح، ونجح الاختبار بثبات.
+- **9.5.6.3 (Releases) لم تبدأ بعد.**
+
+## الحالة النهائية
+Schema بالكامل لـ9.5 (128-137) مكتمل ومُتحقَّق منه حيًا بالكامل. Backend: Agreements وAmendments مكتملان (Amendments غير مدفوع لـ GitHub بعد). Releases: Schema جاهز، Backend لم يُبنَ. **9.5 لم يُغلَق بعد** — Releases هي الخطوة الأخيرة المتبقية.

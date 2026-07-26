@@ -24,6 +24,10 @@ import { AgreementsController } from './agreements.controller';
 import { AgreementsService } from './agreements.service';
 import { AgreementsRepository } from './repositories/agreements.repository';
 
+import { AmendmentsController } from './amendments.controller';
+import { AmendmentsService } from './amendments.service';
+import { AmendmentsRepository } from './repositories/amendments.repository';
+
 import { SupplierQuotesController } from './supplier-quotes.controller';
 import { SupplierQuotesService } from './supplier-quotes.service';
 import { SupplierQuotesRepository } from './repositories/supplier-quotes.repository';
@@ -52,6 +56,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     PurchaseRequestsController,
     RfqsController,
     AgreementsController,
+    AmendmentsController,
     SupplierQuotesController,
     AwardsController,
     PurchaseOrdersController,
@@ -62,6 +67,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     PurchaseRequestsService,
     RfqsService,
     AgreementsService,
+    AmendmentsService,
     SupplierQuotesService,
     AwardsService,
     PurchaseOrdersService,
@@ -87,6 +93,12 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
       provide: AgreementsRepository,
       useFactory: (supabase: SupabaseClient) =>
         new AgreementsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: AmendmentsRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new AmendmentsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -118,6 +130,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     PurchaseRequestsService,
     RfqsService,
     AgreementsService,
+    AmendmentsService,
     SupplierQuotesService,
     AwardsService,
     PurchaseOrdersService,
