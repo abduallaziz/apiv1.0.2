@@ -7,6 +7,7 @@ import {
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
+import { DiscountEngineModule } from '../../engines/discount-engine/discount-engine.module';
 
 import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
@@ -27,6 +28,10 @@ import { AgreementsRepository } from './repositories/agreements.repository';
 import { AmendmentsController } from './amendments.controller';
 import { AmendmentsService } from './amendments.service';
 import { AmendmentsRepository } from './repositories/amendments.repository';
+
+import { ReleasesController } from './releases.controller';
+import { ReleasesService } from './releases.service';
+import { ReleasesRepository } from './repositories/releases.repository';
 
 import { SupplierQuotesController } from './supplier-quotes.controller';
 import { SupplierQuotesService } from './supplier-quotes.service';
@@ -50,6 +55,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     PermissionsModule,
     InventoryModule,
     ApprovalEngineModule,
+    DiscountEngineModule,
   ],
   controllers: [
     SuppliersController,
@@ -57,6 +63,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     RfqsController,
     AgreementsController,
     AmendmentsController,
+    ReleasesController,
     SupplierQuotesController,
     AwardsController,
     PurchaseOrdersController,
@@ -68,6 +75,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     RfqsService,
     AgreementsService,
     AmendmentsService,
+    ReleasesService,
     SupplierQuotesService,
     AwardsService,
     PurchaseOrdersService,
@@ -102,6 +110,12 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
       inject: [SUPABASE_CLIENT],
     },
     {
+      provide: ReleasesRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new ReleasesRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
       provide: SupplierQuotesRepository,
       useFactory: (supabase: SupabaseClient) =>
         new SupplierQuotesRepository(supabase),
@@ -131,6 +145,7 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     RfqsService,
     AgreementsService,
     AmendmentsService,
+    ReleasesService,
     SupplierQuotesService,
     AwardsService,
     PurchaseOrdersService,
