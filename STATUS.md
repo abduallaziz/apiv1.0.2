@@ -3693,3 +3693,8 @@ Phase 2 (Migration + Backend + Frontend + POS) مكتملة ومُتحقَّقة
 
 ## الحالة النهائية — Purchasing #9.5 (Purchasing Agreement)
 **Schema (128-138) مكتمل بالكامل. Backend مكتمل بالكامل للثلاثة (Agreements 9.5.6.1، Amendments 9.5.6.2، Releases 9.5.6.3) — كلها مدفوعة لـGitHub.** المتبقي من مصفوفة #9 بالكامل: **9.6** (Supplier Price History من Goods Receipt فقط) — ثم إغلاق #9 نهائيًا والانتقال وفق خارطة الطريق المؤكَّدة من المستخدم: عناصر المخزون 1، 3، 7، 13، 14، 17، 22 (بالتسلسل، كل بند 100% قبل التالي، لا استثناء) — ثم البنود المؤسسية الكبرى (2، 10، 16، 18-21، 23، 24).
+
+## تحقق نشر (Deployment Verification) — يوليو 27, 2026
+بعد Push آخر Commits (9.5.6.1/9.5.6.2/9.5.6.3 + توثيق STATUS.md):
+- **Railway** (`sefay-api`, مشروع `celebrated-purpose`, بيئة `production`): Build جديد بدأ تلقائيًا عند الـPush، انتهى بنجاح — الخدمة `● Online` فعليًا (`https://sefay-api-production.up.railway.app`)، deployment ID محدَّث يعكس آخر Commit.
+- **Git — تحقق مباشر بعد `git fetch origin`** (لا اعتماد على الذاكرة أو حالة سابقة): كلا المستودعين (`api`, `web`) — الـHEAD المحلي **مطابق حرفيًا** لـ`origin/main` (تطابق الـhash الكامل تأكَّد بـ`diff`)، لا Commits معلَّقة، لا شيء غير مدفوع.
