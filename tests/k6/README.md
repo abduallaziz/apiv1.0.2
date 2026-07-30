@@ -178,6 +178,48 @@ prints a layer-attribution reading.
 Run the phases in order and stop if a phase fails badly — 250 VUs against a
 system that already struggles at 50 produces noise, not information.
 
+## Running Phase 1 from GitHub Actions
+
+`.github/workflows/k6-smoke-test.yml` runs the smoke phase from a GitHub
+runner, which is useful when the machine you are working from cannot reach the
+deployed API.
+
+Configure three repository secrets under **Settings → Secrets and variables →
+Actions**:
+
+| Secret | Value |
+|---|---|
+| `API_URL` | e.g. `https://<service>.up.railway.app/api/v1` — include the `/api/v1` suffix |
+| `K6_EMAIL` | test account email |
+| `K6_PASSWORD` | test account password |
+
+Then **Actions → k6 Smoke Test → Run workflow**. It is `workflow_dispatch` only
+— it authenticates against a live environment and consumes that tenant's
+rate-limit budget, so it is not wired to push or pull_request.
+
+Results appear in two places: a rendered table in the run's job summary (total
+requests, p95, error rate, breached thresholds, CPU/RAM, slowest endpoints), and
+a `k6-smoke-results-<run>` artifact containing `summary.json`, `console.log` and
+`server-metrics.json`.
+
+### Artifacts are sanitized before upload
+
+`k6 run --summary-export` embeds whatever `setup()` returned under a
+`setup_data` key. Our `setup()` returns the logged-in sessions so VUs can share
+them, so that file contains **live JWT access tokens**. Workflow artifacts are
+downloadable by anyone with repo read access and are retained for weeks, so the
+raw file is written to `$RUNNER_TEMP` — never into the uploaded directory — and
+`tools/sanitize-results.js` produces the published copy.
+
+GitHub's secret masking does not cover this: it only redacts configured secrets,
+and only in the live log view. Files written by `tee` never pass through the
+masker.
+
+The sanitizer drops `setup_data`, redacts credential-bearing keys at any depth,
+scrubs the literal `API_URL` and `K6_EMAIL` values, and **fails the step** if
+anything JWT-shaped or a long hex string survives — a red build is cheaper than
+a leaked token in a downloadable artifact.
+
 ## Thresholds
 
 ```
