@@ -25,6 +25,7 @@ import {
   headroomReport,
   loadAccounts,
   loginAll,
+  nonAborting,
   pick,
   saleFlow,
 } from './config.js';
@@ -42,12 +43,14 @@ export const options = {
   ],
   setupTimeout: '300s',
   // Recorded for the report, but deliberately not enforced: a failing
-  // threshold here is the finding, not a broken run.
-  thresholds: {
-    'http_req_duration{kind:read}': [{ threshold: 'p(95)<500', abortOnFail: false }],
-    'http_req_duration{kind:write}': [{ threshold: 'p(95)<1500', abortOnFail: false }],
-    'http_req_failed': [{ threshold: 'rate<0.01', abortOnFail: false }],
-  },
+  // threshold here is the finding, not a broken run. Values come from
+  // baseThresholds so Phase 3 always grades against the same bars as Phase 1
+  // and Phase 2.
+  thresholds: nonAborting([
+    'http_req_duration{kind:read}',
+    'http_req_duration{kind:write}',
+    'http_req_failed',
+  ]),
 };
 
 export function setup() {
