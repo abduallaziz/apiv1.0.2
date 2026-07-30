@@ -1,0 +1,212 @@
+name: k6 Smoke Test
+
+# Manual only. This workflow authenticates against a live deployed environment
+# and is not something that should fire on every push or pull request: it needs
+# a reachable target, real credentials, and consumes that tenant's rate-limit
+# budget. Run it deliberately, after a deploy.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Phase 1 — Smoke (5 VUs / 2 min)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Pinned rather than floating: this is the version the scripts were
+      # validated against, and a silent k6 upgrade changing summary output or
+      # threshold semantics would be indistinguishable from a real regression.
+      K6_VERSION: v0.54.0
+      API_URL: ${{ secrets.API_URL }}
+      K6_EMAIL: ${{ secrets.K6_EMAIL }}
+      K6_PASSWORD: ${{ secrets.K6_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required secrets are set
+        # A missing secret arrives as an empty string, which would otherwise
+        # surface much later as a confusing k6 error. Fail immediately with a
+        # message that names the missing secret instead.
+        run: |
+          missing=""
+          [ -z "$API_URL" ]     && missing="$missing API_URL"
+          [ -z "$K6_EMAIL" ]    && missing="$missing K6_EMAIL"
+          [ -z "$K6_PASSWORD" ] && missing="$missing K6_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required repository secret(s):$missing"
+            echo "Set them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          case "$API_URL" in
+            */api/v1) : ;;
+            *) echo "::warning::API_URL does not end with /api/v1 — every request will 404 unless the prefix is included." ;;
+          esac
+          echo "All required secrets are present."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install k6 ${{ env.K6_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            -o /tmp/k6.tar.gz
+          tar -xzf /tmp/k6.tar.gz -C /tmp
+          sudo install "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /usr/local/bin/k6
+          k6 version
+
+      - name: Start server-side metrics collector
+        # Samples the API's public Prometheus endpoint for CPU, RSS and
+        # event-loop lag while the test runs — the evidence that separates a
+        # backend bottleneck from a database one. Best-effort: if /metrics is
+        # unreachable the smoke test itself must still run.
+        continue-on-error: true
+        run: |
+          node tests/k6/tools/collect-metrics.js watch \
+            --out "$RUNNER_TEMP/server-metrics.json" --interval 5 &
+          echo $! > "$RUNNER_TEMP/collector.pid"
+          echo "Collector started (pid $(cat "$RUNNER_TEMP/collector.pid"))."
+
+      - name: Run smoke test
+        id: k6run
+        run: |
+          set -o pipefail
+          # The raw summary is written to RUNNER_TEMP, never into the directory
+          # that gets uploaded. k6 embeds setup() output — which holds live
+          # session tokens — under `setup_data`, so the unsanitised file must
+          # be structurally incapable of reaching the artifact even if a later
+          # step is skipped or fails.
+          k6 run \
+            --summary-export="$RUNNER_TEMP/raw-summary.json" \
+            tests/k6/smoke.js 2>&1 | tee "$RUNNER_TEMP/raw-console.log"
+
+      - name: Stop server-side metrics collector
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f "$RUNNER_TEMP/collector.pid" ]; then
+            kill -INT "$(cat "$RUNNER_TEMP/collector.pid")" 2>/dev/null || true
+            sleep 4   # let it write its report before the job moves on
+          fi
+
+      - name: Sanitize results
+        if: always()
+        env:
+          # Scrubbed from the artifacts as literals. Both are configured as
+          # secrets, and GitHub's masking only covers the live log view — files
+          # written by `tee` are never passed through the masker.
+          REDACT_VALUES: |
+            ${{ secrets.API_URL }}
+            ${{ secrets.K6_EMAIL }}
+        run: |
+          set -euo pipefail
+          mkdir -p k6-results
+
+          if [ -f "$RUNNER_TEMP/raw-summary.json" ]; then
+            node tests/k6/tools/sanitize-results.js \
+              "$RUNNER_TEMP/raw-summary.json" k6-results/summary.json
+          else
+            echo "::warning::No summary produced — k6 likely failed during setup()."
+          fi
+
+          if [ -f "$RUNNER_TEMP/raw-console.log" ]; then
+            node tests/k6/tools/sanitize-results.js \
+              "$RUNNER_TEMP/raw-console.log" k6-results/console.log
+          fi
+
+          if [ -f "$RUNNER_TEMP/server-metrics.json" ]; then
+            node tests/k6/tools/sanitize-results.js \
+              "$RUNNER_TEMP/server-metrics.json" k6-results/server-metrics.json
+          fi
+
+          ls -la k6-results/
+
+      - name: Write job summary
+        if: always()
+        continue-on-error: true
+        run: |
+          node - <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require('fs');
+          const ms = (n) => (n == null ? 'n/a' : n.toFixed(2) + ' ms');
+
+          console.log('## Phase 1 — Smoke Test\n');
+
+          if (!fs.existsSync('k6-results/summary.json')) {
+            console.log('No summary produced. See the artifact and the step log.');
+            process.exit(0);
+          }
+          const m = JSON.parse(fs.readFileSync('k6-results/summary.json', 'utf8')).metrics || {};
+          const dur = m.http_req_duration || {};
+          const reqs = m.http_reqs || {};
+          const failed = m.http_req_failed || {};
+          const checks = m.checks || {};
+          const throttled = m.throttled_429 || {};
+
+          console.log('| Metric | Value |');
+          console.log('| --- | --- |');
+          console.log(`| Total requests | ${reqs.count ?? 'n/a'} |`);
+          console.log(`| Requests / sec | ${reqs.rate != null ? reqs.rate.toFixed(2) : 'n/a'} |`);
+          console.log(`| Avg response time | ${ms(dur.avg)} |`);
+          console.log(`| p95 latency | ${ms(dur['p(95)'])} |`);
+          console.log(`| Max latency | ${ms(dur.max)} |`);
+          console.log(`| Failed requests | ${failed.passes ?? 0} (${failed.value != null ? (failed.value * 100).toFixed(2) : '0'}%) |`);
+          console.log(`| Throttled (429) | ${throttled.count ?? 0} |`);
+          console.log(`| Checks passed | ${checks.passes ?? 0} / ${(checks.passes ?? 0) + (checks.fails ?? 0)} |`);
+
+          // In --summary-export, each threshold maps to a boolean that is TRUE
+          // when the threshold was BREACHED (verified empirically: a failing
+          // threshold exports `true` and exits k6 with code 99; a passing one
+          // exports `false`). Reading it as "ok" inverts the whole report.
+          const breached = Object.entries(m)
+            .flatMap(([name, v]) =>
+              Object.entries(v.thresholds || {})
+                .filter(([, isBreached]) => isBreached === true)
+                .map(([t]) => `${name}: ${t}`));
+          console.log('\n### Thresholds\n');
+          console.log(breached.length
+            ? 'Breached:\n' + breached.map((b) => `- ${b}`).join('\n')
+            : 'All thresholds passed.');
+
+          if (fs.existsSync('k6-results/server-metrics.json')) {
+            const s = JSON.parse(fs.readFileSync('k6-results/server-metrics.json', 'utf8'));
+            if (s.summary) {
+              console.log('\n### Server-side (Railway)\n');
+              console.log('| Metric | Value |');
+              console.log('| --- | --- |');
+              console.log(`| CPU utilisation | ${s.summary.cpuUtilisation ?? 'n/a'} core-s/s |`);
+              console.log(`| Peak RSS | ${s.summary.peakResidentMemoryMB ?? 'n/a'} MB |`);
+              console.log(`| Peak heap used | ${s.summary.peakHeapUsedMB ?? 'n/a'} MB |`);
+              console.log(`| Event-loop lag p99 | ${s.summary.peakEventLoopLagP99Ms ?? 'n/a'} ms |`);
+            }
+            if (Array.isArray(s.verdict) && s.verdict.length) {
+              console.log('\n### Bottleneck reading\n');
+              for (const line of s.verdict) console.log(`- ${line}`);
+            }
+            if (Array.isArray(s.endpoints) && s.endpoints.length) {
+              console.log('\n### Slowest endpoints\n');
+              console.log('| Endpoint | Requests | Avg | DB queries/req |');
+              console.log('| --- | --- | --- | --- |');
+              for (const e of s.endpoints.slice(0, 10)) {
+                console.log(`| ${e.endpoint} | ${e.requests} | ${e.avgDurationMs} ms | ${e.avgDbQueries} |`);
+              }
+            }
+          }
+          NODE
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-results-${{ github.run_number }}
+          path: k6-results/
+          retention-days: 30
+          if-no-files-found: warn
