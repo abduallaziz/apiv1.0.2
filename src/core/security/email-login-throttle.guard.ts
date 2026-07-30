@@ -7,6 +7,7 @@ import {
 import { ThrottlerException } from '@nestjs/throttler';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../cache/redis-client.token';
+import { isLoadTestMode } from './load-test-mode';
 
 const WINDOW_MS = 60000;
 const MAX_ATTEMPTS_PER_EMAIL = 5;
@@ -34,6 +35,17 @@ export class EmailLoginThrottleGuard implements CanActivate {
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Temporary load-testing bypass — see load-test-mode.ts. Defaults to off.
+    //
+    // This guard is the per-email brute-force protection (5 attempts/minute),
+    // and it is the reason a load test cannot drive many concurrent logins
+    // through one account. Bypassing it is what makes an auth phase possible;
+    // the counting logic below is left completely intact and resumes the
+    // moment the flag is unset.
+    if (isLoadTestMode()) {
+      return true;
+    }
+
     const req = context
       .switchToHttp()
       .getRequest<{ body?: { email?: unknown } }>();

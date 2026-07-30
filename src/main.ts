@@ -9,6 +9,7 @@ import { LoggingInterceptor } from './core/logger/interceptors/logging.intercept
 import { GlobalExceptionFilter } from './core/logger/filters/global-exception.filter';
 import { MetricsInterceptor } from './core/metrics/interceptors/metrics.interceptor';
 import { PerfTrackingInterceptor } from './core/perf/interceptors/perf-tracking.interceptor';
+import { warnIfLoadTestModeEnabled } from './core/security/load-test-mode';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
@@ -60,6 +61,10 @@ async function bootstrap(): Promise<void> {
       transform: true,
     }),
   );
+
+  // Emits a loud banner if LOAD_TEST_MODE is set, before the app starts
+  // serving. Silent when the flag is off, which is the default.
+  warnIfLoadTestModeEnabled();
 
   const loggerService = app.get(LoggerService);
 

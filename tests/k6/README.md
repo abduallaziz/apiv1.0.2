@@ -63,10 +63,61 @@ export K6_PASSWORD='...'
 export ACCOUNTS='[{"email":"a@x.com","password":"..."},{"email":"b@y.com","password":"..."}]'
 ```
 
+## LOAD_TEST_MODE (temporary)
+
+Set on the API service for the duration of a test run:
+
+```
+LOAD_TEST_MODE=true
+```
+
+While enabled, every rate limit is bypassed:
+
+| Limit | Normally | With the flag |
+|---|---|---|
+| per-tenant | 600 req/min | bypassed |
+| per-IP | tenants × 600/min | bypassed |
+| auth | 30 logins/min per IP | bypassed |
+| session | 60 refresh/logout per min | bypassed |
+| per-email login | 5 attempts/min | bypassed |
+
+How it is implemented (`src/core/security/load-test-mode.ts`):
+
+- **Nothing is removed or reconfigured.** Every guard, bucket and limit is
+  untouched. Two early-exit checks were added in front of them —
+  `TenantThrottlerGuard.shouldSkip()` and
+  `EmailLoginThrottleGuard.canActivate()`. `ThrottlerGuard` evaluates
+  `shouldSkip()` before iterating its named throttlers, so one exit covers
+  `global`, `global-ip`, `auth` and `session`.
+- **Off by default.** An environment that does not set the variable behaves
+  exactly as it did before the flag existed.
+- **Fails closed.** Only the literal string `true` enables it. `TRUE`, `1`,
+  `yes` and empty all leave limits fully active, and the Joi schema rejects
+  anything other than `true`/`false` at boot.
+- **Announces itself.** A warning banner is logged at startup whenever the flag
+  is on, with an extra line when `NODE_ENV=production`.
+- **Leaves no residue.** The bypass returns before any Redis write, so no
+  counter is consumed. Unsetting the flag resumes limiting from a clean window
+  rather than a pre-exhausted one.
+
+Authentication, authorization, tenant scoping and validation are unaffected: a
+request that skips throttling still passes through `JwtAuthGuard`,
+`TenantGuard`, `PermissionGuard` and the global `ValidationPipe`.
+
+**While the flag is on there is no brute-force protection on `/auth/login`.**
+Keep it on only for the duration of a run, and only in an environment with no
+real customer data. To disable, remove the variable and redeploy — no code
+change is needed.
+
 ## Rate limits matter more than VU count
 
-Limits are unchanged by request. The consequence has to be planned for rather
-than discovered mid-run:
+**This section applies when `LOAD_TEST_MODE` is NOT set.** With the flag on,
+limits are bypassed entirely and a single account is enough for any VU count;
+`headroomReport()` will still print its warning, which can be ignored in that
+case.
+
+The consequence of running with limits active has to be planned for rather than
+discovered mid-run:
 
 **One tenant = 600 req/min = 10 req/s, total, across all VUs.**
 
