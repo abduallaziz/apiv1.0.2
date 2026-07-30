@@ -63,4 +63,18 @@ export const envValidationSchema = Joi.object({
   // is omitted) above which a stock adjustment requires manager approval
   // before it can be posted. 0 disables the approval workflow entirely.
   INVENTORY_ADJUSTMENT_APPROVAL_THRESHOLD: Joi.number().min(0).default(0),
+
+  // ── Load testing (temporary) ─────────────────────────
+  // Bypasses every rate limit so a k6 run measures the application's ceiling
+  // instead of the throttler's 429 rate. See core/security/load-test-mode.ts.
+  //
+  // Declared as a string, not Joi.boolean(), on purpose: Joi.boolean() would
+  // coerce 'yes'/'1'/'TRUE' to true, whereas isLoadTestMode() requires the
+  // exact string 'true'. Matching that strictness here keeps the schema
+  // honest about what actually enables the flag, so a value that looks
+  // enabling but is not fails validation at boot rather than silently leaving
+  // limits active when the operator believes they are off.
+  //
+  // Remove this entry once load testing is complete.
+  LOAD_TEST_MODE: Joi.string().valid('true', 'false').default('false'),
 });

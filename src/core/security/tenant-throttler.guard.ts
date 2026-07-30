@@ -2,6 +2,7 @@ import { Injectable, ExecutionContext } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { decodeTenantId } from './decode-tenant.util';
+import { isLoadTestMode } from './load-test-mode';
 
 // Internal QA/demo tenant ("Sefay Demo", owner@sefay.com) — also exempted from
 // PermissionGuard (see permission.guard.ts) so it can exercise every feature
@@ -15,6 +16,18 @@ const UNTHROTTLED_TEST_TENANT_IDS = ['9bcd3369-d664-47c8-b297-3bc9b429aacf'];
 @Injectable()
 export class TenantThrottlerGuard extends ThrottlerGuard {
   protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
+    // Temporary load-testing bypass — see load-test-mode.ts. Defaults to off,
+    // so this returns false and behaviour is unchanged unless the flag is
+    // explicitly set to 'true'.
+    //
+    // ThrottlerGuard.canActivate() checks shouldSkip() before iterating the
+    // named throttlers, so one early exit here covers 'global', 'global-ip',
+    // 'auth' and 'session' together. No limit is modified — the buckets are
+    // simply never consulted while the flag is on.
+    if (isLoadTestMode()) {
+      return true;
+    }
+
     const req = context.switchToHttp().getRequest() as Record<string, unknown>;
     const tenantId = decodeTenantId(req);
     return !!tenantId && UNTHROTTLED_TEST_TENANT_IDS.includes(tenantId);
