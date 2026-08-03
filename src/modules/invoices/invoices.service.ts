@@ -23,6 +23,7 @@ import {
   NOTIFICATION_CHANNELS,
 } from '../../core/notification/notification.constants';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { ShiftsService } from '../shifts/shifts.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CancelInvoiceDto } from './dto/cancel-invoice.dto';
 import { HoldOrderDto, HeldOrderVisibility } from './dto/hold-order.dto';
@@ -57,6 +58,7 @@ export class InvoicesService {
     private readonly notificationService: NotificationService,
     private readonly cache: RedisCacheService,
     private readonly config: ConfigService,
+    private readonly shiftsService: ShiftsService,
   ) {}
 
   async create(
@@ -69,6 +71,11 @@ export class InvoicesService {
     ip: string,
     device: string,
   ) {
+    // البيع ممنوع بلا جلسة صندوق مفتوحة — الحد المالي لكل بيع هو جلسة الصندوق النشطة،
+    // وليس مجرد اختياريًا كما كان الحال. لازم يُفحَص هنا أولًا قبل أي عمل آخر (كوبون/بطاقة
+    // هدايا/نقاط ولاء) حتى لا تُنفَّذ أي آثار جانبية لبيع سيُرفَض لاحقًا لعدم وجود جلسة.
+    await this.shiftsService.assertOpenSession(tenant.tenantId, shiftId);
+
     // ثلاثة استعلامات مستقلة تمامًا عن بعضها (فحص ملكية العميل، نسبة الضريبة، إعدادات
     // الولاء) — كانت تُنفَّذ بالتسلسل رغم عدم اعتماد أي منها على نتيجة الآخر، فتضيف
     // زمن استجابة (round-trip) إضافيًا لكل عملية بيع واحدة. تُنفَّذ الآن بالتوازي.
@@ -253,6 +260,7 @@ export class InvoicesService {
         tenant,
         {
           branch_id: branchId,
+          shift_id: shiftId,
           cashier_id: cashierId,
           customer_id: dto.customer_id ?? null,
           status: 'completed',
@@ -271,6 +279,7 @@ export class InvoicesService {
     } else {
       invoice = await this.repo.create(tenant, {
         branch_id: branchId,
+        shift_id: shiftId,
         cashier_id: cashierId,
         customer_id: dto.customer_id ?? null,
         status: 'completed',

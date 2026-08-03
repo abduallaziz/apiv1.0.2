@@ -13,9 +13,10 @@ import { CouponsModule } from '../coupons/coupons.module';
 import { GiftCardsModule } from '../gift-cards/gift-cards.module';
 import { CustomersModule } from '../customers/customers.module';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
+import { ShiftsModule } from '../shifts/shifts.module';
 
 @Module({
-  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule, GiftCardsModule, CustomersModule],
+  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule, GiftCardsModule, CustomersModule, ShiftsModule],
   controllers: [InvoicesController],
   providers: [InvoicesService, InvoicesRepository, TenantsRepository, JwtAuthGuard],
   exports: [InvoicesService],

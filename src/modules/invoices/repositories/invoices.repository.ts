@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
@@ -46,15 +46,16 @@ export class InvoicesRepository extends ScopedRepository {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
       const orderResult = await client.query<{ id: string }>(
         `INSERT INTO orders (
-           tenant_id, branch_id, cashier_id, customer_id, status,
+           tenant_id, branch_id, shift_id, cashier_id, customer_id, status,
            subtotal, discount, tax, total, payment_method, notes,
            coupon_code, gift_card_code, gift_card_amount
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING id`,
         [
           tenant.tenantId,
           orderPayload.branch_id,
+          orderPayload.shift_id ?? null,
           orderPayload.cashier_id,
           orderPayload.customer_id ?? null,
           orderPayload.status,
@@ -131,7 +132,13 @@ export class InvoicesRepository extends ScopedRepository {
     pagination: PaginationDto = new PaginationDto(),
     status?: string,
   ) {
-    let query = this.ordersQuery(tenant).select(this.ORDER_SELECT);
+    // الطلبات المعلقة المحذوفة (استُؤنفت في الكاشير أو حذفها المستخدم من شاشة
+    // الطلبات المعلقة) تُعلَّم بـ deleted_at ويبقى status='pending' كما هو — بدون
+    // هذا الفلتر تظل ظاهرة هنا كصفوف "معلقة" رغم حذفها، ومزدوجة مع الفاتورة
+    // المكتملة التي نتجت عن استئنافها.
+    let query = this.ordersQuery(tenant)
+      .select(this.ORDER_SELECT)
+      .is('deleted_at', null);
 
     if (branchId) query = query.eq('branch_id', branchId);
     if (dateFrom) query = query.gte('created_at', dateFrom);
@@ -205,7 +212,10 @@ export class InvoicesRepository extends ScopedRepository {
     }));
 
     const { error } = await this.supabase.from('order_items').insert(mapped);
-    if (error) throw error;
+    if (error) {
+      if (error.code === '23503') throw new NotFoundException('Unknown item_id or variant_id');
+      throw error;
+    }
   }
 
   async getBranchDefaultWarehouse(branchId: string): Promise<string | null> {

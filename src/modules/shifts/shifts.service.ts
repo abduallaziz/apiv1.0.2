@@ -165,6 +165,25 @@ export class ShiftsService {
     return this.repo.findOpenByUser(actorId, tenant.tenantId);
   }
 
+  // Called by InvoicesService.create() before any sale is written — the cash
+  // register session is the financial boundary for POS sales (see
+  // STATUS.md "Cash Register Session" migration). Kept here rather than
+  // duplicated in InvoicesService so the "what counts as an open session"
+  // rule has exactly one owner.
+  async assertOpenSession(tenantId: string, shiftId?: string | null): Promise<void> {
+    if (!shiftId) {
+      throw new BadRequestException(
+        'NO_ACTIVE_CASH_SESSION: no cash register session id was provided',
+      );
+    }
+    const shift = await this.repo.findById(shiftId, tenantId);
+    if (!shift || shift.status !== 'open') {
+      throw new BadRequestException(
+        'NO_ACTIVE_CASH_SESSION: cash register session is not open',
+      );
+    }
+  }
+
   async getShiftSummary(shiftId: string, tenant: TenantContext) {
     const shift = await this.repo.findById(shiftId, tenant.tenantId);
     if (!shift) throw new NotFoundException('Shift not found');
