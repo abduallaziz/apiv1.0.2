@@ -61,6 +61,7 @@
 | تغنية قوائم أوامر الشراء/استلام البضاعة/التحويلات/الجرد (migration 034) + توحيد zebra striping بكل جداول المخزون | ✅ مكتمل ومدموج — June 29, 2026 (PR api#21 + web#11 — راجع STATUS.md §52). ⚠️ migration 034 لم تُطبَّق على production/staging بعد |
 | تلوين تفاوتات الجرد حسب الاتجاه (أخضر/أحمر/محايد) + zebra striping بجدول عناصر الجرد | ✅ مكتمل ومدموج — June 29, 2026 (PR web#12 — راجع STATUS.md §54). فرونت إند فقط، لا تغييرات backend |
 | تسلسل هرمي للوحة تحكم المخزون (Key Metrics → Status & Alerts → Timeline) | ✅ مكتمل ومدموج — June 29, 2026 (PR web#13 — راجع STATUS.md §55). فرونت إند فقط، لا تغييرات backend |
+| Inventory Recovery (post `git reset --hard` incident) — Items + Transfers contracts fixed, Adjustments/Goods Receipts/Stock Counts audited clean | ✅ مكتمل — August 3, 2026. راجع STATUS.md §107. Backlog: INV-001 (pagination standardization، Adjustments/Goods Receipts/Stock Counts)، INV-002 (error hardening، cancel/submitCount)، INV-003 (فحص فقط — items/stats 500 متقطع)، INV-004 (واجهة إدارة الفئات)، INV-005 (تسريب حالة نماذج الإنشاء — Warehouses/Locations) |
 
 ---
 

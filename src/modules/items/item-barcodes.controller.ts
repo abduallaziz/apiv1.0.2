@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -15,6 +16,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { ItemBarcodesService } from './item-barcodes.service';
 import { CreateItemBarcodeDto } from './dto/create-item-barcode.dto';
 import { UpdateItemBarcodeDto } from './dto/update-item-barcode.dto';
@@ -56,6 +58,21 @@ export class ItemBarcodesController {
   @RequirePermission('items.view')
   findOne(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
     return this.barcodesService.findById(id, tenant.tenantId);
+  }
+
+  // Printable barcode label — item name (+ variant, if any), the barcode
+  // image, its raw value, and its type. Read-only rendering, no writes.
+  @Get(':id/label')
+  @RequirePermission('items.view')
+  async label(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @Res() res: Response,
+  ) {
+    const svg = await this.barcodesService.renderLabel(id, tenant.tenantId);
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Content-Disposition', `inline; filename="barcode-label-${id}.svg"`);
+    res.send(svg);
   }
 
   @Post()

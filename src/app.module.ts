@@ -18,6 +18,9 @@ import { UsersModule } from './modules/users/users.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { ItemsModule } from './modules/items/items.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { ManufacturingModule } from './modules/manufacturing/manufacturing.module';
+import { QualityModule } from './modules/quality/quality.module';
+import { OwnershipModule } from './modules/ownership/ownership.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
@@ -50,6 +53,7 @@ import { RedisCacheModule, REDIS_CLIENT } from './core/cache/redis-cache.module'
 import { PerfTrackingModule } from './core/perf/perf-tracking.module';
 import { AiUsageTrackingModule } from './core/ai-usage/ai-usage-tracking.module';
 import Redis from 'ioredis';
+import { RootController } from './root.controller';
 
 @Module({
   imports: [
@@ -87,6 +91,9 @@ import Redis from 'ioredis';
     BranchesModule,
     ItemsModule,
     InventoryModule,
+    ManufacturingModule,
+    QualityModule,
+    OwnershipModule,
     PurchasingModule,
     InvoicesModule,
     ShiftsModule,
@@ -112,6 +119,7 @@ import Redis from 'ioredis';
     MetricsModule,
     BackupModule,
   ],
+  controllers: [RootController],
   providers: [
     {
       provide: APP_GUARD,

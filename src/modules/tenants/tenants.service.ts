@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { TenantsRepository } from './repositories/tenants.repository';
 import { UpdateTenantProfileDto } from './dto/update-tenant-profile.dto';
+import { AuditService } from '../../core/audit/audit.service';
 
 @Injectable()
 export class TenantsService {
-  constructor(private readonly tenantsRepository: TenantsRepository) {}
+  constructor(
+    private readonly tenantsRepository: TenantsRepository,
+    private readonly auditService: AuditService,
+  ) {}
 
   async getProfile(tenantId: string) {
     const tenant = await this.tenantsRepository.findById(tenantId);
@@ -12,10 +16,26 @@ export class TenantsService {
     return tenant;
   }
 
-  async updateProfile(tenantId: string, dto: UpdateTenantProfileDto) {
+  async updateProfile(tenantId: string, dto: UpdateTenantProfileDto, actorId?: string) {
     const tenant = await this.tenantsRepository.findById(tenantId);
     if (!tenant) throw new NotFoundException('Tenant not found');
-    return this.tenantsRepository.updateProfile(tenantId, dto);
+    const updated = await this.tenantsRepository.updateProfile(tenantId, dto);
+    // Manual audit call — sensitive tenant configuration change, captures
+    // before_data (previous settings) which the interceptor alone never does.
+    if (actorId) {
+      await this.auditService
+        .log({
+          tenant_id: tenantId,
+          actor_id: actorId,
+          action: 'tenant_settings.updated',
+          resource_type: 'tenant_settings',
+          resource_id: tenantId,
+          before_data: tenant as unknown as Record<string, unknown>,
+          after_data: updated as unknown as Record<string, unknown>,
+        })
+        .catch(() => {});
+    }
+    return updated;
   }
 
   async getSubscription(tenantId: string) {

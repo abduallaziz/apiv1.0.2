@@ -27,6 +27,10 @@ import { ShiftsService } from '../shifts/shifts.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CancelInvoiceDto } from './dto/cancel-invoice.dto';
 import { HoldOrderDto, HeldOrderVisibility } from './dto/hold-order.dto';
+import { HoldsRepository } from '../quality/repositories/holds.repository';
+import { OwnershipRepository } from '../ownership/repositories/ownership.repository';
+import { ExpiredBatchesRepository } from '../inventory/repositories/expired-batches.repository';
+import { SerialsRepository } from '../inventory/repositories/serials.repository';
 
 const INVOICES_LIST_TTL = 240; // 4 minutes
 const invoicesListCacheKey = (
@@ -59,6 +63,10 @@ export class InvoicesService {
     private readonly cache: RedisCacheService,
     private readonly config: ConfigService,
     private readonly shiftsService: ShiftsService,
+    private readonly holdsRepo: HoldsRepository,
+    private readonly ownershipRepo: OwnershipRepository,
+    private readonly expiredBatchesRepo: ExpiredBatchesRepository,
+    private readonly serialsRepo: SerialsRepository,
   ) {}
 
   async create(
@@ -346,6 +354,106 @@ export class InvoicesService {
     let stockWarning: string | null = null;
     const warehouseId = await this.repo.getBranchDefaultWarehouse(branchId);
     if (warehouseId) {
+      // Advisory-only quality hold check (Migration 8.2, #19) — purely
+      // informational, contributes to the same stock_warning field the
+      // deduction failure path already uses below. Never throws, never
+      // blocks, and runs strictly BEFORE deductStockForSale() without
+      // altering that call, fn_process_sale_stock_deduction, or
+      // fn_apply_stock_movement in any way — the sale always proceeds
+      // identically regardless of what this check finds.
+      try {
+        const heldItems = await this.holdsRepo.checkHolds(
+          tenant.tenantId,
+          warehouseId,
+          built.items.map((item) => ({
+            item_id: item.item_id,
+            variant_id: item.variant_id ?? null,
+          })),
+        );
+        if (heldItems && heldItems.length > 0) {
+          const names = [...new Set(heldItems.map((h: any) => h.item_name))].join(', ');
+          stockWarning = `Sold item(s) under active quality hold: ${names}`;
+        }
+      } catch (err) {
+        // Quality hold lookup itself failing must never affect the sale —
+        // log and continue exactly as if no holds existed.
+        this.logger.warn(
+          `Quality hold check failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${
+            err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err)
+          }`,
+        );
+      }
+
+      // Advisory-only expired-batch check (Migration 13.13-fix, #13) —
+      // purely informational, contributes to the same stock_warning field.
+      // Never throws, never blocks, runs strictly BEFORE
+      // deductStockForSale() without altering that call,
+      // fn_process_sale_stock_deduction, fn_consume_cost_layers, or its
+      // FEFO ordering in any way — the sale always proceeds identically
+      // regardless of what this check finds. Mirrors the Quality Hold
+      // check above exactly (same non-blocking pattern, same
+      // append-to-stockWarning behavior).
+      try {
+        const expiredBatches = await this.expiredBatchesRepo.checkExpiredBatches(
+          tenant.tenantId,
+          warehouseId,
+          built.items.map((item) => ({
+            item_id: item.item_id,
+            variant_id: item.variant_id ?? null,
+          })),
+        );
+        if (expiredBatches && expiredBatches.length > 0) {
+          const names = [...new Set(expiredBatches.map((b: any) => b.item_name))].join(', ');
+          const expiredBatchWarning = `Sold item(s) with expired batch stock: ${names}`;
+          stockWarning = [stockWarning, expiredBatchWarning].filter(Boolean).join(' | ');
+        }
+      } catch (err) {
+        // Expired-batch lookup itself failing must never affect the sale —
+        // log and continue exactly as if no expired batches existed.
+        this.logger.warn(
+          `Expired batch check failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${
+            err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err)
+          }`,
+        );
+      }
+
+      // Advisory-only ownership layer consumption (Migration 10.1, #20) —
+      // bookkeeping only: reduces any active stock_ownership_layers for the
+      // sold items (company-owned items have no layer, so this is a no-op
+      // for the overwhelming majority of sales). Never throws in a way that
+      // affects the sale, never touches stock_levels/cost_layers/
+      // stock_movements/fn_apply_stock_movement — those are handled
+      // identically to before by the unchanged deductStockForSale() call
+      // below, regardless of what happens here.
+      try {
+        const ownedItemNames: string[] = [];
+        for (const item of built.items) {
+          const consumed = await this.ownershipRepo.consumeForSale(
+            tenant.tenantId,
+            warehouseId,
+            item.item_id,
+            item.variant_id ?? null,
+            item.quantity,
+          );
+          if (consumed > 0) {
+            ownedItemNames.push(item.item_name ?? item.item_id);
+          }
+        }
+        if (ownedItemNames.length > 0) {
+          const names = [...new Set(ownedItemNames)].join(', ');
+          const ownershipWarning = `Sold item(s) held under non-company ownership: ${names}`;
+          stockWarning = [stockWarning, ownershipWarning].filter(Boolean).join(' | ');
+        }
+      } catch (err) {
+        // Ownership consumption itself failing must never affect the sale —
+        // log and continue exactly as if no ownership layers existed.
+        this.logger.warn(
+          `Ownership layer consumption failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${
+            err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err)
+          }`,
+        );
+      }
+
       try {
         await this.repo.deductStockForSale(
           tenant.tenantId,
@@ -370,7 +478,10 @@ export class InvoicesService {
         this.logger.warn(
           `Stock deduction failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${message}`,
         );
-        stockWarning = message;
+        // Append rather than overwrite — a quality-hold advisory may have
+        // already been set above; both are independent, non-blocking
+        // signals about the same sale and neither should hide the other.
+        stockWarning = [stockWarning, message].filter(Boolean).join(' | ');
         this.notificationService
           .notify({
             userId: cashierId,
@@ -384,6 +495,30 @@ export class InvoicesService {
             },
           })
           .catch(() => {}); // الإشعار نفسه لا يجب أن يوقف الاستجابة لو فشل إرساله
+      }
+    }
+
+    // Serial sale transition (Migration 13.14 Phase 3, #14) — only for
+    // lines that explicitly carry a serial_id (normal, non-serialized
+    // sales have none and this loop is a no-op for them, per approved
+    // scope). fn_sell_serial doesn't need a warehouse, so this runs
+    // independent of the default_warehouse_id gate above. Best-effort,
+    // same non-blocking pattern as every other advisory/bookkeeping step
+    // in this method — a failed transition is logged and appended to
+    // stock_warning, never thrown, and never affects invoice completion.
+    for (const item of built.items as (typeof built.items[number] & { serial_id?: string; warranty_months?: number })[]) {
+      if (!item.serial_id) continue;
+      try {
+        await this.serialsRepo.sell(item.serial_id, invoice.id, item.warranty_months ?? null);
+      } catch (err) {
+        const message =
+          err && typeof err === 'object' && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
+        this.logger.warn(
+          `Serial sale transition failed for invoice ${invoice.id} (serial ${item.serial_id}): ${message}`,
+        );
+        stockWarning = [stockWarning, `Serial ${item.serial_id}: ${message}`].filter(Boolean).join(' | ');
       }
     }
 
@@ -530,6 +665,30 @@ export class InvoicesService {
       .catch((err) => {
         this.logger.warn(
           `Stock restock failed for cancelled invoice ${id}: ${err?.message ?? err}`,
+        );
+      });
+
+    // Serial return transition (Migration 13.14 Phase 3, #14) — restores
+    // any serials sold under this invoice (sold -> returned, via the
+    // existing, unmodified fn_return_serial). Best-effort, same pattern as
+    // the stock-restock call above: a failure here must never block the
+    // cancellation itself. A no-op for invoices with no serialized lines.
+    this.serialsRepo
+      .findSoldByOrder(id, tenant.tenantId)
+      .then((soldSerials) =>
+        Promise.all(
+          (soldSerials ?? []).map((s: { id: string }) =>
+            this.serialsRepo.returnSerial(s.id).catch((err) => {
+              this.logger.warn(
+                `Serial return transition failed for cancelled invoice ${id} (serial ${s.id}): ${err?.message ?? err}`,
+              );
+            }),
+          ),
+        ),
+      )
+      .catch((err) => {
+        this.logger.warn(
+          `Serial lookup failed for cancelled invoice ${id}: ${err?.message ?? err}`,
         );
       });
 

@@ -6,12 +6,17 @@ import {
 } from '../../shared/supabase/supabase.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { ItemsModule } from '../items/items.module';
 import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
 import { DiscountEngineModule } from '../../engines/discount-engine/discount-engine.module';
 
 import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
 import { SuppliersRepository } from './repositories/suppliers.repository';
+
+import { SupplierItemsController } from './supplier-items.controller';
+import { SupplierItemsService } from './supplier-items.service';
+import { SupplierItemsRepository } from './repositories/supplier-items.repository';
 
 import { PurchaseRequestsController } from './purchase-requests.controller';
 import { PurchaseRequestsService } from './purchase-requests.service';
@@ -49,16 +54,22 @@ import { GoodsReceiptsController } from './goods-receipts.controller';
 import { GoodsReceiptsService } from './goods-receipts.service';
 import { GoodsReceiptsRepository } from './repositories/goods-receipts.repository';
 
+import { LandedCostsController } from './landed-costs.controller';
+import { LandedCostsService } from './landed-costs.service';
+import { LandedCostsRepository } from './repositories/landed-costs.repository';
+
 @Module({
   imports: [
     SupabaseModule,
     PermissionsModule,
     InventoryModule,
+    ItemsModule,
     ApprovalEngineModule,
     DiscountEngineModule,
   ],
   controllers: [
     SuppliersController,
+    SupplierItemsController,
     PurchaseRequestsController,
     RfqsController,
     AgreementsController,
@@ -68,9 +79,11 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     AwardsController,
     PurchaseOrdersController,
     GoodsReceiptsController,
+    LandedCostsController,
   ],
   providers: [
     SuppliersService,
+    SupplierItemsService,
     PurchaseRequestsService,
     RfqsService,
     AgreementsService,
@@ -80,10 +93,17 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
     AwardsService,
     PurchaseOrdersService,
     GoodsReceiptsService,
+    LandedCostsService,
     {
       provide: SuppliersRepository,
       useFactory: (supabase: SupabaseClient) =>
         new SuppliersRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: SupplierItemsRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new SupplierItemsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -136,6 +156,12 @@ import { GoodsReceiptsRepository } from './repositories/goods-receipts.repositor
       provide: GoodsReceiptsRepository,
       useFactory: (supabase: SupabaseClient) =>
         new GoodsReceiptsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: LandedCostsRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new LandedCostsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],

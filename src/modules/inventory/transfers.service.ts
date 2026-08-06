@@ -15,7 +15,9 @@ export class TransfersService {
   ) {}
 
   async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
-    return (await this.transfersRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
+    const pagination = new PaginationDto(page, perPage);
+    const { data, total } = await this.transfersRepo.findAll(tenantId, status, pagination);
+    return { data, total, page: pagination.page, perPage: pagination.perPage };
   }
 
   async findById(id: string, tenantId: string) {

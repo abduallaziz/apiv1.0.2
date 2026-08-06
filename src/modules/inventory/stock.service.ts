@@ -34,6 +34,13 @@ export class StockService {
     return this.stockRepo.findAtp(tenantId, warehouseId, itemId, variantId);
   }
 
+  // Migration 13.15-fix — read-only cost layer visibility, no caching (same
+  // reasoning as ATP: this reflects live costing state, not something to
+  // serve stale from Redis).
+  async findCostLayers(tenantId: string, filter: { itemId?: string; warehouseId?: string }) {
+    return this.stockRepo.findCostLayers(tenantId, filter);
+  }
+
   async findLevelsEnriched(tenantId: string, filter: StockLevelEnrichedFilter) {
     const key =
       `${stockCachePrefix(tenantId)}levels-enriched:wh:${filter.warehouseId ?? 'all'}:item:${filter.itemId ?? 'all'}` +

@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantSessionService } from '../../core/tenant/tenant-session.service';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
+import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
 
 import { WarehousesController } from './warehouses.controller';
 import { WarehousesService } from './warehouses.service';
@@ -48,8 +49,25 @@ import { WmsController } from './wms.controller';
 import { WmsService } from './wms.service';
 import { WmsRepository } from './repositories/wms.repository';
 
+import { PlanningController } from './planning.controller';
+import { PlanningService } from './planning.service';
+import { PlanningRepository } from './repositories/planning.repository';
+
+import { AdvancedAnalyticsController } from './advanced-analytics.controller';
+import { AdvancedAnalyticsService } from './advanced-analytics.service';
+import { AdvancedAnalyticsRepository } from './repositories/advanced-analytics.repository';
+
+import { SnapshotsController } from './snapshots.controller';
+import { SnapshotsService } from './snapshots.service';
+import { SnapshotsRepository } from './repositories/snapshots.repository';
+import { ExpiredBatchesRepository } from './repositories/expired-batches.repository';
+import { SerialsController } from './serials.controller';
+import { CostLayersController } from './cost-layers.controller';
+import { SerialsService } from './serials.service';
+import { SerialsRepository } from './repositories/serials.repository';
+
 @Module({
-  imports: [SupabaseModule, PermissionsModule],
+  imports: [SupabaseModule, PermissionsModule, ApprovalEngineModule],
   controllers: [
     WarehousesController,
     LocationsController,
@@ -62,6 +80,11 @@ import { WmsRepository } from './repositories/wms.repository';
     AnalyticsController,
     ReportsController,
     WmsController,
+    PlanningController,
+    AdvancedAnalyticsController,
+    SnapshotsController,
+    SerialsController,
+    CostLayersController,
   ],
   providers: [
     WarehousesService,
@@ -75,6 +98,10 @@ import { WmsRepository } from './repositories/wms.repository';
     AnalyticsService,
     ReportsService,
     WmsService,
+    PlanningService,
+    AdvancedAnalyticsService,
+    SnapshotsService,
+    SerialsService,
     {
       provide: WarehousesRepository,
       useFactory: (supabase: SupabaseClient) => new WarehousesRepository(supabase),
@@ -131,7 +158,32 @@ import { WmsRepository } from './repositories/wms.repository';
       useFactory: (supabase: SupabaseClient) => new WmsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
+    {
+      provide: PlanningRepository,
+      useFactory: (supabase: SupabaseClient) => new PlanningRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: AdvancedAnalyticsRepository,
+      useFactory: (supabase: SupabaseClient) => new AdvancedAnalyticsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: SnapshotsRepository,
+      useFactory: (supabase: SupabaseClient) => new SnapshotsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: ExpiredBatchesRepository,
+      useFactory: (supabase: SupabaseClient) => new ExpiredBatchesRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: SerialsRepository,
+      useFactory: (supabase: SupabaseClient) => new SerialsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
   ],
-  exports: [WarehousesService, StockService, LocationsService],
+  exports: [WarehousesService, StockService, LocationsService, ExpiredBatchesRepository, SerialsRepository],
 })
 export class InventoryModule {}

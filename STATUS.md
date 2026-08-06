@@ -3698,3 +3698,689 @@ Phase 2 (Migration + Backend + Frontend + POS) مكتملة ومُتحقَّقة
 بعد Push آخر Commits (9.5.6.1/9.5.6.2/9.5.6.3 + توثيق STATUS.md):
 - **Railway** (`sefay-api`, مشروع `celebrated-purpose`, بيئة `production`): Build جديد بدأ تلقائيًا عند الـPush، انتهى بنجاح — الخدمة `● Online` فعليًا (`https://sefay-api-production.up.railway.app`)، deployment ID محدَّث يعكس آخر Commit.
 - **Git — تحقق مباشر بعد `git fetch origin`** (لا اعتماد على الذاكرة أو حالة سابقة): كلا المستودعين (`api`, `web`) — الـHEAD المحلي **مطابق حرفيًا** لـ`origin/main` (تطابق الـhash الكامل تأكَّد بـ`diff`)، لا Commits معلَّقة، لا شيء غير مدفوع.
+
+---
+
+# 107. Inventory Recovery Completed — August 3, 2026
+
+## Context
+A `git reset --hard` performed mid-session while resolving a stash conflict discarded a batch of uncommitted working-tree changes in `api` (never staged, never stashed — confirmed unrecoverable via `git fsck`/reflog audit). Rather than guessing what was lost, every affected inventory-adjacent module was individually audited by diffing its actual frontend contract (already-uncommitted, intact in `web`) against the current backend state, and cross-checked with `git status` on each backend file to distinguish genuine regressions from modules that were simply never rebuilt for the newer contract. Two real regressions were found and fixed; three modules were confirmed clean with no code changes needed.
+
+## Completed Recoveries
+
+### Items Backend Contract Recovery
+**Status: Completed**
+- Restored `/items/stats` (route didn't exist — added, registered before `:id` to avoid route-swallowing)
+- Restored `/items` envelope response (`{data, total, page, perPage}` — was returning a bare array)
+- Restored query filters (`search`, `type`, `category_id`, `is_active`, `sort`, `dir` — DTO existed but was never wired in; sort enforced against a whitelist, never raw-interpolated)
+- Restored POS `ItemGrid` compatibility (`useCatalogItems` depends on the envelope for its infinite-pagination logic)
+- Validated live: `/items/stats` → `{"total":5,"active":4,"withVariants":1}`; search/type/combined filters all returned exact matches; POS grid rendered real products; `getAll()` backward-compat confirmed via two independent dropdown consumers (Adjustments, Goods Receipts); zero console errors
+- Files: `items.controller.ts`, `items.service.ts`, `items.repository.ts` (+ separately, SKU auto-generation restored in `create-item.dto.ts` and the same service/repository files)
+
+### Transfers Recovery
+**Status: Completed**
+- Restored pagination envelope (`{data, total, page, perPage}` — RPC `fn_stock_transfers_list_enriched` has no total-count column, so a parallel lightweight count query was added instead of touching the RPC)
+- Added total count support (same `tenant_id`/`status` filters as the list query)
+- Validated live: envelope confirmed via network capture (`total:5`), status filter (`status=draft` → `total:2`, exact match), pagination (`per_page=100` → correctly echoed)
+- Workflow mutations unaffected: approve/dispatch/receive/complete/cancel untouched; live-tested TR-004 draft→approved transition succeeded
+- Files: `transfers.repository.ts`, `transfers.service.ts`
+
+## Audited Modules — No Recovery Required
+
+### Adjustments
+- Contract compatible (bare array ↔ bare array, `CreateAdjustmentDTO` fields match field-for-field, status enum matches)
+- No regression — all 3 backend files confirmed via `git status` at last commit, zero uncommitted diff
+- Mutations confirmed working: `create/approve/reject/post`
+- Pagination limitation recorded (INV-001)
+
+### Goods Receipts
+- Contract compatible (bare array ↔ bare array, DTO fields match, status enum matches) — module lives under `modules/purchasing`, not `modules/inventory`
+- No regression — all 4 backend files confirmed clean
+- Mutations confirmed working: `create/post/cancel`
+- Pagination limitation recorded (INV-001)
+- Cancel error handling issue recorded (INV-002) — `cancel()` has no `throwFromRpcError` wrapping, unlike `post()`; an invalid-state cancel would surface a raw Supabase "no rows returned" error instead of a clean business message
+
+### Stock Counts
+- Contract compatible (bare array ↔ bare array, status enum matches) — backend lives at `counts.controller/service/repository.ts`, frontend folder named `stock-counts`
+- No regression — all backend files confirmed clean
+- Mutations confirmed working: `create/submitCount/finalize` (`finalize()` already correctly wrapped with `throwFromRpcError`)
+- Pagination limitation recorded (INV-001)
+- `submitCount()` error handling issue recorded (INV-002) — same raw-error pattern as Goods Receipts `cancel()`, lower real-world risk since the item id always comes from the count's own already-loaded item list
+
+## Final System State
+
+| Module | Status | Notes |
+|---|---|---|
+| Items | ✅ Recovered & Validated | `/items/stats`, envelope, filters, POS grid, SKU auto-gen all restored and live-verified |
+| Transfers | ✅ Recovered & Validated | Envelope + total count restored via parallel count query, no RPC change; full mutation chain unaffected |
+| Adjustments | ✅ Closed — No Regression | Contract was never broken |
+| Goods Receipts | ✅ Closed — No Regression | Contract was never broken |
+| Stock Counts | ✅ Closed — No Regression | Contract was never broken |
+
+## Recommendation
+Inventory recovery phase is complete. Every regression found was fixed with a minimal, scoped change and validated live with network-level evidence, not just type-checks. The three clean modules were confirmed via direct `git status` inspection of every backend file, not inferred. Remaining limitations are captured as backlog items (INV-001 through INV-005 below), none of which represent data loss, broken user flows, or silent failures in paths tenants use today. **The system is ready to move to new feature development.**
+
+---
+
+# Inventory Backlog
+
+## INV-001 — Inventory Pagination Standardization
+**Priority: Medium**
+
+Affected:
+- Adjustments
+- Goods Receipts
+- Stock Counts
+- Any inventory list with a silent 50-row limit
+
+Goal:
+- Server total count
+- Envelope response `{data, total, page, perPage}`
+- Pagination UI
+- Rows-per-page selector
+
+## INV-002 — Inventory Workflow Error Hardening
+**Priority: Medium**
+
+Affected:
+- Goods Receipts `cancel()`
+- Transfers `cancel()`
+- Stock Counts `submitCount()`
+
+Goal: Replace raw database errors with business-friendly exceptions (mirror the `throwFromRpcError` pattern already used correctly by `post()`/`dispatch()`/`finalize()`).
+
+Rules:
+- Keep workflow logic unchanged.
+- Do not alter business logic.
+
+## INV-003 — Items Stats Intermittent 500 Investigation
+**Priority: Low**
+
+Observed: Intermittent `GET /items/stats` 500 during Transfers validation session (self-recovering, interleaved with 200s).
+
+Action: Investigate only if reproducible. No changes unless a confirmed root cause is found.
+
+## INV-004 — Categories Management UI
+**Priority: Medium**
+
+Finding: Backend categories exist (`categories.controller.ts` et al.) but no complete user UI for category management.
+
+Future:
+- Category management page
+- Assign categories to products
+
+## INV-005 — Shared Form State Leakage
+**Priority: Medium**
+
+Finding: Some create forms may retain previous record values instead of resetting to empty state.
+
+Affected:
+- Warehouses
+- Locations
+
+Future: Ensure create forms always initialize empty state.
+
+---
+
+# 108. Documentation Drift Correction — Inventory 24-Point Roadmap Items #16 and #17 — August 3, 2026
+
+> **Superseded by §109** (August 3, 2026): the "Missing" API-layer gaps for both #16 and #17 documented below were closed via Migrations 6.3–6.9. Kept here unedited as the historical record of what was missing at the time; see §109 for current status.
+
+## Context
+A verification pass against the original 24-point inventory spec (`~/.claude/plans/idempotent-petting-frost.md`) re-checked every prior "completed" claim directly against current code (modules, controllers, services, migrations, live RPC calls) rather than trusting STATUS.md's own history. Two items — previously recorded as complete (§93/§94) — were found to describe database-layer work only, with no reachable API surface. This section corrects their status. No application code was changed as part of this correction — documentation only.
+
+## #16 Manufacturing (BOM, production/work orders, work centers)
+**Status corrected: Completed → Partially Implemented**
+
+**Completed:**
+- Database schema — `work_centers`, `bill_of_materials`, `bom_lines`, `production_orders` (migration 112), confirmed live and readable
+- Manufacturing RPC/business logic — `fn_post_production_order()` confirmed callable against the live database (returned the expected business error for a non-existent order, proving real logic executes, not a stub)
+
+**Missing:**
+- API module — no `manufacturing`/`production` directory exists under `api/src/modules`
+- Controllers/services/DTOs — zero `@Controller` routes, zero service files reference `production_orders`/`bill_of_materials`/`work_centers`; `fn_post_production_order` has zero TypeScript call sites anywhere in `api/src`
+- Frontend workflow — no BOM management or production-order UI exists under `web/src/features`
+
+**Status:** Deferred until Manufacturing phase (matches TASKS.md's own Phase 13, already correctly marked ⏸️ deferred there — no TASKS.md correction needed).
+
+## #17 Planning & Replenishment (forecasting, purchase suggestions)
+**Status corrected: Completed → Partially Implemented**
+
+**Completed:**
+- Reorder point API — `reorder-points.controller.ts` fully implemented and reachable (`GET /`, `GET /below-minimum`, `GET /:id`, `POST /`, update/remove)
+- Forecasting RPC — `fn_calculate_demand_forecast()` (migration 113), live in the database
+- Purchase suggestions RPC — `fn_purchase_suggestions()` (migration 113, redefined with updated internals in migration 127 — actively maintained, not abandoned)
+- Regression tests — `api/src/database/migrations/__tests__/unified-lead-time.regression.spec.ts` calls `fn_purchase_suggestions` directly via `supabase.rpc(...)` and asserts on real output; this is genuine, currently-passing, automated verification at the RPC layer
+
+**Missing:**
+- User-facing API endpoint for suggestions/forecasting — no controller anywhere exposes `fn_purchase_suggestions` or `fn_calculate_demand_forecast`; only the reorder-point CRUD half of this item is reachable
+- Frontend workflow — no forecasting/purchase-suggestions UI exists
+
+**Status:** Deferred until Planning phase.
+
+## Why this happened
+Both items were verified and tested exclusively at the RPC/database layer during their original build sessions (§93/§94) — the same direct-RPC-call methodology used throughout this project's own verification work — without a corresponding API/controller layer ever being built on top. STATUS.md's "مكتمل ومُتحقَّق حيًا" (complete and live-verified) language was accurate for what was tested, but did not distinguish "the database can do this" from "a user or frontend can reach this," which matters for any production-readiness read of this log.
+
+## Final State (as of this section — see §109 for current status)
+| # | Item | DB/RPC Layer | API Layer | Corrected Status |
+|---|---|---|---|---|
+| 16 | Manufacturing | Complete | Missing entirely | Partially Implemented — deferred until Manufacturing phase |
+| 17 | Planning & Replenishment | Complete, regression-tested | Reorder-points reachable; forecasting/suggestions not exposed | Partially Implemented — deferred until Planning phase |
+
+---
+
+# 109. Roadmap Synchronization — Inventory 24-Point Roadmap Items #16 and #17 — August 3, 2026
+
+## Context
+Migrations 6.3–6.9 (this project) closed the API-layer gaps §108 identified for items #16 and #17. This section updates both items' status accordingly. Documentation only — no code, database, migration, or permission changes were made as part of this update.
+
+## #16 Manufacturing (BOM, production/work orders, work centers)
+**Status corrected: Partially Implemented → Complete**
+
+Manufacturing backend/API layer is complete.
+
+**Completed:**
+- Manufacturing database foundation (migration 112, plus location integration in migration 140)
+- BOM APIs (Migration 6.3) — `bom.controller.ts`/`bom.service.ts`/`repositories/bom.repository.ts`, full CRUD + line management + activate/deactivate, reachable at `manufacturing/bom`
+- Work Centers APIs (Migration 6.4) — `work-centers.controller.ts`/`work-centers.service.ts`/`repositories/work-centers.repository.ts`, reachable at `manufacturing/work-centers`
+- Production Orders APIs (Migrations 6.6–6.7) — `production-orders.controller.ts`/`production-orders.service.ts`/`repositories/production-orders.repository.ts`, reachable at `manufacturing/production-orders`, with an enriched read model (BOM snapshot, components, warehouse/work-center/creator info)
+- Production lifecycle handling (Migration 6.8) — `draft → in_progress → completed`, `draft`/`in_progress → cancelled`, backed by `fn_post_production_order` (migration 141 widened its guard to accept `in_progress`)
+
+Classification follows the same backend-complete precedent used for WMS (#7, §96) — **frontend screens are not required for roadmap completion status.**
+
+## #17 Planning & Replenishment (forecasting, purchase suggestions)
+**Status corrected: Partially Implemented (Deferred) → Complete**
+
+Planning & Replenishment capabilities are complete.
+
+**Completed:**
+- Reorder point functionality — `reorder-points.controller.ts`, already reachable prior to this update
+- Demand forecast API (Migration 6.9) — `planning.controller.ts` (`GET inventory/planning/demand-forecast`), exposing `fn_calculate_demand_forecast()` (migration 113)
+- Purchase suggestions API (Migration 6.9) — `planning.controller.ts` (`GET inventory/planning/purchase-suggestions`), exposing `fn_purchase_suggestions()` (migration 113, redefined in migration 127)
+
+Existing planning RPC capabilities are now reachable through the Inventory API layer — both previously-orphaned RPCs have a live controller/service/repository path (`PlanningController → PlanningService → PlanningRepository`), gated by the existing `inventory.view` permission.
+
+## Updated Final State
+| # | Item | DB/RPC Layer | API Layer | Status |
+|---|---|---|---|---|
+| 16 | Manufacturing | Complete | Complete (BOM, Work Centers, Production Orders + lifecycle) | **Complete** |
+| 17 | Planning & Replenishment | Complete, regression-tested | Complete (reorder points + forecast + suggestions all reachable) | **Complete** |
+
+No other items from the 24-point roadmap were reassessed in this pass — this correction is scoped to #16 and #17 only, per explicit request.
+
+---
+
+# 110. Roadmap Synchronization — Inventory 24-Point Roadmap Item #19 — August 3, 2026
+
+## Context
+Migration 8.2 built the Quality Management foundation (#19). This section records its completion, following the same synchronization pattern as §109 (#16/#17). Documentation only — no code, database, migration, or permission changes were made as part of this update.
+
+## #19 Quality Management (inspections, holds, non-conformances)
+**Status: Complete**
+
+**Completed (Migration 8.2):**
+- `QualityModule` introduced — a dedicated domain module (`api/src/modules/quality/`), not folded into `InventoryModule`, mirroring `ManufacturingModule`'s shape (three sub-domain trios: Inspections, Holds, Non-Conformances)
+- `quality_inspections` table created — `pending → {passed,failed,conditional}` lifecycle, linked to `goods_receipt`/`stock_count` via a polymorphic `reference_type`/`reference_id` pair (same pattern as `approval_history`)
+- `quality_holds` table created — `active → released` lifecycle
+- `non_conformances` table created — `open → closed` lifecycle, linked to `quality_inspections`
+- `fn_check_quality_holds()` RPC — the one new, read-only, `STABLE` function added; all other Quality CRUD uses plain repository `.from()` calls, no unnecessary RPCs
+- **ApprovalEngine integration completed** — quality hold release reuses the existing `ApprovalEngine`/`approval_history` mechanism (same pattern as Stock Counts and Purchasing Amendments); no new approval mechanism was built
+- **Advisory quality hold integration added** to `InvoicesService.create()` — a read-only check runs immediately before the existing `deductStockForSale()` call and contributes to the existing `stock_warning` response field
+- `quality.view` / `quality.manage` permissions added and seeded to superadmin/owner/manager (both) and inventory_clerk (view only)
+
+**Explicitly confirmed:**
+- Quality holds are **advisory only** — they do not and cannot block a sale.
+- The sales flow (`InvoicesService.create()`) was **not blocked** — the existing "a stock problem never stops an already-completed sale" behavior (§64) is unchanged; the only addition is an informational warning.
+- **Inventory core tables were not modified** — `stock_levels`, `stock_movements`, and `cost_layers` have zero schema changes from this work.
+- **`fn_apply_stock_movement` and costing logic were untouched** — `fn_process_sale_stock_deduction` and every costing RPC remain byte-for-byte identical to before Migration 8.2.
+
+**Scope note**: A Migration 8.3 audit evaluated 5 potential Phase 2 extensions (Inspection Rules/Templates, Quality Reports, Inspection Criteria, Sampling Plans, Advanced Quality Workflows) and concluded none are part of #19's original roadmap scope — the foundation above is the complete, roadmap-defined feature set. No Migration 8.4 was pursued.
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 16 | Manufacturing | **Complete** |
+| 17 | Planning & Replenishment | **Complete** |
+| 18 | Advanced Analytics | **Complete** |
+| 19 | Quality Management | **Complete** |
+
+No other items from the 24-point roadmap were reassessed in this pass — this synchronization is scoped to #19 only.
+
+---
+
+# 111. Migration 13.1 / 13.1A / 13.1B — Inventory 24-Point Roadmap Item #1 (Organization Structure) — August 4, 2026
+
+## Context
+Item #1 (Organization Structure) had the full Company → Branch → Warehouse → Location schema and API surface in place since early migrations, but `warehouses.branch_id` was nullable and unenforced — the one gap keeping it at Partial instead of Complete (Migration 13.1 audit). A follow-up data audit found 28 warehouses in the shared demo tenant with `branch_id IS NULL`; a dedicated cleanup audit (Migration 13.1A) classified 20 of them as confirmed regression/E2E test fixtures (16 from `transfer-lifecycle.regression.spec.ts`'s `Regr WH B` fixture, 3 `E2E WH A/B/C` + 6 already-soft-deleted `TC014`/`TSWH001`/`TDWH001` from the TestSprite browser E2E suite, 1 `SNAP11 WH2` from `inventory-snapshots.regression.spec.ts`), 2 as legitimate business/demo data (`WH100`, `WH200`), and confirmed every one of them carries live `stock_movements` references — meaning hard deletion was never viable given the immutable ledger, only soft-delete.
+
+## #1 Organization Structure
+**Status: Complete**
+
+**Data cleanup (no code/schema changes):**
+- 20 confirmed regression/E2E fixture warehouses soft-deleted (`deleted_at` set) — no hard deletes, `stock_movements`/inventory history left byte-for-byte unchanged (verified: 16 `stock_movements` rows referencing them, present before and after)
+- All 28 warehouses that had `branch_id IS NULL` (20 just-archived fixtures + 6 already-soft-deleted TestSprite fixtures + `WH100`/`WH200`) backfilled to the tenant's `Main Branch` — required because a `NOT NULL` constraint applies to every row regardless of `deleted_at`
+- Confirmed zero `branch_id IS NULL` rows remain, across all tenants, before the constraint migration ran
+
+**Database changes:**
+- Migration `150_warehouses_branch_id_not_null.sql` — `ALTER TABLE warehouses ALTER COLUMN branch_id SET NOT NULL`, applied cleanly (zero violating rows). Reversible via documented `DROP NOT NULL` down-statement (manual, not auto-wired — matches this repo's existing migration convention).
+- No changes to `tenants`, `branches`, `warehouse_locations`, `stock_levels`, `stock_movements`, `cost_layers`, or any costing/inventory-core logic.
+
+**Application changes:**
+- `CreateWarehouseDto.branch_id` changed from optional (`@IsOptional()`) to required (`@IsNotEmpty() @IsUUID()`) — `create-warehouse.dto.ts`
+- `UpdateWarehouseDto` left as `PartialType(CreateWarehouseDto)` (branch_id stays optional on PATCH, standard partial-update semantics); the DB `NOT NULL` constraint already prevents it from ever being cleared
+- `WarehousesRepository` already translated FK violations (`23503`) into a 400 — no change needed; `NOT NULL` violations now surface as a clear Postgres `23502` at the DTO validation layer before ever reaching the DB
+
+**Regression fallout fixed (pre-existing tests broken by the new constraint):**
+- `transfer-lifecycle.regression.spec.ts` and `inventory-snapshots.regression.spec.ts` both created warehouses directly via `.insert()` without `branch_id` — updated both to pass the shared tenant's existing `branch_id`. While in there, also hardened their previously-silent (unchecked) warehouse `.delete()` cleanup calls to fall back to soft-delete on failure — closing the exact silent-orphan-leak class of bug the Migration 13.1A audit flagged as a live, ongoing issue.
+
+**New regression suite**: `warehouse-branch-required.regression.spec.ts` (5 tests, all passing) — covers creation without `branch_id` (rejected, `23502`), creation with a valid `branch_id` (succeeds), existing warehouses remain accessible, inventory operations (goods receipt → stock movement → balance) unaffected, and tenant isolation on the branch relationship.
+
+**Validation performed:**
+- `npm run migrate` — applied cleanly
+- `npx tsc --noEmit` — zero errors
+- `npm run build` — succeeded
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`, full route table mapped (all controllers/guards resolved, including `WarehousesController` under `JwtAuthGuard`/`TenantGuard`/`PermissionGuard`)
+- Regression suites: `warehouse-branch-required` (5/5), `transfer-lifecycle` (7/7), `inventory-snapshots` (5/5), `stock-count-approval-history` (3/3), `supplier-items` (6/6) — 26/26 passing across all warehouse-touching suites
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 1 | Organization Structure | **Complete** |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #1 only, per Sequential Execution Order.
+
+---
+
+# 112. Migration 13.6-fix — Inventory Rules Corrections — August 4, 2026
+
+## Context
+Roadmap item #6 (Inventory Rules) audit (Migration 13.6) found two confirmed correctness gaps: `fn_create_reservation`'s availability check didn't subtract `quantity_damaged`/`quantity_expired`, and Transfer location↔warehouse validation was unconfirmed. Approved scope was strictly these two fixes — no `stock_levels` direct-write protection, no rule engine, no adjustment-approval changes.
+
+## #6 Inventory Rules
+**Status: reservation gap closed; transfer validation confirmed already present**
+
+**Fix 1 — Reservation availability corrected:**
+- Migration `151_fix_reservation_availability.sql` — `fn_create_reservation`'s `v_available` calculation changed from `quantity_on_hand - quantity_reserved` to `quantity_on_hand - quantity_reserved - quantity_damaged - quantity_expired`, matching the formula already used everywhere else (`fn_apply_stock_movement`, `v_stock_balance`). Applied cleanly, zero side effects — only the one calculation line changed; reservation workflow, `stock_reservations` table, `stock_levels` schema, `fn_apply_stock_movement`, and costing are all untouched.
+
+**Fix 2 — Transfer location↔warehouse validation: already implemented, no change needed.**
+- During targeted inspection (required before editing), found `TransfersService.create()` (`transfers.service.ts:40-47`) already validates both `from_location_id`/`to_location_id` via `LocationsService.findById(locationId, warehouseId, tenantId)` — the exact same pattern `AdjustmentsService` uses, with the repository query filtering by `warehouse_id`. The Migration 13.6 audit's "not confirmed" finding was based on inspecting only the RPC/migration layer (`117_transfer_lifecycle_states.sql`) and missed this existing application-layer check. No code change was made; regression tests were added to lock the behavior in and prevent silent regression.
+
+**Regression suite**: `inventory-rules-13.6-fix.regression.spec.ts` (8 tests, all passing) — reservation: normal stock reservable, reserved quantity reduces subsequent availability, damaged stock unreservable, expired stock unreservable, partial-damage remainder correctly bounded; transfers: valid location pair succeeds, invalid source location rejected, invalid destination location rejected (both via `NotFoundException`/"Location not found", exercising the real `TransfersService` class directly against the live Supabase project, consistent with this repo's regression-testing convention).
+
+**Explicitly not done, per approved scope:**
+- `stock_levels` direct-write DB-level protection — remains a separate future decision
+- No new rule engine, no adjustment-approval-threshold changes, no period controls, no enterprise workflows
+
+**Validation performed:**
+- `npm run migrate` — applied cleanly
+- `npx tsc --noEmit` — zero errors
+- `npm run build` — succeeded
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`, `WarehousesController`/`TransfersController` routes and guards resolved correctly
+- Regression suites: new `inventory-rules-13.6-fix` (8/8) + all 5 previously-existing inventory-touching suites re-run to confirm no regressions to sales/purchasing/stock counts/manufacturing paths — `transfer-lifecycle` (7/7), `inventory-snapshots` (5/5), `stock-count-approval-history` (3/3), `supplier-items` (6/6), `warehouse-branch-required` (5/5) — 34/34 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 6 | Inventory Rules | **Complete** (core scope) — `stock_levels` direct-write protection remains a deferred, separately-scoped future decision |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #6's two approved fixes only, per Sequential Execution Order.
+
+---
+
+# 113. Migration 13.10-fix — Barcode Label Printing — August 4, 2026
+
+## Context
+Roadmap item #10 (Barcode Operations) audit (Migration 13.10) found the barcode data model and lookup infrastructure (item #2) already complete, sell-by-barcode (POS) already working end-to-end, and buy/count/transfer-by-barcode confirmed as pure frontend backlog with zero backend gap. The one genuine backend gap was label printing — no capability existed anywhere to render a barcode as a printable image. Approved scope was strictly that: a read/render-only capability, no schema changes, no new permissions, no changes to `item_barcodes`/`items`/`items_variants`/inventory tables/POS/Purchasing/Stock Counts/Transfer logic.
+
+## #10 Barcode Operations
+**Status: label printing gap closed (core backend scope for #10 now complete); buy/count/transfer-by-barcode remain frontend-only backlog, unchanged**
+
+**Implementation:**
+- New dependency: `bwip-js` (pure JS, no native bindings) — renders EAN/UPC/GS1-128/QR barcodes as SVG. Chosen because it's the only library covering all 4 of `item_barcodes.barcode_type`'s allowed values with one API and no canvas/native dependency.
+- `api/src/modules/items/utils/barcode-render.util.ts` (new) — pure rendering function `renderBarcodeLabelSvg()`, composes a self-contained printable SVG label (item name + variant name if any, the barcode graphic, the raw barcode value, and the barcode type). Falls back to `code128` symbology if the barcode's declared type fails to render (handles real-world malformed/manually-entered barcode strings) — a rendering-robustness fallback only, never alters the stored `barcode_type`.
+- `ItemBarcodesService.renderLabel(id, tenantId)` (new method) — reuses the existing `findById()` (tenant-scoped 404 handling, unchanged) and the same `itemsRepo.findById()`/`findVariants()` calls already used by `create()`/`update()` — no new repository query, no new joins.
+- `ItemBarcodesController` — new route `GET /item-barcodes/:id/label`, returns `image/svg+xml`, gated by the existing `items.view` permission (same as every other read route on this controller) under the controller's existing `JwtAuthGuard`/`TenantGuard`/`PermissionGuard` stack. No new permission created.
+
+**Explicitly not touched, per approved scope:**
+- `item_barcodes`, `items`, `item_variants` schema — zero changes, zero migrations
+- POS, Purchasing, Stock Counts, Transfer logic — zero changes
+- No new module — added entirely inside the existing Items module (`item-barcodes.*`)
+- No new permission — reused `items.view`
+- Buy/count/transfer-by-barcode UI — not implemented, remains frontend backlog per the Migration 13.10 audit
+
+**Regression suite**: `barcode-label-printing.regression.spec.ts` (5 tests, all passing) — label generation for an item-level barcode, label generation for a variant-level barcode (variant name included), tenant isolation (a barcode from another tenant is not accessible), invalid/nonexistent barcode id rejected with 404, and permission-metadata verification confirming the new route carries the same `items.view` requirement and guard stack as every other read endpoint on the controller.
+
+**Validation performed:**
+- `npx tsc --noEmit` on the application source — zero errors (a pre-existing, untracked `scripts/generate-openapi.ts` referencing an uninstalled `@nestjs/swagger` fails both `tsc` and `nest build` independently of this change — confirmed via `git stash` that it fails identically on the clean base commit; flagged as a discovered pre-existing issue, not fixed, out of this migration's scope)
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`, new `GET /item-barcodes/:id/label` route confirmed mapped alongside all other `ItemBarcodesController` routes, guards resolved correctly
+- Manual symbology check — UPC, EAN, GS1, QR, and the code128 fallback (for malformed input) all confirmed rendering valid SVG
+- Regression suites: new `barcode-label-printing` (5/5) + `supplier-items` (6/6) + `warehouse-branch-required` (5/5) re-run to confirm the new `bwip-js` dependency introduced no regressions — 16/16 passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 10 | Barcode Operations | **Complete** (backend scope) — buy/count/transfer-by-barcode remain a confirmed frontend-only backlog item with zero backend gap, unchanged from the Migration 13.10 audit |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #10's label-printing fix only, per Sequential Execution Order.
+
+---
+
+# 114. Migration 13.12-fix — Inventory Counting Completion — August 4, 2026
+
+## Context
+Roadmap item #12 (Inventory Counting) audit (Migration 13.12) found all three named sub-requirements (full/partial/cycle typing, variance reason codes, multi-step approval) had their schema and RPC-level infrastructure already built by migration 107, but none of it was reachable through the API — every count silently defaulted to a full-warehouse snapshot, `reason_code_id` was never captured, and `approval_status` was never set to `pending_approval` by any code path, so `fn_finalize_stock_count`'s approval guard (also from 107) was structurally correct but practically unreachable. Approved scope was to wire all three, reusing migration 107's existing schema exactly, no new tables, no changes to `stock_movements`/`cost_layers`/the costing engine/reservations/transfers/warehouse logic.
+
+## #12 Inventory Counting
+**Status: all three named gaps closed by wiring existing schema/RPCs — no new migration required**
+
+**1. Count type (full/partial/cycle) — implemented:**
+- `CreateStockCountDto` gained `count_type?: 'full'|'partial'|'cycle'` (validated `@IsIn`) plus optional `item_ids?`/`location_ids?` scope arrays.
+- Omitting `count_type` preserves exact prior behavior — the DB column already defaults to `full` (migration 107), so an absent value reaches the repository as `undefined` and the full-warehouse snapshot logic is untouched.
+- `CountsRepository.create()` now accepts an optional scope and filters the `stock_levels` snapshot query with `.in('item_id', ...)`/`.in('location_id', ...)` when provided — the stock-quantity calculation itself is unchanged, only the *selection* of which rows get snapshotted into `stock_count_items` is scoped.
+- `CountsService.create()` rejects `partial`/`cycle` with no scope at all (would otherwise be indistinguishable from `full`) — the one small validation rule added, directly serving the roadmap's own "the counting scope must respect the requested type" requirement.
+
+**2. Variance reason codes — implemented:**
+- `SubmitCountItemDto` gained optional `reason_code_id`.
+- `CountsService.submitCount()` validates the reason code exists, belongs to the tenant, and has `applies_to='count'` (new read-only `CountsRepository.reasonCodeExists()`) before writing it — reusing the `reason_codes` table from migration 107 exactly as-is, no new table.
+- `CountsRepository.submitCount()` writes `reason_code_id` alongside `counted_quantity` when supplied.
+
+**3. Approval workflow activation — implemented:**
+- `CountsService` gained a `ConfigService`-backed `INVENTORY_COUNT_APPROVAL_THRESHOLD` (mirrors `AdjustmentsService`'s existing `INVENTORY_ADJUSTMENT_APPROVAL_THRESHOLD` pattern exactly), defaulting to `0` (disabled) — zero behavior change for any tenant that doesn't configure it.
+- New `CountsRepository.computeTotalVarianceValue()` — read-only, sums `|counted − expected| × items.cost_price` across a count's lines (the same cost source `fn_finalize_stock_count` itself already reads; no write to `cost_layers`, no costing-engine change).
+- `CountsService.finalize()`: for a count that has never opted into approval (`approval_status IS NULL`), if the threshold is configured and the computed variance value meets or exceeds it, the count is flipped to `pending_approval` (new `CountsRepository.setPendingApproval()`) and finalize is refused with a clear error — the count is not silently left ambiguous. A count already `pending_approval`/`rejected`/`approved` skips this check entirely and falls straight through to the unmodified `fn_finalize_stock_count` RPC, whose own guard (migration 107, untouched) remains the actual source of truth for whether finalize is allowed — the service-layer check only decides whether to *set* `pending_approval` in the first place, never bypasses the RPC's own enforcement.
+- `approve()`/`reject()` — already fully built in this session's earlier Migration 11.1c-fix — are now actually reachable in practice for the first time.
+
+**Explicitly not touched, per approved scope:**
+- No new migration — every column/table/function needed (`count_type`, `approval_status`, `reason_codes`, `fn_approve_stock_count`, `fn_finalize_stock_count`'s guard) already existed from migration 107
+- `stock_movements`, `cost_layers`, the costing engine, reservations, transfers, warehouse/location logic — zero changes
+- No new module, no new permission — reused `inventory.count` for every route exactly as before
+- No new approval mechanism — reused `ApprovalEngine`/`approval_history` exactly as the existing 11.1c-fix work already wired it
+
+**Regression suite**: `stock-count-completion-13.12-fix.regression.spec.ts` (8 tests, all passing) — full count unchanged by default, partial count scoped to selected items only, cycle count scoped to a selected location only, partial/cycle with no scope rejected, reason code stored + invalid reason code rejected, approval-required count blocked and flipped to `pending_approval` + the DB-level guard independently re-verified by calling `fn_finalize_stock_count` directly (bypassing the service) + approval unblocks finalize, existing unconfigured-threshold flow completes exactly as before with `approval_status` never touched, and tenant isolation on both counts and reason codes.
+
+**Validation performed:**
+- `npx tsc --noEmit` on application source — zero errors (the same pre-existing, unrelated `scripts/generate-openapi.ts`/`@nestjs/swagger` gap noted in §113 remains, still out of scope)
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`, all `CountsController` routes (including `:id/approve`, added in the earlier 11.1c-fix) confirmed mapped and guarded correctly — **no schema mismatch was discovered**, confirming no migration was needed
+- Regression suites: new `stock-count-completion-13.12-fix` (8/8) + `transfer-lifecycle` (7/7) + `inventory-snapshots` (5/5) + `supplier-items` (6/6) + `warehouse-branch-required` (5/5) + `inventory-rules-13.6-fix` (8/8) + `barcode-label-printing` (5/5) re-run to confirm no regressions — 44/44 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 12 | Inventory Counting | **Complete** — count type, variance reason codes, and threshold-based approval all reachable via the API for the first time, entirely by wiring migration 107's pre-existing schema/RPCs |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #12's three approved fixes only, per Sequential Execution Order.
+
+---
+
+# 115. Migration 13.13-fix — Expired Batch Advisory Warning — August 4, 2026
+
+## Context
+Roadmap item #13 (Batch/Lot/Expiry + FEFO) audit (Migration 13.13) found FEFO consumption ordering already fully implemented (migration 108), closing the roadmap doc's primary flagged gap, but confirmed no visibility existed anywhere when a sale involved stock from an already-expired batch. The audit explicitly flagged a conflict between the roadmap's literal "hard block" wording and Sefay's standing, previously reaffirmed principle that a stock problem never stops an already-completed sale (§64, §110). Approved scope was strictly the advisory version — no hard block, mirroring the Quality Holds pattern exactly.
+
+## #13 Batch/Lot/Expiry + FEFO
+**Status: expired-batch visibility added, advisory-only — FEFO, costing, and POS completion behavior all unchanged**
+
+**Implementation:**
+- Migration `152_expired_batch_advisory_check.sql` — new read-only `STABLE` function `fn_check_expired_batches(tenant_id, warehouse_id, items)`, structurally identical to `fn_check_quality_holds` (migration 145): joins `cost_layers` (`quantity_remaining > 0`) → `item_batches` → `items`, filtered to `expiration_date < CURRENT_DATE`. Reports whether an item/variant *currently has* remaining stock sourced from an expired batch — it does not predict or simulate which specific batch FEFO will actually draw from for a given sale; that decision remains `fn_consume_cost_layers`' alone, completely untouched.
+- New `ExpiredBatchesRepository` (`api/src/modules/inventory/repositories/expired-batches.repository.ts`) — thin RPC wrapper, same shape as `HoldsRepository.checkHolds()`.
+- `InvoicesService.create()` — new check block inserted immediately after the existing Quality Hold check and before `deductStockForSale()`, wrapped in try/catch that only logs on failure (never affects the sale), appending to the same `stock_warning` response field via the same `[existing, new].filter(Boolean).join(' | ')` pattern already used for Quality Holds and Ownership warnings.
+- `InventoryModule` now exports `ExpiredBatchesRepository`; `InvoicesModule` imports `InventoryModule` to consume it — no circular dependency (confirmed via runtime boot).
+
+**Explicitly not touched, per approved scope:**
+- No hard block, no sale rejection logic anywhere — the RPC is a pure, non-throwing `SELECT`
+- `item_batches` schema, `fn_consume_cost_layers`, FEFO ordering (migration 108), `cost_layers`, `stock_movements`, the inventory deduction engine, POS sale-completion behavior, and Quality Holds' own architecture — zero changes to any of them
+- No new batch lifecycle states, no new permissions (rides on existing invoice/sales permissions), no new audit mechanism
+
+**Regression suite**: `expired-batch-advisory-13.13-fix.regression.spec.ts` (6 tests, all passing) — non-expired batch produces no warning, expired batch is detected without the RPC ever raising, multiple items in one sale correctly isolate only the expired one, tenant isolation (another tenant cannot see this tenant's expired batch), `fn_check_quality_holds` confirmed unaffected (same non-throwing shape/behavior as before), and FEFO consumption ordering re-verified end-to-end (a soon-to-expire layer received *after* a later-expiring one is still consumed first, exactly as migration 108 established).
+
+**Validation performed:**
+- `npx tsc --noEmit` on application source — zero errors (same pre-existing, unrelated `scripts/generate-openapi.ts`/`@nestjs/swagger` gap noted in §113/§114 confirmed still present and still unrelated)
+- `npm run build` — fails identically to before, confirmed to be the same pre-existing issue, not a regression from this change
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`, no circular dependency between `InvoicesModule`↔`InventoryModule`, `InvoicesController` routes and guards confirmed mapped correctly
+- Regression suites: new `expired-batch-advisory-13.13-fix` (6/6) + `transfer-lifecycle` (7/7) + `inventory-snapshots` (5/5) + `supplier-items` (6/6) + `inventory-rules-13.6-fix` (8/8) + `barcode-label-printing` (5/5) + `stock-count-completion-13.12-fix` (8/8) re-run to confirm no regressions — 39/39 (wider set) + 6/6 (new) = 45/45 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 13 | Batch/Lot/Expiry + FEFO | **Complete** — FEFO consumption (108) + advisory expired-batch visibility (152), consistent with the "never block a completed sale" principle; a true hard block remains explicitly out of scope unless separately requested |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #13's approved advisory-warning fix only, per Sequential Execution Order.
+
+---
+
+# 116. Migration 13.14 — Serial Number Tracking + Warranty + Customer History Completion — August 4, 2026
+
+## Context
+Roadmap item #14 audit (Migration 13.14) found a dedicated `item_serials` table (migration 109) with a status lifecycle and warranty fields already existed, but was essentially dead: no backend API, the `fn_sell_serial`/`fn_return_serial` RPCs were never called from any real flow, customer-history linkage only existed as a theoretical join path, and — critically — migration 109's own stated design ("`item_batches.serial_number` is legacy/frozen, never written to by new code") was silently violated by `fn_post_goods_receipt` on every serialized receipt since migration 111. Approved decision was to complete #14 in full: fix the dual-write defect, build a proper Serials backend module, wire the lifecycle into real sale/return flows, and implement customer history + warranty using the existing `item_serials`/`orders` relationship — no duplicate serial system, `item_serials` remains the sole source of truth.
+
+## #14 Serial Number Tracking + Warranty + Customer History
+**Status: fully wired — data integrity fixed, backend API built, lifecycle live, customer history and warranty both answerable**
+
+**Phase 1 — Data integrity correction:**
+- Migration `153_fix_item_batches_serial_dual_write.sql` — `fn_post_goods_receipt` redefined (byte-for-byte identical to migration 119's version, verified programmatically before applying) with exactly one change: the `item_batches` insert now passes `NULL` for `serial_number` instead of the real value. `item_serials` creation (the real source of truth) is untouched. `item_batches` rows are still created for serial-only lines — they remain the required anchor `cost_layers.batch_id`/`item_serials.batch_id` both reference — only the duplicated serial *value* stops being written.
+- `chk_batch_has_identifier` CHECK constraint dropped, since a serial-only item's anchor row now legitimately has both `batch_number` and `serial_number` NULL — that row's meaning shifted from "identifies a batch or serial" to "identifies a costing anchor," which the constraint no longer accurately describes.
+- No historical data touched, no change to `stock_movements`/`fn_apply_stock_movement`/costing.
+
+**Phase 2 — Serials backend module (new):**
+- `SerialsController`/`SerialsService`/`SerialsRepository` added inside the existing `InventoryModule` (no new module, per approved scope) — reuses `inventory.view` permission and the standard `JwtAuthGuard`/`TenantGuard`/`PermissionGuard` stack, no new permission created.
+- Routes: `GET inventory/serials/search/:serialNumber`, `GET inventory/serials/item/:itemId`, `GET inventory/serials/warehouse/:warehouseId`, `GET inventory/serials/customer/:customerId`, `GET inventory/serials/:id/warranty`, `GET inventory/serials/:id/history`, `GET inventory/serials/:id/customer-history`, `GET inventory/serials/:id`. Static-segment routes registered before `:id`, same ordering rule already established for `item-barcodes`' `lookup/:barcode`.
+- Migration `154_serials_lookup_index.sql` — one supporting index, `(tenant_id, serial_number)`, for item-agnostic number search (the existing unique index is `(tenant_id, item_id, serial_number)`, not usable for a search box that doesn't know the item up front).
+
+**Phase 3 — Lifecycle integration (the RPCs are no longer orphaned):**
+- `InvoiceItemDto` gained optional `serial_id`/`warranty_months`. `InvoicesService.create()` now calls `SerialsRepository.sell()` for any line carrying a `serial_id`, immediately after the existing best-effort stock-deduction block — non-blocking, try/catch-per-line, failures logged and appended to the existing `stock_warning` field, never thrown. Lines without `serial_id` (the overwhelming majority — ordinary sales) are a complete no-op, confirmed by regression test.
+- `InvoicesService.cancel()` now looks up any serials sold under the cancelled invoice (`sold_order_id = id, status = 'sold'`) and calls `SerialsRepository.returnSerial()` for each, same best-effort, non-blocking pattern already used by the existing `reverseSaleStockDeduction` call right above it.
+- Neither RPC (`fn_sell_serial`, `fn_return_serial`) was modified — both reused exactly as they existed since migration 109.
+
+**Phase 4 — Customer history:**
+- Implemented via the existing `orders.customer_id` relationship (invoices *are* orders — `InvoicesRepository` already operates on the `orders` table), per the "least invasive design, prefer `sold_order_id`" instruction — **no new `customer_id` column was added to `item_serials`**.
+- `SerialsRepository.findByCustomer()` and `.findOrderCustomer()`, `SerialsService.getCustomerHistory()` answer all four required questions (who, when, which order, warranty status) by joining `item_serials.sold_order_id → orders → orders.customer_id → customers`.
+
+**Phase 5 — Warranty:**
+- `SerialsService.getWarrantyStatus()` computes `active`/`expired`/`none` on read from the existing `warranty_expires_at` (set by the unmodified `fn_sell_serial`) — no new stored state, no warranty-claims table (explicitly not required by the roadmap's own #14 definition, and not built).
+
+**Explicitly not duplicated or bypassed, per strict rules:**
+- `item_serials` remains the sole source of truth throughout — no second serial system was created
+- `item_batches.serial_number` is no longer an active source for anything; historical rows are untouched
+- No new authentication/permission system — `inventory.view` reused everywhere
+- No new audit system — lifecycle history is derived on read from the row's own existing fields (`created_at`/`sold_at`/`sold_order_id`/`updated_at`+`status`), not a new event-log table
+
+**Regression suite**: `serial-tracking-13.14.regression.spec.ts` (8 tests, all passing) — serial created from goods receipt, `item_batches.serial_number` confirmed NULL on new receipts (dual-write fixed) while the anchor row still exists for `cost_layers`, `in_stock→sold` transition, `sold→returned` transition, customer history returns the correct customer/order, warranty status calculation across active/expired/none, tenant isolation, and a non-serialized item's full goods-receipt → stock-level flow confirmed byte-for-byte unaffected.
+
+**Issue discovered during Phase 3 wiring (not fixed, out of approved scope)**: `fn_return_serial`'s own header comment says "back to in_stock (sellable again)," but its actual `UPDATE` sets `status = 'returned'`, matching the roadmap's own literal lifecycle diagram (`sold → returned`) rather than the comment's stated intent. Wired to the function's real, current behavior (`sold → returned`) as instructed ("reuse existing... lifecycle functions," "do not modify... stock movement logic") — flagging the stale comment for a future cleanup pass, not treating it as a defect to fix here since the actual behavior already matches what was requested.
+
+**Validation performed:**
+- `npx tsc --noEmit` on application source — zero errors (same pre-existing, unrelated `scripts/generate-openapi.ts`/`@nestjs/swagger` gap noted in §113–115, reconfirmed still present and unrelated)
+- `npm run build` — fails identically to before, reconfirmed as the same pre-existing issue
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`, `SerialsController` and `InvoicesController` routes/guards confirmed mapped correctly, no circular dependency
+- Regression suites: new `serial-tracking-13.14` (8/8) + `transfer-lifecycle` (7/7) + `inventory-snapshots` (5/5) + `supplier-items` (6/6) + `expired-batch-advisory-13.13-fix` (6/6) + `inventory-rules-13.6-fix` (8/8) + `stock-count-completion-13.12-fix` (8/8) + `barcode-label-printing` (5/5) re-run to confirm no regressions — 45/45 (wider set) + 8/8 (new) = 53/53 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 14 | Serial Number Tracking + Warranty + Customer History | **Complete** — dual-write defect fixed, dedicated backend API built, sale/return lifecycle wired into real Invoice flows, customer history and warranty both fully answerable via the existing `orders`/`item_serials` relationship |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #14 only, per Sequential Execution Order.
+
+---
+
+# 117. Migration 13.15-fix — Costing Application Exposure — August 5, 2026
+
+## Context
+Roadmap item #15 audit (Migration 13.15) found the costing engine itself fully implemented at the database layer — all 5 costing methods (`fifo`/`average`/`moving_average`/`standard`/`actual`) correctly branch in `fn_add_cost_layer`/`fn_consume_cost_layers`, and landed cost (migration 110) genuinely bakes shipping/customs/insurance into `unit_cost` at receipt-post time — but confirmed zero API exposure anywhere: no way for a tenant to set an item's costing method, record a landed cost, or view cost layers without direct database access. Approved scope was application-layer wiring only — the costing engine, its algorithms, and inventory valuation behavior were explicitly off-limits.
+
+## #15 Costing
+**Status: fully exposed through the application layer — costing engine confirmed byte-for-byte unchanged**
+
+**Phase 2 — Item costing configuration:**
+- `CreateItemDto`/`UpdateItemDto` gained `costing_method?` (new `CostingMethod` enum mirroring the DB CHECK exactly: `fifo`/`average`/`moving_average`/`standard`/`actual`) and `standard_cost?`.
+- `ItemsService` gained a shared `assertStandardCostPresent()` check, applied on both `create()` (against the DTO directly) and `update()` (against the *effective* combined state — existing stored value merged with whatever the DTO changes — so a PATCH that drops `standard_cost` while leaving `costing_method='standard'` in place is correctly rejected too, not just a create-time check).
+- `ItemsRepository.findById()`'s select list extended to include `costing_method, standard_cost` (previously not selected at all) — read-side exposure, no query logic changed.
+- Omitting these fields entirely preserves exact prior behavior (DB default `'fifo'`, existing items untouched, no breaking change to any existing caller).
+
+**Phase 3 — Costing read API:**
+- New `CostLayersController` (`GET inventory/cost-layers`, `item_id`/`warehouse_id` filters), backed by a new `StockRepository.findCostLayers()`/`StockService.findCostLayers()` — a plain filtered `SELECT` over the existing `cost_layers` table, joined to item/warehouse names for display. Reuses `inventory.view`, no new permission.
+
+**Phase 4 — Landed cost API:**
+- New `LandedCostsController` at `purchasing/goods-receipts/:id/landed-costs` (`POST`/`GET`), matching the existing nested-controller-with-param convention already used by `supplier-items`/`locations`.
+- `LandedCostsService.create()` enforces the same rule migration 110's own design comment already stated (*"landed_costs rows must exist BEFORE the receipt is posted"*) at the application layer — `fn_post_goods_receipt` itself was not touched, so this is a pre-check, not a new DB constraint. Confirmed via regression test: creating a landed cost after posting is correctly rejected, and the allocation that *was* recorded pre-posting was confirmed baked into the resulting `cost_layers.unit_cost` exactly as migration 110's unmodified logic already does.
+- Reuses `purchasing.view` (read) / `purchasing.manage` (write), no new permission.
+
+**Explicitly not touched, per strict constraints:**
+- `fn_add_cost_layer`, `fn_consume_cost_layers`, `fn_apply_stock_movement`, `fn_post_goods_receipt`, the landed-cost allocation formula, and every other costing/inventory-valuation function — zero changes, verified by direct RPC regression tests reproducing FIFO's discrete-layer behavior, average/moving-average's blended-layer merge, standard costing's fixed-cost return, and actual costing's specific-identification return, all still byte-for-byte matching pre-migration behavior
+- No new costing table — `cost_layers`/`landed_costs`/`items.costing_method`/`items.standard_cost` remain the sole source of truth, nothing duplicated
+- No new permissions — `inventory.view`, `purchasing.view`, `purchasing.manage` reused throughout
+
+**Regression suite**: `costing-application-13.15-fix.regression.spec.ts` (7 tests, all passing) — FIFO item creation, standard-costing-without-cost rejected (both create and update paths), standard-costing-with-cost accepted, cost layers readable by item and by warehouse, landed cost entry created pre-posting and correctly rejected post-posting (with the resulting layer's `unit_cost` confirmed higher than the raw receipt cost, proving the existing allocation still ran), tenant isolation, and a dedicated direct-RPC check that FIFO/average+moving_average/standard/actual all still produce their pre-migration outputs exactly (discrete layers for FIFO, one blended layer at the correctly-computed weighted cost for average/moving_average, `standard_cost` returned unconditionally for standard, the specific serial's own `unit_cost` returned for actual).
+
+**Validation performed:**
+- `npx tsc --noEmit` on application source — zero errors (same pre-existing, unrelated `scripts/generate-openapi.ts`/`@nestjs/swagger` gap reconfirmed present and unrelated, consistent with every prior 13.x-fix report)
+- `npm run build` — fails identically to before, reconfirmed as the same pre-existing issue
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`; `CostLayersController {/inventory/cost-layers}` and `LandedCostsController {/purchasing/goods-receipts/:id/landed-costs}` confirmed mapped at the exact requested paths, all guards resolved
+- Regression suites: new `costing-application-13.15-fix` (7/7) + `transfer-lifecycle` (7/7) + `inventory-snapshots` (5/5) + `supplier-items` (6/6) + `expired-batch-advisory-13.13-fix` (6/6) + `serial-tracking-13.14` (8/8) + `stock-count-completion-13.12-fix` (8/8) + `barcode-label-printing` (5/5) re-run to confirm no regressions — 45/45 (wider set) + 7/7 (new) = 52/52 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 15 | Costing | **Complete** — all 5 costing methods and landed cost were already correct at the database layer; this migration closes the application-layer gap (item configuration, cost-layer visibility, landed-cost entry) without touching the costing engine itself |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #15 only, per Sequential Execution Order.
+
+---
+
+# 118. Migration 13.16A — Manufacturing Routing + Scrap Tracking — August 5, 2026
+
+## Context
+Roadmap item #16 (Manufacturing) audit (Migration 13.16) found BOM, multi-level BOM (via sequential production-order composition), production orders, and work centers all genuinely complete — but confirmed routing, scrap tracking, by-products, and subcontracting were entirely unimplemented, contrary to a prior STATUS.md §109 pass that had marked the whole item "Complete" without covering those four sub-scopes. Approved decision was to close the two lowest-risk, most workshop-relevant gaps — Routing and Scrap Tracking — as Migration 13.16A, explicitly excluding By-products and Subcontracting as separate future migrations.
+
+## #16 Manufacturing
+**Status: Routing and Scrap Tracking added — BOM/production orders/work centers/costing engine untouched; By-products and Subcontracting remain not started**
+
+**Phase 2 — Routing:**
+- New `production_order_operations` table (migration `155_manufacturing_routing_and_scrap.sql`): ordered operations (`sequence`, `operation_name`, optional `work_center_id`, optional `duration_minutes`, `status ∈ {pending, in_progress, completed}`). Unique `(production_order_id, sequence)` index keeps ordering unambiguous.
+- **100% opt-in, confirmed by regression test**: a production order with zero operations rows completes exactly as before — the new `OperationsService.assertAllOperationsComplete()` guard added to `ProductionOrdersService.complete()` is a no-op whenever no operations exist, and only blocks completion when operations were actually added and at least one isn't yet `completed`.
+- New `OperationsController`/`OperationsService`/`OperationsRepository` at `manufacturing/production-orders/:id/operations` (`GET`/`POST`/`PATCH :operationId`), reusing `manufacturing.view`/`manufacturing.manage`.
+
+**Phase 3 — Scrap Tracking:**
+- `bom_lines.scrap_percentage` is completely untouched — it remains exactly what it always was, an input-side over-consumption estimate applied inside the unmodified `fn_post_production_order`.
+- New, additive `production_scrap` value on `stock_movements.movement_type` (same additive-only pattern as migration 095) — a real, distinct inventory event, never confused with `production_consumption`/`production_receipt`.
+- New `production_order_scraps` table + `fn_record_production_scrap` RPC — reuses the *existing* `fn_consume_cost_layers`/`fn_apply_stock_movement` primitives exactly as `fn_post_production_order` already does for consumption, just with the new movement type. Scrap has real cost impact (draws down real `cost_layers`), confirmed by regression test that `cost_layers.quantity_remaining` and `stock_levels.quantity_on_hand` both correctly decrease.
+- New `ScrapController`/`ScrapService`/`ScrapRepository` at `manufacturing/production-orders/:id/scrap` (`GET`/`POST`), reusing `manufacturing.view`/`manufacturing.execute`.
+
+**Production order integration**: `CompleteProductionOrderDto` gained an optional `scrap[]` array — when provided, each entry is posted via `fn_record_production_scrap` immediately *after* the existing, byte-for-byte-unchanged `fn_post_production_order` call succeeds (never inside it). Absent entirely for every existing caller, confirmed to be a complete no-op.
+
+**Explicitly not implemented, per approved scope**: By-products (a production order still posts exactly one output item/quantity) and Subcontracting (no external-processor concept exists) — both remain separate, future-scoped migrations.
+
+**Explicitly not touched, per strict architecture rules**: `bill_of_materials`, `bom_lines`' existing columns, `production_orders`' existing columns, `fn_post_production_order` (redefined nowhere in this migration — confirmed by grep, the only function touched is the new `fn_record_production_scrap`), `fn_apply_stock_movement`, `fn_consume_cost_layers`, `fn_add_cost_layer`, FIFO/average costing logic, and stock reservations.
+
+**Regression suite**: `manufacturing-routing-scrap-13.16A.regression.spec.ts` (6 tests, all passing) — production order completes without routing/scrap exactly as before (backward compatibility), operations addable with sequence order correctly maintained regardless of insertion order, the routing completion-gate blocks then allows completion as operations are marked complete, tenant isolation on operations, a scrap event posts a correct and distinct `production_scrap` stock movement with real cost-layer/stock-level impact confirmed numerically, and scrap posted together with completion via the optional DTO field.
+
+**Validation performed:**
+- `npx tsc --noEmit` on application source — zero errors (same pre-existing, unrelated `scripts/generate-openapi.ts`/`@nestjs/swagger` gap reconfirmed present and unrelated, consistent with every prior 13.x-fix report)
+- `npm run build` — fails identically to before, reconfirmed as the same pre-existing issue
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`; `OperationsController {/manufacturing/production-orders/:id/operations}` and `ScrapController {/manufacturing/production-orders/:id/scrap}` confirmed mapped at the exact requested paths, all guards resolved
+- Regression suites: new `manufacturing-routing-scrap-13.16A` (6/6) + `manufacturing-locations` (existing, unaffected) + `production-orders-read-model` (existing, unaffected) + `transfer-lifecycle` + `costing-application-13.15-fix` + `serial-tracking-13.14` re-run to confirm no regressions — 34/34 (wider set) + 6/6 (new) = 40/40 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 16 | Manufacturing | **Partial** — BOM, multi-level BOM, production orders, work centers, Routing, and Scrap Tracking all complete; By-products and Subcontracting remain not started, tracked as separate future migrations |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #16's approved Routing + Scrap Tracking subset only, per Sequential Execution Order.
+
+---
+
+# 119. Migration 13.16B — Manufacturing By-products — August 5, 2026
+
+## Context
+Following Migration 13.16A (Routing + Scrap Tracking), roadmap item #16 (Manufacturing) had two sub-scopes remaining: By-products and Subcontracting. Approved scope was By-products only — a production order producing a secondary usable output (e.g. workshop leftover material, food-production secondary output) alongside its main product — with Subcontracting explicitly deferred to a separate future migration.
+
+**Pre-implementation finding**: the approved design referenced `production_orders.output_item_id`, but no such column exists — the main output item has always been resolved via `production_orders.bom_id → bill_of_materials.item_id`. This was not an architecture conflict warranting a stop, just a naming correction: "existing single-output behavior" was implemented as, and verified against, that BOM-derived path.
+
+## #16 Manufacturing
+**Status: By-products added — BOM/production orders/work centers/Routing/Scrap/costing engine untouched; Subcontracting remains not started**
+
+**Phase 1 — Data model:**
+- New `production_order_outputs` table (migration `156_manufacturing_byproducts.sql`): `item_id`, `variant_id`, `quantity`, `unit_cost`, `output_type ∈ {main_product, by_product}`, `movement_id` (nullable — set once received).
+- The `main_product` row is **purely informational** — inserted by the application layer right after the existing, unmodified `fn_post_production_order` call succeeds, mirroring the exact `stock_movements` row that call already created (read via a new, read-only `findMainReceiptMovement()` lookup). It never drives new posting logic for the main item.
+- `by_product` rows are the real new capability: planned ahead via `POST .../outputs` (`movement_id` NULL = "unposted"), then received automatically at production-order completion.
+
+**Phase 2 — Production completion integration:**
+- `ProductionOrdersService.complete()` gained two additive steps, both strictly *after* the existing `fn_post_production_order` call: (1) record the main product's output row (informational), (2) receive every unposted `by_product` output row via the new `fn_receive_production_output` RPC. Both are no-ops when no by-products were ever planned — confirmed by regression test that a production order with zero by-products completes identically to before, with the only visible change being one new informational `main_product` output row.
+
+**Phase 3 — Costing (least-invasive method, as instructed):**
+- By-products carry their own **independently-specified `unit_cost`**, set when the output row is planned (e.g. "recovered material worth $2/kg"), and receive their own new `cost_layers` row via the existing, unmodified `fn_add_cost_layer`. The main product's cost calculation inside `fn_post_production_order` (`total_component_cost / actual_qty`) is completely unaffected — confirmed by regression test that adding a by-product to an order does not change the main product's receipt `unit_cost`. This deliberately avoids splitting/allocating the rolled-up component cost between outputs, which would have required touching the protected cost-allocation formula — an explicit, documented trade-off favoring zero risk to the existing costing engine over a more "complete" allocation model.
+- FIFO/average/moving-average/standard/actual costing methods, `fn_consume_cost_layers`, and `fn_apply_stock_movement` are all untouched — by-product receipts are ordinary `fn_add_cost_layer` calls, nothing new invented.
+
+**Phase 4 — Inventory movements:**
+- By-product receipts deliberately **reuse the existing `production_receipt` movement type** (not a new one) — a by-product receipt is the same kind of event as the main product's receipt, just a second item, matching "use existing production receipt patterns, do not create a duplicate inventory system." Regression-confirmed: both the main product's and the by-product's receipts appear as real, correctly-attributed `stock_movements` rows referencing the same `production_order`, disambiguated by `item_id` where needed (documented in `findMainReceiptMovement()`'s own comment, since by-products sharing the movement type meant a naive `reference_id`-only lookup could have picked up the wrong row).
+
+**New API**: `manufacturing/production-orders/:id/outputs` (`GET`/`POST`/`PATCH :outputId`), reusing `manufacturing.view`/`manufacturing.manage` — no new permission. `PATCH` is restricted to unposted (`movement_id IS NULL`) rows only, preserving ledger immutability once an output has actually been received.
+
+**Explicitly not implemented, per approved scope**: Subcontracting remains entirely unimplemented, tracked as a separate future migration.
+
+**Explicitly not touched, per strict constraints**: `bill_of_materials`, `bom_lines`, `production_orders`' existing columns, `fn_post_production_order` (confirmed via grep — not redefined anywhere in this migration), `fn_apply_stock_movement`, `fn_consume_cost_layers`, `fn_add_cost_layer`'s own logic, every costing method, and the Routing/Scrap Tracking work from 13.16A.
+
+**Regression suite**: `manufacturing-byproducts-13.16B.regression.spec.ts` (4 tests, all passing) — a production order without by-products completes unchanged (only gaining one informational `main_product` output row), a by-product output can be planned ahead of completion, completing an order with a by-product posts both receipts as real, correctly-valued `stock_movements`/`cost_layers`/`stock_levels` entries with the main product's cost provably unaffected, and tenant isolation on output rows. Re-ran `manufacturing-routing-scrap-13.16A` (6/6) to independently confirm Routing + Scrap Tracking are unaffected by this migration.
+
+**Validation performed:**
+- `npx tsc --noEmit` on application source — zero errors (same pre-existing, unrelated `scripts/generate-openapi.ts`/`@nestjs/swagger` gap reconfirmed present and unrelated, consistent with every prior 13.x-fix report)
+- `npm run build` — fails identically to before, reconfirmed as the same pre-existing issue
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`; `OutputsController {/manufacturing/production-orders/:id/outputs}` confirmed mapped at the exact requested path, all guards resolved
+- Regression suites: new `manufacturing-byproducts-13.16B` (4/4) + `manufacturing-routing-scrap-13.16A` (6/6) + `manufacturing-locations` (existing, unaffected) + `production-orders-read-model` (existing, unaffected) + `transfer-lifecycle` + `costing-application-13.15-fix` re-run to confirm no regressions — 32/32 (wider set) + 4/4 (new) = 36/36 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 16 | Manufacturing | **Partial** — BOM, multi-level BOM, production orders, work centers, Routing, Scrap Tracking, and By-products all complete; Subcontracting remains not started, tracked as a separate future migration |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #16's approved By-products subset only, per Sequential Execution Order.
+
+---
+
+# 120. Migration 13.16C — Manufacturing Subcontracting — August 5, 2026
+
+## Context
+Following the 13.16C audit, Subcontracting was identified as the sole remaining sub-scope of roadmap item #16 (Manufacturing) — architecturally the most novel of the eight, since (unlike Routing/Scrap/By-products) no existing table could represent inventory that has physically left the tenant's own warehouses while still being their asset. Approved scope was full implementation as a dedicated capability, explicitly reusing `fn_apply_stock_movement`/`fn_consume_cost_layers`/`fn_add_cost_layer` rather than inventing new inventory mechanics.
+
+**Pre-implementation finding**: no architecture conflict was discovered that warranted stopping — the audit's own flagged question (how to represent off-site inventory) was resolved by treating the send/receive events as ordinary, real `stock_movements` (material genuinely leaves on-hand availability), with `subcontract_order_lines` itself serving as the durable record of what's out and expected back — deliberately not reusing `stock_ownership_layers` (which requires a real internal `warehouse_id` and models a different concept: shared custody of stock still inside a warehouse) or `stock_transfers` (hard `NOT NULL` FK to `warehouses` on both ends, cannot represent an external destination).
+
+## #16 Manufacturing
+**Status: Subcontracting added — all eight named sub-scopes of #16 now complete**
+
+**Phase 2 — Subcontractor model:**
+- `suppliers.is_subcontractor BOOLEAN NOT NULL DEFAULT false` — additive, existing suppliers and every existing Purchasing flow completely unaffected (confirmed by regression: `supplier-items` suite re-run, 6/6 unaffected).
+- `CreateSupplierDto`/`UpdateSupplierDto` gained the optional flag; a supplier can be a normal goods supplier, a subcontractor, or both.
+
+**Phase 3 — Subcontract Orders:**
+- New `subcontract_orders` (nullable `production_order_id` link, `supplier_id`, `warehouse_id` — required for the movement/cost-layer calls even though not in the original field list, documented in the migration's own comment — `order_number`, 5-state `status`) and `subcontract_order_lines` (`material_item_id`/`material_variant_id`/`quantity_sent`, `output_item_id`/`output_variant_id`/`output_quantity`, plus `material_unit_cost`/`output_unit_cost`/`sent_movement_id`/`received_movement_id` populated automatically as the order progresses — never client-supplied).
+
+**Phase 4 — External inventory tracking:**
+- Two new, additive `stock_movements.movement_type` values: `subcontract_out`/`subcontract_in` (same additive-only pattern as every prior 13.16.x sub-migration).
+- `fn_send_subcontract_materials` (new RPC): for every line, consumes real cost layers via the unmodified `fn_consume_cost_layers` and posts a real `'out'` movement via the unmodified `fn_apply_stock_movement` — on-hand genuinely decreases, confirmed numerically by regression test. The existing `INSUFFICIENT_STOCK` guard inside those functions applies unchanged, so stock still cannot go negative. `draft → sent` only.
+- `fn_receive_subcontract_output` (new RPC): for every line, allocates that line's own consumed material cost plus its proportional share of `subcontract_costs` (by-value allocation — the exact same shape `landed_costs` already uses for Goods Receipts) across `output_quantity`, then posts a real `'in'` movement and a real new cost layer via the unmodified `fn_apply_stock_movement`/`fn_add_cost_layer`. `sent`/`processing → received` only.
+
+**Phase 5 — Service cost:**
+- New `subcontract_costs` table (`cost_type ∈ {service_fee, shipping, other}`, `amount`) — mirrors `landed_costs`' shape closely. Costs must be added before `receive()` runs (enforced at the application layer, same "draft/pre-posting only" rule `LandedCostsService` already applies) — confirmed by regression test that a post-receipt cost addition is correctly rejected, and that a pre-receipt service fee is genuinely included in the returned product's cost layer (regression-verified: 10 units material @ $10 + $40 service fee, across 8 output units, produced exactly $17.50/unit).
+- No new costing method was created — `fn_add_cost_layer` itself is completely untouched; the allocation math lives entirely in the new `fn_receive_subcontract_output` RPC, one level above it.
+
+**Phase 6 — Production integration:**
+- `subcontract_orders.production_order_id` is a loose, optional FK with **zero behavioral coupling** — unlike Routing's completion gate, subcontracting does not block or alter `ProductionOrdersService.complete()` in any way. Confirmed by regression test: linking a subcontract order to a production order, then completing that production order via the unmodified `fn_post_production_order`, leaves the subcontract order at `draft` and completes the production order exactly as if no link existed.
+
+**New API**: `manufacturing/subcontract-orders` (`GET`/`POST`), `:id` (`GET`), `:id/send` (`POST`), `:id/receive` (`POST`), `:id/costs` (`GET`/`POST` — the `GET` was added beyond the literal route list for read visibility, mirroring every other cost/sub-resource endpoint in this project, e.g. Landed Costs). Reuses `manufacturing.view`/`manufacturing.manage`/`manufacturing.execute` exclusively — no new permission.
+
+**Explicitly not touched, per strict architecture rules**: `production_orders`, the BOM engine, `fn_post_production_order`, `fn_apply_stock_movement`, `fn_consume_cost_layers`, `fn_add_cost_layer`'s own logic, every costing method, `stock_transfers`, and `stock_ownership_layers` — confirmed via grep, none redefined anywhere in this migration.
+
+**Regression suite**: `manufacturing-subcontracting-13.16C.regression.spec.ts` (6 tests, all passing, covering all 10 requested scenarios) — subcontract order creation with line validation and non-subcontractor-supplier rejection, supplier subcontractor flagging with existing-supplier default preserved, sending materials posts a real `subcontract_out` movement and decreases stock, receiving with a service fee posts a correctly-valued `subcontract_in` movement and cost layer (material + service cost both genuinely included, post-receipt cost-addition correctly rejected), optional production-order linkage confirmed to have zero effect on that production order's own completion, and tenant isolation.
+
+**Validation performed:**
+- `npx tsc --noEmit` — zero errors
+- `npm run build` — **succeeds cleanly** (the previously-flagged pre-existing `scripts/generate-openapi.ts`/`@nestjs/swagger` gap was fixed this session by installing `@nestjs/swagger`; confirmed the build no longer needs that caveat)
+- Full app boot via `NestFactory.create(AppModule).init()` — `Nest application successfully started`; `SubcontractOrdersController {/manufacturing/subcontract-orders}` confirmed mapped at the exact requested path, no circular dependency from the new `ManufacturingModule → PurchasingModule` import (added to reach `SuppliersService`), all guards resolved
+- Regression suites: new `manufacturing-subcontracting-13.16C` (6/6) + `manufacturing-byproducts-13.16B` (4/4) + `manufacturing-routing-scrap-13.16A` (6/6) + `manufacturing-locations` (existing, unaffected) + `production-orders-read-model` (existing, unaffected) + `transfer-lifecycle` + `supplier-items` re-run to confirm no regressions — 35/35 (wider set) + 6/6 (new) = 41/41 total passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 16 | Manufacturing | **Complete** — all eight named sub-scopes (BOM, multi-level BOM, production/work orders, routing, work centers, scrap, by-products, subcontracting) now implemented |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #16's Subcontracting subset only, per Sequential Execution Order. Roadmap item #16 is now fully closed.

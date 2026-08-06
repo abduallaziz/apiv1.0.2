@@ -9,6 +9,7 @@ import { CreateItemBarcodeDto } from './dto/create-item-barcode.dto';
 import { UpdateItemBarcodeDto } from './dto/update-item-barcode.dto';
 import { generateEan13ForTenant } from './utils/ean13.util';
 import { parseCsv } from './utils/csv.util';
+import { renderBarcodeLabelSvg } from './utils/barcode-render.util';
 import { BarcodeType } from './dto/create-item-barcode.dto';
 
 const MAX_GENERATE_ATTEMPTS = 5;
@@ -59,6 +60,32 @@ export class ItemBarcodesService {
     const barcode = await this.barcodesRepo.findById(id, tenantId);
     if (!barcode) throw new NotFoundException('Barcode not found');
     return barcode;
+  }
+
+  // Read/render only — no writes, no new validation rules. Reuses the same
+  // item/variant lookups already used by create()/update() rather than a
+  // new joined query.
+  async renderLabel(id: string, tenantId: string): Promise<string> {
+    const barcode = await this.findById(id, tenantId); // 404s if not found or wrong tenant
+
+    const item = await this.itemsRepo.findById(barcode.item_id, tenantId);
+    if (!item) throw new NotFoundException('Item not found for this barcode');
+
+    let variantName: string | null = null;
+    if (barcode.variant_id) {
+      const variants = await this.itemsRepo.findVariants(barcode.item_id, tenantId);
+      const variant = (variants ?? []).find(
+        (v: { id: string; name: string }) => v.id === barcode.variant_id,
+      );
+      variantName = variant?.name ?? null;
+    }
+
+    return renderBarcodeLabelSvg({
+      barcode: barcode.barcode,
+      barcodeType: barcode.barcode_type,
+      itemName: item.name,
+      variantName,
+    });
   }
 
   async lookup(barcode: string, tenantId: string) {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -79,6 +80,9 @@ export class GoodsReceiptsService {
           tenantId,
         );
       }
+      if (line.ownership_type === 'consignment' && !line.owner_supplier_id) {
+        throw new BadRequestException('owner_supplier_id is required when ownership_type is consignment');
+      }
 
       // A line entered in an alternate unit (e.g. "2 cartons") is converted
       // to the item's storage unit once here, at data entry — everything
@@ -107,6 +111,8 @@ export class GoodsReceiptsService {
         expiration_date: line.expiration_date ?? null,
         location_id: line.location_id ?? null,
         unit_id: line.unit_id ?? null,
+        ownership_type: line.ownership_type && line.ownership_type !== 'company' ? line.ownership_type : null,
+        owner_supplier_id: line.owner_supplier_id ?? null,
       });
     }
 

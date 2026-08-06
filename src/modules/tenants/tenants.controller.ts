@@ -13,6 +13,8 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { CurrentUser } from '../../shared/decorators/current-user.decorator';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
 
 @Controller('tenant')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
@@ -30,8 +32,9 @@ export class TenantsController {
   updateProfile(
     @GetTenant() tenant: TenantContext,
     @Body() dto: UpdateTenantProfileDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.tenantsService.updateProfile(tenant.tenantId, dto);
+    return this.tenantsService.updateProfile(tenant.tenantId, dto, user.sub);
   }
 
   @Get('subscription')

@@ -32,6 +32,18 @@ export class InvoiceItemDto {
   @IsNumber()
   @Min(0)
   unit_price: number;
+
+  // Optional — only present when the line is a serialized unit (item_serials).
+  // Absent entirely for normal, non-serialized sales, which continue
+  // completely unchanged (Migration 13.14 Phase 3).
+  @IsOptional()
+  @IsUUID()
+  serial_id?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  warranty_months?: number;
 }
 
 export class DiscountDto {

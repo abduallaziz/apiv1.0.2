@@ -10,8 +10,8 @@ export class CreateWarehouseDto {
   name: string;
 
   @IsUUID()
-  @IsOptional()
-  branch_id?: string;
+  @IsNotEmpty()
+  branch_id: string;
 
   @IsString()
   @IsOptional()

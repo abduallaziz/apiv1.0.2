@@ -9,6 +9,17 @@ import {
   Min,
 } from 'class-validator';
 
+// Mirrors items.costing_method's CHECK constraint exactly (migration 111).
+// The consumption/add-layer engine itself is untouched by this migration —
+// this only exposes the existing values through the API.
+export enum CostingMethod {
+  FIFO = 'fifo',
+  AVERAGE = 'average',
+  MOVING_AVERAGE = 'moving_average',
+  STANDARD = 'standard',
+  ACTUAL = 'actual',
+}
+
 export enum ItemType {
   PRODUCT = 'product',
   SERVICE = 'service',
@@ -75,4 +86,25 @@ export class CreateItemDto {
   @Min(0.0001)
   @IsOptional()
   sale_unit_factor?: number;
+
+  // Empty/omitted = auto-generated (migration 139: fn_next_sku_seq).
+  // A value here is stored as a manual override (sku_source='manual').
+  @IsString()
+  @IsOptional()
+  sku?: string;
+
+  // Omitted = DB default 'fifo' (unchanged existing behavior). Cross-field
+  // "standard_cost required when standard" validation happens in
+  // ItemsService, not here — class-validator has no clean built-in for
+  // conditional-on-another-field without a custom decorator, and the
+  // service already validates against the full picture on update too
+  // (PartialType makes both fields optional there).
+  @IsEnum(CostingMethod)
+  @IsOptional()
+  costing_method?: CostingMethod;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  standard_cost?: number;
 }

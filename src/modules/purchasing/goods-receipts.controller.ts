@@ -9,6 +9,7 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('purchasing/goods-receipts')
@@ -34,6 +35,7 @@ export class GoodsReceiptsController {
 
   @Post()
   @RequirePermission('purchasing.receive')
+  @Audit('goods_receipt.created')
   create(@Body() dto: CreateGoodsReceiptDto, @GetTenant() tenant: TenantContext) {
     return this.goodsReceiptsService.create(tenant.tenantId, dto);
   }
@@ -41,6 +43,7 @@ export class GoodsReceiptsController {
   @Post(':id/post')
   @RequirePermission('purchasing.receive')
   @HttpCode(HttpStatus.OK)
+  @Audit('goods_receipt.posted')
   post(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
@@ -52,6 +55,7 @@ export class GoodsReceiptsController {
   @Post(':id/cancel')
   @RequirePermission('purchasing.receive')
   @HttpCode(HttpStatus.OK)
+  @Audit('goods_receipt.cancelled')
   cancel(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
     return this.goodsReceiptsService.cancel(id, tenant.tenantId);
   }

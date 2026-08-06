@@ -59,8 +59,13 @@ export class GoodsReceiptsRepository extends ScopedRepository {
     return this.findById(receipt.id, tenantId);
   }
 
+  // fn_post_goods_receipt_with_ownership (146) calls the existing, unchanged
+  // fn_post_goods_receipt internally first, then creates an ownership layer
+  // only for lines that declared non-company ownership — behavior is
+  // byte-for-byte identical to calling fn_post_goods_receipt directly for
+  // every receipt that doesn't use ownership fields.
   async post(id: string, actorId: string) {
-    const { data, error } = await this.supabase.rpc('fn_post_goods_receipt', {
+    const { data, error } = await this.supabase.rpc('fn_post_goods_receipt_with_ownership', {
       p_goods_receipt_id: id,
       p_actor_id: actorId,
     });

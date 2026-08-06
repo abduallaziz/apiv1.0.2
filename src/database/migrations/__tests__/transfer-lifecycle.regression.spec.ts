@@ -21,6 +21,7 @@ const TEST_TENANT_ID = '9bcd3369-d664-47c8-b297-3bc9b429aacf'; // Sefay Demo —
 describe('transfer lifecycle regression (migrations 117-119)', () => {
   let supabase: SupabaseClient;
   let warehouseId: string;
+  let branchId: string;
   let itemId: string;
   const cleanup: { table: string; id: string }[] = [];
 
@@ -112,10 +113,11 @@ describe('transfer lifecycle regression (migrations 117-119)', () => {
 
     const { data: wh } = await supabase
       .from('warehouses')
-      .select('id')
+      .select('id, branch_id')
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1);
     warehouseId = wh[0].id;
+    branchId = wh[0].branch_id;
 
     const { data: item } = await supabase
       .from('items')
@@ -173,6 +175,7 @@ describe('transfer lifecycle regression (migrations 117-119)', () => {
       .from('warehouses')
       .insert({
         tenant_id: TEST_TENANT_ID,
+        branch_id: branchId,
         name: `Regr WH B ${Date.now()}`,
         code: `RWB${Date.now() % 100000}`,
       })
@@ -211,7 +214,12 @@ describe('transfer lifecycle regression (migrations 117-119)', () => {
       .delete()
       .eq('stock_transfer_id', transfer.id);
     await supabase.from('stock_transfers').delete().eq('id', transfer.id);
-    await supabase.from('warehouses').delete().eq('id', whB.id);
+    {
+      const { error } = await supabase.from('warehouses').delete().eq('id', whB.id);
+      if (error) {
+        await supabase.from('warehouses').update({ deleted_at: new Date().toISOString(), is_active: false }).eq('id', whB.id);
+      }
+    }
   }, 30_000);
 
   it('location -> location transfer within the same warehouse succeeds', async () => {
@@ -415,6 +423,7 @@ describe('transfer lifecycle regression (migrations 117-119)', () => {
       .from('warehouses')
       .insert({
         tenant_id: TEST_TENANT_ID,
+        branch_id: branchId,
         name: `Regr WH Gate ${Date.now()}`,
         code: `RWG${Date.now() % 100000}`,
       })
@@ -440,6 +449,11 @@ describe('transfer lifecycle regression (migrations 117-119)', () => {
     expect(error?.message).toContain('is not approved');
 
     await supabase.from('stock_transfers').delete().eq('id', transfer.id);
-    await supabase.from('warehouses').delete().eq('id', whB.id);
+    {
+      const { error } = await supabase.from('warehouses').delete().eq('id', whB.id);
+      if (error) {
+        await supabase.from('warehouses').update({ deleted_at: new Date().toISOString(), is_active: false }).eq('id', whB.id);
+      }
+    }
   }, 30_000);
 });

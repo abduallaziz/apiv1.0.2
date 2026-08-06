@@ -9,6 +9,7 @@ import {
   ArrayMinSize,
   ValidateNested,
   IsDateString,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -55,6 +56,16 @@ export class GoodsReceiptLineDto {
   @IsUUID()
   @IsOptional()
   unit_id?: string;
+
+  // Omitted/'company' (the default) — zero behavior change, no ownership
+  // layer created. 'consignment' requires owner_supplier_id.
+  @IsIn(['company', 'consignment', 'customer'])
+  @IsOptional()
+  ownership_type?: 'company' | 'consignment' | 'customer';
+
+  @IsUUID()
+  @IsOptional()
+  owner_supplier_id?: string;
 }
 
 export class CreateGoodsReceiptDto {

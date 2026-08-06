@@ -9,15 +9,35 @@ export class TransfersRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, status?: string, pagination: PaginationDto = new PaginationDto()) {
-    const { data, error } = await this.supabase.rpc('fn_stock_transfers_list_enriched', {
-      p_tenant_id: tenantId,
-      p_status: status ?? null,
-      p_limit: pagination.perPage,
-      p_offset: pagination.offset,
-    });
+  async findAll(
+    tenantId: string,
+    status?: string,
+    pagination: PaginationDto = new PaginationDto(),
+  ): Promise<{ data: unknown[]; total: number }> {
+    // fn_stock_transfers_list_enriched (migration 036) has no total-count
+    // column in its RETURNS TABLE — total is fetched separately here, same
+    // tenant_id/status filters, rather than changing the RPC itself.
+    const [{ data, error }, { count, error: countError }] = await Promise.all([
+      this.supabase.rpc('fn_stock_transfers_list_enriched', {
+        p_tenant_id: tenantId,
+        p_status: status ?? null,
+        p_limit: pagination.perPage,
+        p_offset: pagination.offset,
+      }),
+      this.countAll(tenantId, status),
+    ]);
     if (error) throw error;
-    return data;
+    if (countError) throw countError;
+    return { data: data ?? [], total: count ?? 0 };
+  }
+
+  private countAll(tenantId: string, status?: string) {
+    let q = this.supabase
+      .from('stock_transfers')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId);
+    if (status) q = q.eq('status', status);
+    return q;
   }
 
   async findById(id: string, tenantId: string) {

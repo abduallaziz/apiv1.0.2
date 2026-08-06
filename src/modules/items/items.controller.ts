@@ -16,6 +16,7 @@ import { CreateItemDto } from './dto/create-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
+import { QueryItemsDto } from './dto/query-items.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -30,12 +31,17 @@ export class ItemsController {
 
   @Get()
   @RequirePermission('items.view')
-  findAll(
-    @GetTenant() tenant: TenantContext,
-    @Query('page') page?: string,
-    @Query('per_page') perPage?: string,
-  ) {
-    return this.itemsService.findAll(tenant.tenantId, page, perPage);
+  findAll(@GetTenant() tenant: TenantContext, @Query() query: QueryItemsDto) {
+    return this.itemsService.findAll(tenant.tenantId, query);
+  }
+
+  // Registered before ':id' — otherwise Nest would route GET /items/stats
+  // into the :id handler with id="stats" (same gotcha documented elsewhere
+  // in this codebase, e.g. invoices' held/:id vs :id).
+  @Get('stats')
+  @RequirePermission('items.view')
+  getStats(@GetTenant() tenant: TenantContext) {
+    return this.itemsService.getStats(tenant.tenantId);
   }
 
   @Get(':id')

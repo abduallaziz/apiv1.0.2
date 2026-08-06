@@ -58,6 +58,31 @@ export class StockRepository extends ScopedRepository {
   // Deliberately no cache layer — ATP directly gates checkout/backorder
   // decisions, a stale read here could let a cashier oversell against a
   // number that's already wrong.
+  // Migration 13.15-fix — read-only visibility into cost_layers. Does not
+  // touch fn_add_cost_layer/fn_consume_cost_layers or their FEFO/average
+  // logic in any way; this is a plain filtered SELECT over the same table
+  // those functions already read/write.
+  async findCostLayers(
+    tenantId: string,
+    filter: { itemId?: string; warehouseId?: string },
+  ): Promise<any[]> {
+    let query = this.supabase
+      .from('cost_layers')
+      .select(
+        'id, item_id, variant_id, batch_id, warehouse_id, unit_cost, quantity_received, quantity_remaining, received_at, ' +
+          'items(name, sku), warehouses(name, code)',
+      )
+      .eq('tenant_id', tenantId)
+      .order('received_at', { ascending: true });
+
+    if (filter.itemId) query = query.eq('item_id', filter.itemId);
+    if (filter.warehouseId) query = query.eq('warehouse_id', filter.warehouseId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
+  }
+
   async findAtp(
     tenantId: string,
     warehouseId: string,

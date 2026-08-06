@@ -32,4 +32,12 @@ export class CreateSupplierDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  // Migration 13.16C (#16, Subcontracting) — a supplier can be a normal
+  // goods supplier, a subcontractor, or both; this is just a flag, not a
+  // separate record type. Omitted/false preserves exact prior behavior
+  // for every existing supplier.
+  @IsBoolean()
+  @IsOptional()
+  is_subcontractor?: boolean;
 }

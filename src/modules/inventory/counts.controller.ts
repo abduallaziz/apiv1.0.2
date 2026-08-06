@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, HttpCode, 
 import { CountsService } from './counts.service';
 import { CreateStockCountDto } from './dto/create-stock-count.dto';
 import { SubmitCountItemDto } from './dto/submit-count-item.dto';
+import { ApproveStockCountDto } from './dto/approve-stock-count.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -63,5 +64,17 @@ export class CountsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.countsService.finalize(id, tenant.tenantId, user.sub);
+  }
+
+  @Post(':id/approve')
+  @RequirePermission('inventory.count')
+  @HttpCode(HttpStatus.OK)
+  approve(
+    @Param('id') id: string,
+    @Body() dto: ApproveStockCountDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.countsService.approve(id, tenant.tenantId, user.sub, dto);
   }
 }
