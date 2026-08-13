@@ -152,7 +152,76 @@ export class InvoicesRepository extends ScopedRepository {
         }
       }
 
+      // M184 — Sales Posting, same transaction, after every order_item/
+      // audit insert above (so it can never post before the sale itself
+      // is fully written) and before the outer COMMIT. Any failure here
+      // — missing branch assignment, closed fiscal period, unrecognized
+      // payment method, unbalanced totals — rolls back the entire sale
+      // via the same BEGIN/COMMIT/ROLLBACK this callback already runs
+      // inside. No best-effort accounting: a sale is never committed
+      // without its journal entry, per the approved M184 design.
+      await client.query('SELECT fn_post_sales_order($1, $2, $3, $4)', [
+        tenant.tenantId,
+        orderId,
+        orderPayload.cashier_id,
+        null, // p_posting_date — function defaults to orders.created_at::date
+      ]);
+
       return { id: orderId };
+    });
+  }
+
+  /**
+   * M184 — pooled, atomic equivalent of `cancel()` that also reverses the
+   * order's Accounting posting (if one exists) in the same transaction.
+   * Gated behind `POOLED_INVOICE_WRITES_ENABLED` in `InvoicesService.cancel()`
+   * — mirrors `createWithItemsPooled()`'s own gating exactly, since a sale
+   * can only have been posted in the first place via that same pooled path.
+   */
+  async cancelPooled(
+    tenant: TenantContext,
+    id: string,
+    cancelledBy: string,
+  ): Promise<{ id: string; status: string }> {
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const result = await client.query<{ id: string; status: string }>(
+        `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2
+         RETURNING id, status`,
+        [id, tenant.tenantId],
+      );
+      if (result.rows.length === 0) {
+        throw new NotFoundException('Order not found');
+      }
+
+      try {
+        await client.query(
+          'SELECT fn_reverse_sales_order($1, $2, $3, $4, $5)',
+          [
+            tenant.tenantId,
+            id,
+            cancelledBy,
+            new Date().toISOString().slice(0, 10),
+            'Order cancelled',
+          ],
+        );
+      } catch (err: any) {
+        // M184 approved behavior: only the specific "nothing to reverse"
+        // case (order was never posted — e.g. created before this
+        // integration existed, or posting itself never happened) is
+        // swallowed. Any other error (real DB failure, posting
+        // corruption, closed period on the reversal date) propagates
+        // and rolls back the whole cancellation — never a silent
+        // Order=cancelled / Journal=untouched-but-broken divergence.
+        const message =
+          err && typeof err === 'object' && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
+        if (!message.includes('nothing to reverse')) {
+          throw err;
+        }
+      }
+
+      return result.rows[0];
     });
   }
 

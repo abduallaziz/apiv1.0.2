@@ -24,6 +24,15 @@ function buildService(overrides: {
     insertItems: jest.fn().mockResolvedValue(['oi-1', 'oi-2', 'oi-3']),
     createWithItemsPooled: jest.fn().mockResolvedValue({ id: 'order-1' }),
     getBranchDefaultWarehouse: jest.fn().mockResolvedValue(null),
+    // M184
+    findById: jest
+      .fn()
+      .mockResolvedValue({ id: 'order-1', status: 'completed', total: 100 }),
+    cancel: jest.fn().mockResolvedValue({ id: 'order-1', status: 'cancelled' }),
+    cancelPooled: jest
+      .fn()
+      .mockResolvedValue({ id: 'order-1', status: 'cancelled' }),
+    reverseSaleStockDeduction: jest.fn().mockResolvedValue(undefined),
     ...overrides.repoOverrides,
   };
 
@@ -55,7 +64,7 @@ function buildService(overrides: {
     {} as any, // holdsRepo (unused — warehouseId null short-circuits the stock block)
     {} as any, // ownershipRepo
     {} as any, // expiredBatchesRepo
-    {} as any, // serialsRepo
+    { findSoldByOrder: jest.fn().mockResolvedValue([]) } as any, // serialsRepo
     priceResolutionService as any,
   );
 
@@ -616,6 +625,245 @@ describe('InvoicesService.create — D01-M7 Price Resolution integration', () =>
       ).rejects.toMatchObject({ response: { order_id: 'existing-order' } });
 
       expect(resolvePrice).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('M184 — Sales Posting integration', () => {
+    it('pooled write path: posting is delegated to createWithItemsPooled (accounting posting lives inside that same transaction)', async () => {
+      const resolvePrice = jest.fn().mockResolvedValue({
+        kind: 'no_override',
+        officialUnitPrice: 100,
+      });
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: true,
+      });
+
+      const dto = baseDto([
+        { item_id: 'item-1', item_name: 'A', quantity: 1, unit_price: 100 },
+      ]);
+      await service.create(
+        TENANT,
+        dto,
+        'user-1',
+        'cashier',
+        'b1',
+        'shift-1',
+        '1.2.3.4',
+        'device',
+      );
+
+      // The repository method itself is responsible for calling
+      // fn_post_sales_order() inside its own transaction — verified at
+      // the repository/SQL level (see the M184 migration + live
+      // validation), not re-mocked here since it's not a separate call
+      // from the service's point of view.
+      expect(repo.createWithItemsPooled).toHaveBeenCalledTimes(1);
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('accounting posting failure (surfaced as a plain Postgres error from the pooled transaction) maps to BadRequestException with reasonCode', async () => {
+      const resolvePrice = jest.fn().mockResolvedValue({
+        kind: 'no_override',
+        officialUnitPrice: 100,
+      });
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: true,
+      });
+      repo.createWithItemsPooled.mockRejectedValue(
+        new Error(
+          'No Accounting Owner is assigned to branch b1 on date 2026-08-13 (order o1)',
+        ),
+      );
+
+      const dto = baseDto([
+        { item_id: 'item-1', item_name: 'A', quantity: 1, unit_price: 100 },
+      ]);
+
+      await expect(
+        service.create(
+          TENANT,
+          dto as any,
+          'user-1',
+          'cashier',
+          'b1',
+          'shift-1',
+          '1.2.3.4',
+          'device',
+        ),
+      ).rejects.toMatchObject({
+        response: { reasonCode: 'accounting_posting_failed' },
+      });
+    });
+
+    it('closed fiscal period failure also maps to accounting_posting_failed', async () => {
+      const resolvePrice = jest.fn().mockResolvedValue({
+        kind: 'no_override',
+        officialUnitPrice: 100,
+      });
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: true,
+      });
+      repo.createWithItemsPooled.mockRejectedValue(
+        new Error(
+          'Fiscal period p1 (status=closed) is not open — journal entry e1 cannot be posted',
+        ),
+      );
+
+      const dto = baseDto([
+        { item_id: 'item-1', item_name: 'A', quantity: 1, unit_price: 100 },
+      ]);
+
+      await expect(
+        service.create(
+          TENANT,
+          dto as any,
+          'user-1',
+          'cashier',
+          'b1',
+          'shift-1',
+          '1.2.3.4',
+          'device',
+        ),
+      ).rejects.toMatchObject({
+        response: { reasonCode: 'accounting_posting_failed' },
+      });
+    });
+
+    it('unrelated errors (e.g. a generic DB error) are NOT reshaped into accounting_posting_failed', async () => {
+      const resolvePrice = jest.fn().mockResolvedValue({
+        kind: 'no_override',
+        officialUnitPrice: 100,
+      });
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: true,
+      });
+      repo.createWithItemsPooled.mockRejectedValue(
+        new Error('connection terminated unexpectedly'),
+      );
+
+      const dto = baseDto([
+        { item_id: 'item-1', item_name: 'A', quantity: 1, unit_price: 100 },
+      ]);
+
+      await expect(
+        service.create(
+          TENANT,
+          dto as any,
+          'user-1',
+          'cashier',
+          'b1',
+          'shift-1',
+          '1.2.3.4',
+          'device',
+        ),
+      ).rejects.toThrow('connection terminated unexpectedly');
+    });
+
+    it('non-pooled write path never attempts accounting posting (no createWithItemsPooled/cancelPooled call)', async () => {
+      const resolvePrice = jest.fn().mockResolvedValue({
+        kind: 'no_override',
+        officialUnitPrice: 100,
+      });
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: false,
+      });
+
+      const dto = baseDto([
+        { item_id: 'item-1', item_name: 'A', quantity: 1, unit_price: 100 },
+      ]);
+      await service.create(
+        TENANT,
+        dto,
+        'user-1',
+        'cashier',
+        'b1',
+        'shift-1',
+        '1.2.3.4',
+        'device',
+      );
+
+      expect(repo.createWithItemsPooled).not.toHaveBeenCalled();
+      expect(repo.cancelPooled).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('M184 — cancel() reversal integration', () => {
+    it('pooled: cancel() uses cancelPooled() (atomic status change + reversal)', async () => {
+      const resolvePrice = jest.fn();
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: true,
+      });
+
+      await service.cancel(
+        TENANT,
+        'order-1',
+        { reason: 'test' },
+        'user-1',
+        'owner',
+        '1.2.3.4',
+        'device',
+      );
+
+      expect(repo.cancelPooled).toHaveBeenCalledWith(
+        TENANT,
+        'order-1',
+        'user-1',
+      );
+      expect(repo.cancel).not.toHaveBeenCalled();
+    });
+
+    it('non-pooled: cancel() uses the plain cancel() path, never attempts reversal', async () => {
+      const resolvePrice = jest.fn();
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: false,
+      });
+
+      await service.cancel(
+        TENANT,
+        'order-1',
+        { reason: 'test' },
+        'user-1',
+        'owner',
+        '1.2.3.4',
+        'device',
+      );
+
+      expect(repo.cancel).toHaveBeenCalledWith(TENANT, 'order-1', 'user-1');
+      expect(repo.cancelPooled).not.toHaveBeenCalled();
+    });
+
+    it('already-cancelled order is rejected before any repo write', async () => {
+      const resolvePrice = jest.fn();
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: true,
+      });
+      repo.findById.mockResolvedValue({
+        id: 'order-1',
+        status: 'cancelled',
+        total: 100,
+      });
+
+      await expect(
+        service.cancel(
+          TENANT,
+          'order-1',
+          { reason: 'test' } as any,
+          'user-1',
+          'owner',
+          '1.2.3.4',
+          'device',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.cancelPooled).not.toHaveBeenCalled();
+      expect(repo.cancel).not.toHaveBeenCalled();
     });
   });
 });

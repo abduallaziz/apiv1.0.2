@@ -478,6 +478,26 @@ export class InvoicesService {
           });
         }
       }
+      // M184 — fn_post_sales_order() failures (missing branch assignment,
+      // closed fiscal period, unrecognized payment method, missing
+      // account role, unbalanced totals) surface here as plain Postgres
+      // errors from the same transaction that already rolled back the
+      // order/order_items/audit. Converted to the existing HTTP
+      // convention rather than leaking a raw 500 — the underlying
+      // rollback already happened either way; this only shapes the
+      // response.
+      if (
+        typeof err?.message === 'string' &&
+        /accounting owner|accounting book|no account assigned|already been posted to accounting|unrecognized payment_method|no cash_amount\/card_amount|totals do not reconcile|fiscal period/i.test(
+          err.message,
+        )
+      ) {
+        throw new BadRequestException({
+          message: 'Accounting posting failed — sale was not created',
+          reasonCode: 'accounting_posting_failed',
+          detail: err.message,
+        });
+      }
       throw err;
     }
 
@@ -819,7 +839,17 @@ export class InvoicesService {
       throw new BadRequestException('Invoice already cancelled');
     }
 
-    const updated = await this.repo.cancel(tenant, id, actorId);
+    // M184 — reversal can only be attempted atomically with the status
+    // change via the pooled path, mirroring create()'s own gating: a
+    // sale can only ever have been posted to Accounting in the first
+    // place when POOLED_INVOICE_WRITES_ENABLED was true, so when it's
+    // false today there is, by construction, never anything to reverse.
+    const usePooledCancel = this.config.get<boolean>(
+      'POOLED_INVOICE_WRITES_ENABLED',
+    );
+    const updated = usePooledCancel
+      ? await this.repo.cancelPooled(tenant, id, actorId)
+      : await this.repo.cancel(tenant, id, actorId);
 
     if (!updated) {
       throw new BadRequestException('Cannot cancel this invoice');
