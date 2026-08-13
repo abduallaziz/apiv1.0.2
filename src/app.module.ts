@@ -30,6 +30,7 @@ import { ScannerModule } from './modules/scanner/scanner.module';
 import { OwnershipModule } from './modules/ownership/ownership.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { AccountingModule } from './modules/accounting/accounting.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -107,6 +108,7 @@ import { RootController } from './root.controller';
     OwnershipModule,
     PurchasingModule,
     InvoicesModule,
+    AccountingModule,
     ShiftsModule,
     ExpensesModule,
     CustomersModule,

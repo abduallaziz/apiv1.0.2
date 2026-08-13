@@ -566,6 +566,56 @@ const permissions = [
     action: 'manage',
     description: 'Create and manage preset order notes',
   },
+
+  // Accounting Backend Phase 1 — read surface for the General Ledger
+  // foundation (journal entries, sales posting, COGS reconciliation,
+  // fiscal periods, chart of accounts) plus the one write action
+  // (branch accounting assignment) that unblocks Sales Posting for
+  // tenants/branches missing an Accounting Owner.
+  {
+    name: 'accounting.view',
+    resource: 'accounting',
+    action: 'view',
+    description: 'View Accounting Command Center',
+  },
+  {
+    name: 'accounting.journal.view',
+    resource: 'accounting',
+    action: 'view',
+    description:
+      'View Journal Entries, Sales Posting status, and COGS reconciliation',
+  },
+  {
+    name: 'accounting.ledger.view',
+    resource: 'accounting',
+    action: 'view',
+    description: 'View the Chart of Accounts',
+  },
+  {
+    name: 'accounting.reconciliation.view',
+    resource: 'accounting',
+    action: 'view',
+    description: 'View COGS reconciliation exceptions',
+  },
+  {
+    name: 'accounting.period.manage',
+    resource: 'accounting',
+    action: 'manage',
+    description: 'View Fiscal Period status',
+  },
+  {
+    name: 'accounting.configuration.manage',
+    resource: 'accounting',
+    action: 'manage',
+    description:
+      'View and assign Accounting Owners / Branch Accounting Assignments',
+  },
+  {
+    name: 'price_override.audit.view',
+    resource: 'price_override',
+    action: 'view',
+    description: 'View the D01 Price Override Audit trail',
+  },
 ];
 
 const rolePerms: {
@@ -722,6 +772,13 @@ add('owner', [
   'kitchen.manage',
   'coupons.manage',
   'note_presets.manage',
+  'accounting.view',
+  'accounting.journal.view',
+  'accounting.ledger.view',
+  'accounting.reconciliation.view',
+  'accounting.period.manage',
+  'accounting.configuration.manage',
+  'price_override.audit.view',
 ]);
 add('manager', [
   'invoice.create.own',
@@ -786,6 +843,12 @@ add('manager', [
   'kitchen.manage',
   'coupons.manage',
   'note_presets.manage',
+  'accounting.view',
+  'accounting.journal.view',
+  'accounting.ledger.view',
+  'accounting.reconciliation.view',
+  'accounting.period.manage',
+  'price_override.audit.view',
 ]);
 add('inventory_clerk', [
   'items.view',
