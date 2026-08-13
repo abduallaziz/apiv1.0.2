@@ -48,9 +48,9 @@ export class InvoicesRepository extends ScopedRepository {
         `INSERT INTO orders (
            tenant_id, branch_id, shift_id, cashier_id, customer_id, status,
            subtotal, discount, tax, total, payment_method, notes,
-           coupon_code, gift_card_code, gift_card_amount
+           coupon_code, sale_attempt_id, cash_amount, card_amount
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING id`,
         [
           tenant.tenantId,
@@ -66,8 +66,9 @@ export class InvoicesRepository extends ScopedRepository {
           orderPayload.payment_method,
           orderPayload.notes ?? null,
           orderPayload.coupon_code ?? null,
-          orderPayload.gift_card_code ?? null,
-          orderPayload.gift_card_amount ?? null,
+          orderPayload.sale_attempt_id,
+          orderPayload.cash_amount ?? null,
+          orderPayload.card_amount ?? null,
         ],
       );
       const orderId = orderResult.rows[0].id;
@@ -154,8 +155,8 @@ export class InvoicesRepository extends ScopedRepository {
     const orders = data ?? [];
     return orders.map((o: any) => ({
       ...o,
-      cashier_name: (o.cashier as any)?.name ?? null,
-      customer_name: (o.customer as any)?.full_name ?? null,
+      cashier_name: o.cashier?.name ?? null,
+      customer_name: o.customer?.full_name ?? null,
       cashier: undefined,
       customer: undefined,
     }));
@@ -180,12 +181,26 @@ export class InvoicesRepository extends ScopedRepository {
     const o = order as any;
     return {
       ...o,
-      cashier_name: (o.cashier as any)?.name ?? null,
-      customer_name: (o.customer as any)?.full_name ?? null,
+      cashier_name: o.cashier?.name ?? null,
+      customer_name: o.customer?.full_name ?? null,
       cashier: undefined,
       customer: undefined,
       items: items ?? [],
     };
+  }
+
+  // M187 idempotency guard — looked up once at the start of a create()
+  // call (short-circuits before any side effect for a genuine resubmit)
+  // and again on a unique-violation race (two concurrent requests with the
+  // same sale_attempt_id).
+  async findBySaleAttemptId(tenant: TenantContext, saleAttemptId: string) {
+    const { data, error } = await this.ordersQuery(tenant)
+      .select('id, status, total, payment_method')
+      .eq('sale_attempt_id', saleAttemptId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data;
   }
 
   async create(tenant: TenantContext, payload: Record<string, unknown>) {
@@ -213,7 +228,8 @@ export class InvoicesRepository extends ScopedRepository {
 
     const { error } = await this.supabase.from('order_items').insert(mapped);
     if (error) {
-      if (error.code === '23503') throw new NotFoundException('Unknown item_id or variant_id');
+      if (error.code === '23503')
+        throw new NotFoundException('Unknown item_id or variant_id');
       throw error;
     }
   }
@@ -235,22 +251,32 @@ export class InvoicesRepository extends ScopedRepository {
     actorId: string,
     items: { item_id: string; variant_id: string | null; quantity: number }[],
   ): Promise<void> {
-    const { error } = await this.supabase.rpc('fn_process_sale_stock_deduction', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId,
-      p_order_id: orderId,
-      p_actor_id: actorId,
-      p_items: items,
-    });
+    const { error } = await this.supabase.rpc(
+      'fn_process_sale_stock_deduction',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: warehouseId,
+        p_order_id: orderId,
+        p_actor_id: actorId,
+        p_items: items,
+      },
+    );
     if (error) throw error;
   }
 
-  async reverseSaleStockDeduction(tenantId: string, orderId: string, actorId: string): Promise<void> {
-    const { error } = await this.supabase.rpc('fn_reverse_sale_stock_deduction', {
-      p_tenant_id: tenantId,
-      p_order_id: orderId,
-      p_actor_id: actorId,
-    });
+  async reverseSaleStockDeduction(
+    tenantId: string,
+    orderId: string,
+    actorId: string,
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc(
+      'fn_reverse_sale_stock_deduction',
+      {
+        p_tenant_id: tenantId,
+        p_order_id: orderId,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
   }
 
@@ -258,7 +284,11 @@ export class InvoicesRepository extends ScopedRepository {
   // actual insert/fetch — these three are the only genuinely new queries
   // the hold/resume feature needs (list-with-visibility-filter, toggle,
   // soft-delete-on-cancel).
-  async findHeldOrders(tenant: TenantContext, branchId: string, actorId: string) {
+  async findHeldOrders(
+    tenant: TenantContext,
+    branchId: string,
+    actorId: string,
+  ) {
     let query = this.supabase
       .from('orders')
       .select(this.ORDER_SELECT)
@@ -276,22 +306,30 @@ export class InvoicesRepository extends ScopedRepository {
 
     return (data ?? []).map((o: any) => ({
       ...o,
-      cashier_name: (o.cashier as any)?.name ?? null,
-      customer_name: (o.customer as any)?.full_name ?? null,
+      cashier_name: o.cashier?.name ?? null,
+      customer_name: o.customer?.full_name ?? null,
       cashier: undefined,
       customer: undefined,
     }));
   }
 
-  async updateHeldVisibility(tenant: TenantContext, id: string, visibility: string) {
+  async updateHeldVisibility(
+    tenant: TenantContext,
+    id: string,
+    visibility: string,
+  ) {
     const query = this.supabase
       .from('orders')
       .update({ held_visibility: visibility })
       .eq('id', id)
       .eq('held', true);
 
-    const scoped = tenant.tenantId ? query.eq('tenant_id', tenant.tenantId) : query;
-    const { data, error } = await scoped.select('id, held_visibility').maybeSingle();
+    const scoped = tenant.tenantId
+      ? query.eq('tenant_id', tenant.tenantId)
+      : query;
+    const { data, error } = await scoped
+      .select('id, held_visibility')
+      .maybeSingle();
     if (error) throw error;
     return data;
   }
@@ -303,7 +341,9 @@ export class InvoicesRepository extends ScopedRepository {
       .eq('id', id)
       .eq('held', true);
 
-    const scoped = tenant.tenantId ? query.eq('tenant_id', tenant.tenantId) : query;
+    const scoped = tenant.tenantId
+      ? query.eq('tenant_id', tenant.tenantId)
+      : query;
     const { data, error } = await scoped.select('id').maybeSingle();
     if (error) throw error;
     return data;

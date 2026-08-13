@@ -59,6 +59,16 @@ export class LocationsController {
     return this.locationsService.findById(id, warehouseId, tenant.tenantId);
   }
 
+  @Get(':id/restrictions')
+  @RequirePermission('inventory.view')
+  restrictions(
+    @Param('id') id: string,
+    @Param('warehouseId') warehouseId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.locationsService.restrictions(id, warehouseId, tenant.tenantId);
+  }
+
   @Post()
   @RequirePermission('inventory.manage')
   @Audit('location.create')

@@ -19,7 +19,9 @@ import { RedisCacheService } from '../cache/redis-cache.service';
 // queried in that case.
 const PERMISSIONS_TTL = 600;
 const cacheKey = (role: string, tenantId?: string | null) =>
-  tenantId ? `permissions:tenant:${tenantId}:role:${role}` : `permissions:role:${role}`;
+  tenantId
+    ? `permissions:tenant:${tenantId}:role:${role}`
+    : `permissions:role:${role}`;
 
 // Phase 2 of the multi-role migration (see STATUS.md) — deliberately a
 // separate key namespace from cacheKey() above (permissions:user:* vs
@@ -27,7 +29,9 @@ const cacheKey = (role: string, tenantId?: string | null) =>
 // never collide with or invalidate a single-role cache entry used by the
 // still-untouched hasPermission()/getGrantedSet() path.
 const userCacheKey = (userId: string, tenantId?: string | null) =>
-  tenantId ? `permissions:user:${userId}:tenant:${tenantId}` : `permissions:user:${userId}`;
+  tenantId
+    ? `permissions:user:${userId}:tenant:${tenantId}`
+    : `permissions:user:${userId}`;
 
 // INTERMEDIATE API — hasPermission(role, permissionKey, tenantId) is Stage B
 // of the tenant-aware authorization migration. It intentionally does NOT yet
@@ -61,7 +65,10 @@ export class PermissionsService {
     return granted.has(permissionKey);
   }
 
-  async getRolePermissions(role: string, tenantId?: string | null): Promise<string[]> {
+  async getRolePermissions(
+    role: string,
+    tenantId?: string | null,
+  ): Promise<string[]> {
     const granted = await this.getGrantedSet(role, tenantId);
     return Array.from(granted);
   }
@@ -74,7 +81,10 @@ export class PermissionsService {
   // write path assigns/revokes user_roles rows until Phase 3), but the cache
   // it invalidates already exists via hasPermissionForUser below, so this is
   // added now rather than left as a gap to remember later.
-  async invalidateUserPermissions(userId: string, tenantId?: string | null): Promise<void> {
+  async invalidateUserPermissions(
+    userId: string,
+    tenantId?: string | null,
+  ): Promise<void> {
     await this.cache.del(userCacheKey(userId, tenantId));
   }
 
@@ -164,7 +174,10 @@ export class PermissionsService {
   // removeOverride() below. A single UPDATE rather than N individual
   // removeOverride() calls, so this is one round trip regardless of how
   // many overrides the user has.
-  async resetAllOverrides(userId: string, tenantId?: string | null): Promise<void> {
+  async resetAllOverrides(
+    userId: string,
+    tenantId?: string | null,
+  ): Promise<void> {
     const { error } = await this.supabase
       .from('user_permissions_override')
       .update({ is_active: false })
@@ -205,7 +218,12 @@ export class PermissionsService {
     if (!updated || updated.length === 0) {
       const { error: insertError } = await this.supabase
         .from('user_permissions_override')
-        .insert({ user_id: userId, permission_key: permissionKey, action, is_active: true });
+        .insert({
+          user_id: userId,
+          permission_key: permissionKey,
+          action,
+          is_active: true,
+        });
       if (insertError) throw insertError;
     }
 
@@ -285,7 +303,10 @@ export class PermissionsService {
     return { grantedKeys: merged, overrides };
   }
 
-  private async getGrantedSet(role: string, tenantId?: string | null): Promise<Set<string>> {
+  private async getGrantedSet(
+    role: string,
+    tenantId?: string | null,
+  ): Promise<Set<string>> {
     const key = cacheKey(role, tenantId);
 
     const cached = await this.cache.get<string[]>(key);
@@ -296,7 +317,10 @@ export class PermissionsService {
     return new Set(permissions);
   }
 
-  private async resolveGrantedKeys(role: string, tenantId?: string | null): Promise<string[]> {
+  private async resolveGrantedKeys(
+    role: string,
+    tenantId?: string | null,
+  ): Promise<string[]> {
     // getRolePermissions() (used by getEditableRoleOrThrow's caller chain and
     // anywhere else that lists rather than checks a single key) goes through
     // here — same force-true rule, kept consistent with hasPermission and
@@ -399,7 +423,10 @@ export class PermissionsService {
   // role "Supervisor" (unique only per-tenant, via idx_roles_tenant_name_unique),
   // so caching by name alone here would leak tenant A's roleId into tenant
   // B's lookup for the same name.
-  private async lookupRoleId(role: string, tenantId?: string | null): Promise<string | null> {
+  private async lookupRoleId(
+    role: string,
+    tenantId?: string | null,
+  ): Promise<string | null> {
     const systemId = await this.lookupSystemRoleId(role);
     if (systemId) return systemId;
     if (!tenantId) return null;

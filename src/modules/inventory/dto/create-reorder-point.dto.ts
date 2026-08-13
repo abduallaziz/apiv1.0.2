@@ -23,4 +23,14 @@ export class CreateReorderPointDto {
   @IsNumber()
   @Min(0)
   reorder_quantity: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  lead_time_days?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  service_level_z?: number;
 }

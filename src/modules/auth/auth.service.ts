@@ -12,6 +12,7 @@ import { SupabaseClient, createClient } from '@supabase/supabase-js';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import { AccountingBootstrapService } from './accounting-bootstrap.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
@@ -68,6 +69,7 @@ export class AuthService {
 
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly accountingBootstrapService: AccountingBootstrapService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
     private readonly auditService: AuditService,
@@ -96,7 +98,9 @@ export class AuthService {
    * must still succeed for the app's own auth — this just returns null and the
    * frontend falls back to polling for that session.
    */
-  private async mintRealtimeToken(tenantId: string | null): Promise<string | null> {
+  private async mintRealtimeToken(
+    tenantId: string | null,
+  ): Promise<string | null> {
     if (!tenantId) return null;
     const email = this.realtimeEmailForTenant(tenantId);
 
@@ -108,20 +112,25 @@ export class AuthService {
       });
       // Idempotent: ignore "already exists" so this works both on first mint and
       // every subsequent one for the same tenant.
-      if (createErr && !/already been registered|already exists/i.test(createErr.message ?? '')) {
+      if (
+        createErr &&
+        !/already been registered|already exists/i.test(createErr.message ?? '')
+      ) {
         throw createErr;
       }
 
-      const { data: linkData, error: linkErr } = await this.supabase.auth.admin.generateLink({
-        type: 'magiclink',
-        email,
-      });
+      const { data: linkData, error: linkErr } =
+        await this.supabase.auth.admin.generateLink({
+          type: 'magiclink',
+          email,
+        });
       if (linkErr || !linkData?.properties?.hashed_token) return null;
 
-      const { data: verifyData, error: verifyErr } = await this.realtimeAnonClient.auth.verifyOtp({
-        token_hash: linkData.properties.hashed_token,
-        type: 'magiclink',
-      });
+      const { data: verifyData, error: verifyErr } =
+        await this.realtimeAnonClient.auth.verifyOtp({
+          token_hash: linkData.properties.hashed_token,
+          type: 'magiclink',
+        });
       if (verifyErr || !verifyData.session) return null;
 
       return verifyData.session.access_token;
@@ -155,7 +164,9 @@ export class AuthService {
       .eq('role', role)
       .eq('is_granted', true);
 
-    return (data ?? []).map((r: { permission_key: string }) => r.permission_key);
+    return (data ?? []).map(
+      (r: { permission_key: string }) => r.permission_key,
+    );
   }
 
   private async getTenantFeatures(tenantId: string | null): Promise<string[]> {
@@ -177,7 +188,9 @@ export class AuthService {
         .select('feature_key')
         .eq('plan_id', planId)
         .eq('is_enabled', true);
-      (pf ?? []).forEach((r: { feature_key: string }) => planFeatures.push(r.feature_key));
+      (pf ?? []).forEach((r: { feature_key: string }) =>
+        planFeatures.push(r.feature_key),
+      );
     }
 
     const { data: overrides } = await this.supabase
@@ -187,9 +200,11 @@ export class AuthService {
 
     const featureMap = new Map<string, boolean>();
     planFeatures.forEach((key) => featureMap.set(key, true));
-    (overrides ?? []).forEach((o: { feature_key: string; is_enabled: boolean | null }) => {
-      if (o.is_enabled !== null) featureMap.set(o.feature_key, o.is_enabled);
-    });
+    (overrides ?? []).forEach(
+      (o: { feature_key: string; is_enabled: boolean | null }) => {
+        if (o.is_enabled !== null) featureMap.set(o.feature_key, o.is_enabled);
+      },
+    );
 
     return Array.from(featureMap.entries())
       .filter(([, enabled]) => enabled)
@@ -260,7 +275,9 @@ export class AuthService {
       .select('id')
       .single();
 
-    const { business_type, activity } = await this.getTenantBusinessType(user.tenant_id);
+    const { business_type, activity } = await this.getTenantBusinessType(
+      user.tenant_id,
+    );
     const roleNames = await this.getUserRoleNames(user.id);
 
     const payload: JwtPayload = {
@@ -269,7 +286,7 @@ export class AuthService {
       role: user.role,
       roles: roleNames.length > 0 ? roleNames : [user.role],
       tenant_id: user.tenant_id,
-      session_id: session!.id,
+      session_id: session.id,
       business_type,
       activity,
     };
@@ -286,7 +303,7 @@ export class AuthService {
 
     await this.supabase.from('refresh_tokens').insert({
       user_id: user.id,
-      session_id: session!.id,
+      session_id: session.id,
       token_hash,
       expires_at: expiresAt.toISOString(),
       is_used: false,
@@ -319,7 +336,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
         tenant_id: user.tenant_id,
-        session_id: session!.id,
+        session_id: session.id,
         business_type,
         activity,
         permissions,
@@ -349,10 +366,13 @@ export class AuthService {
       .maybeSingle();
 
     if (planError || !plan) {
-      throw new ServiceUnavailableException('No active subscription plan is configured');
+      throw new ServiceUnavailableException(
+        'No active subscription plan is configured',
+      );
     }
 
-    const businessType = ACTIVITY_SECTION_TO_BUSINESS_TYPE[dto.activity] ?? 'other';
+    const businessType =
+      ACTIVITY_SECTION_TO_BUSINESS_TYPE[dto.activity] ?? 'other';
     const language = dto.language ?? 'ar';
     const currency = dto.currency ?? 'SAR';
 
@@ -423,35 +443,58 @@ export class AuthService {
       // catch deletes `tenant`, which cascades onto `users` (ON DELETE
       // CASCADE) and from there onto `user_roles` (ON DELETE CASCADE via
       // user_id) — this row can never survive a rolled-back registration.
-      const { error: userRoleError } = await this.supabase.from('user_roles').insert({
-        user_id: user.id,
-        role_id: ownerRole.id,
-        is_primary: true,
-      });
+      const { error: userRoleError } = await this.supabase
+        .from('user_roles')
+        .insert({
+          user_id: user.id,
+          role_id: ownerRole.id,
+          is_primary: true,
+        });
 
       if (userRoleError) {
         throw new ServiceUnavailableException('Failed to assign owner role');
       }
 
-      const { error: branchError } = await this.supabase.from('branches').insert({
-        tenant_id: tenant.id,
-        name: dto.branchName?.trim() || `${dto.businessName} - الفرع الرئيسي`,
-        address: dto.city ?? null,
-        is_active: true,
-      });
+      const branchName =
+        dto.branchName?.trim() || `${dto.businessName} - الفرع الرئيسي`;
+      const { data: branch, error: branchError } = await this.supabase
+        .from('branches')
+        .insert({
+          tenant_id: tenant.id,
+          name: branchName,
+          address: dto.city ?? null,
+          is_active: true,
+        })
+        .select('id')
+        .single();
 
-      if (branchError) {
+      if (branchError || !branch) {
         throw new ServiceUnavailableException('Failed to create branch');
       }
 
-      const { error: subError } = await this.supabase.from('subscriptions').insert({
-        tenant_id: tenant.id,
-        plan_id: plan.id,
-        status: 'trial',
-        billing_cycle: 'monthly',
-        started_at: new Date().toISOString(),
-        trial_ends_at: trialEndsAt.toISOString(),
-      });
+      // Accounting Bootstrap: every new tenant gets a fully operational
+      // accounting configuration (owner, branch assignment, fiscal
+      // calendar/year/12 periods, default book, system chart of accounts,
+      // 8 role assignments) so M184's sales posting integration can resolve
+      // from day one — see accounting-bootstrap.service.ts. Failure here
+      // unwinds through the same compensating catch below as every other
+      // step in this block.
+      await this.accountingBootstrapService.bootstrap(
+        tenant.id,
+        branch.id,
+        branchName,
+      );
+
+      const { error: subError } = await this.supabase
+        .from('subscriptions')
+        .insert({
+          tenant_id: tenant.id,
+          plan_id: plan.id,
+          status: 'trial',
+          billing_cycle: 'monthly',
+          started_at: new Date().toISOString(),
+          trial_ends_at: trialEndsAt.toISOString(),
+        });
 
       if (subError) {
         throw new ServiceUnavailableException('Failed to create subscription');
@@ -480,21 +523,24 @@ export class AuthService {
         role: user.role,
         roles: roleNames.length > 0 ? roleNames : [user.role],
         tenant_id: user.tenant_id,
-        session_id: session!.id,
+        session_id: session.id,
         business_type: businessType,
         activity: dto.activity,
       };
 
       const access_token = this.jwtService.sign(payload);
       const refresh_token = crypto.randomBytes(64).toString('hex');
-      const token_hash = crypto.createHash('sha256').update(refresh_token).digest('hex');
+      const token_hash = crypto
+        .createHash('sha256')
+        .update(refresh_token)
+        .digest('hex');
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
       await this.supabase.from('refresh_tokens').insert({
         user_id: user.id,
-        session_id: session!.id,
+        session_id: session.id,
         token_hash,
         expires_at: expiresAt.toISOString(),
         is_used: false,
@@ -527,7 +573,7 @@ export class AuthService {
           email: user.email,
           role: user.role,
           tenant_id: user.tenant_id,
-          session_id: session!.id,
+          session_id: session.id,
           business_type: businessType,
           activity: dto.activity,
           permissions,
@@ -606,7 +652,9 @@ export class AuthService {
       .update({ is_used: true })
       .eq('id', tokenRecord.id);
 
-    const { business_type, activity } = await this.getTenantBusinessType(user.tenant_id);
+    const { business_type, activity } = await this.getTenantBusinessType(
+      user.tenant_id,
+    );
     const roleNames = await this.getUserRoleNames(user.id);
 
     const payload: JwtPayload = {
@@ -694,11 +742,12 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    const [permissions, features, { business_type, activity }] = await Promise.all([
-      this.getUserPermissions(user.role),
-      this.getTenantFeatures(user.tenant_id),
-      this.getTenantBusinessType(user.tenant_id),
-    ]);
+    const [permissions, features, { business_type, activity }] =
+      await Promise.all([
+        this.getUserPermissions(user.role),
+        this.getTenantFeatures(user.tenant_id),
+        this.getTenantBusinessType(user.tenant_id),
+      ]);
 
     return {
       id: user.id,
@@ -796,7 +845,9 @@ export class AuthService {
   async getSessions(userId: string) {
     const { data: sessions, error } = await this.supabase
       .from('device_sessions')
-      .select('id, device_name, device_type, ip_address, last_active_at, is_revoked, created_at, user_id, tenant_id, user:users!device_sessions_user_id_fkey(name, email), tenant:tenants!device_sessions_tenant_id_fkey(name)')
+      .select(
+        'id, device_name, device_type, ip_address, last_active_at, is_revoked, created_at, user_id, tenant_id, user:users!device_sessions_user_id_fkey(name, email), tenant:tenants!device_sessions_tenant_id_fkey(name)',
+      )
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 

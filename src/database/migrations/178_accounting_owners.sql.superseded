@@ -1,0 +1,96 @@
+-- Sefay Global Financial Platform — Migration M178
+-- Accounting Owners — the single, non-polymorphic entity a Ledger will
+-- belong to (Ledger itself is M180, not created here).
+--
+-- Scope, exactly as approved by the Final Pre-Implementation Fix Gate:
+--   1. Add UNIQUE(tenant_id, id) to `branches` — the composite-FK target
+--      this migration's own accounting_owners.branch_id reference needs.
+--      This is a pure additive constraint: `id` is already the PRIMARY
+--      KEY (globally unique), so (tenant_id, id) is trivially unique for
+--      every existing row — cannot fail against current data, requires
+--      no data transformation, and changes no existing query or RLS
+--      policy on `branches`.
+--   2. Create `accounting_owners` with:
+--        - company_id NOT NULL, composite FK to companies(tenant_id, id)
+--        - branch_id NULLABLE, composite FK to branches(tenant_id, id)
+--          (nullable is the approved, tested mechanism for representing
+--          Central/Regional/purely-financial accounting structures that
+--          correspond to no physical branch — see the Coexistence Gate)
+--        - owner_type_code, PLAIN FK to the GLOBAL accounting_owner_types
+--          catalog from M176 (no tenant_id on that side — it is not
+--          tenant-owned data, so no composite FK is needed or correct
+--          there)
+--
+-- NOT in scope here (belong to later migrations, not added):
+-- Branch Assignment History (M179), Ledger (M180), Accounting Book
+-- (M181), Fiscal Calendar / Chart of Accounts overrides (M184).
+--
+-- No polymorphic ownership anywhere in this migration: every FK on
+-- accounting_owners targets exactly one specific table via exactly one
+-- specific column pair, never a generic owner_type/owner_id pair.
+--
+-- Zero existing Sefay table is altered except the single additive
+-- constraint on `branches` described above. Inventory/WMS business logic
+-- is completely untouched — this migration adds a constraint `branches`
+-- already unconditionally satisfies; it does not change any column,
+-- trigger, or RLS policy Inventory/WMS code depends on.
+
+-- Step 1: tenant-safe composite FK target for `branches`, required before
+-- accounting_owners.branch_id can safely reference it.
+ALTER TABLE branches ADD CONSTRAINT uq_branches_tenant_id UNIQUE (tenant_id, id);
+
+-- Step 2: tenant-safe composite FK target for `companies` (created in
+-- M177 with only a plain PRIMARY KEY on id — this migration is the first
+-- to actually need it as a composite-FK target).
+ALTER TABLE companies ADD CONSTRAINT uq_companies_tenant_id UNIQUE (tenant_id, id);
+
+-- Step 3: accounting_owners itself.
+CREATE TABLE accounting_owners (
+  id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id       UUID        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  company_id      UUID        NOT NULL,
+  branch_id       UUID,
+  owner_type_code TEXT        NOT NULL REFERENCES accounting_owner_types(code),
+  name            TEXT        NOT NULL,
+  status          TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  -- Composite, tenant-safe FKs — the exact mechanism proven necessary by
+  -- the Final Schema Integrity Review (Issue 1): a plain single-column FK
+  -- only guarantees the referenced row exists, not that it belongs to the
+  -- same tenant. RLS does not substitute for this (FK checks are not
+  -- RLS-filtered), so the composite pair is a database-level guarantee,
+  -- independent of any session's RLS context.
+  CONSTRAINT fk_accounting_owners_company
+    FOREIGN KEY (tenant_id, company_id) REFERENCES companies (tenant_id, id),
+  CONSTRAINT fk_accounting_owners_branch
+    FOREIGN KEY (tenant_id, branch_id) REFERENCES branches (tenant_id, id)
+);
+
+-- A branch that IS independently accounted has at most one Accounting
+-- Owner representing it, ever — the stable identity the effective-dated
+-- Assignment History (M179) will route transactions to/away from over
+-- time, never duplicated.
+CREATE UNIQUE INDEX uq_accounting_owners_tenant_branch ON accounting_owners(tenant_id, branch_id) WHERE branch_id IS NOT NULL;
+
+CREATE INDEX idx_accounting_owners_tenant ON accounting_owners(tenant_id);
+CREATE INDEX idx_accounting_owners_company ON accounting_owners(tenant_id, company_id);
+
+ALTER TABLE accounting_owners ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_session_isolation ON accounting_owners
+  FOR ALL
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+GRANT ALL PRIVILEGES ON public.accounting_owners TO service_role;
+
+-- No seed data, no backfill: Accounting Owners are created on-demand by
+-- future business logic when a tenant actually enables Accounting —
+-- never pre-provisioned for every existing tenant, per the approved
+-- Migration Design (§32: "Do NOT blindly create these for every tenant").
+
+-- Rollback (documented, not auto-executed):
+-- DROP TABLE IF EXISTS accounting_owners; -- safe only if no ledgers/assignments reference it yet
+-- ALTER TABLE companies DROP CONSTRAINT IF EXISTS uq_companies_tenant_id;
+-- ALTER TABLE branches DROP CONSTRAINT IF EXISTS uq_branches_tenant_id;

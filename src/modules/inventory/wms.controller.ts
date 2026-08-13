@@ -99,6 +99,6 @@ export class WmsController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.wmsService.confirmPick(id, tenant.tenantId, dto.quantity, user.sub);
+    return this.wmsService.confirmPick(id, tenant.tenantId, dto.quantity, user.sub, dto.batch_id);
   }
 }

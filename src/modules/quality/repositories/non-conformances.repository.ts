@@ -39,16 +39,57 @@ export class NonConformancesRepository extends ScopedRepository {
     return data;
   }
 
-  async close(id: string, tenantId: string, resolvedBy: string) {
+  // Generic lifecycle transition: open -> investigating -> containment ->
+  // corrective_action -> verification -> closed. fromStatus guards against
+  // a stale-read race (same pattern as the original close()).
+  async updateStatus(
+    id: string,
+    tenantId: string,
+    fromStatus: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('non_conformances')
-      .update({ status: 'closed', resolved_by: resolvedBy, resolved_at: new Date().toISOString() })
+      .update(payload)
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .eq('status', 'open')
+      .eq('status', fromStatus)
       .select()
       .maybeSingle();
     if (error) throw error;
     return data;
+  }
+
+  async addDefect(tenantId: string, ncId: string, payload: Record<string, unknown>) {
+    const { data, error } = await this.supabase
+      .from('quality_defects')
+      .insert({ ...payload, tenant_id: tenantId, non_conformance_id: ncId })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async findDefects(tenantId: string, ncId: string) {
+    const { data, error } = await this.supabase
+      .from('quality_defects')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('non_conformance_id', ncId);
+    if (error) throw error;
+    return data;
+  }
+
+  async recordStatusHistory(tenantId: string, ncId: string, oldStatus: string | null, newStatus: string, actorId: string, reason?: string) {
+    const { error } = await this.supabase.from('quality_status_history').insert({
+      tenant_id: tenantId,
+      reference_type: 'non_conformance',
+      reference_id: ncId,
+      old_status: oldStatus,
+      new_status: newStatus,
+      actor_id: actorId,
+      reason: reason ?? null,
+    });
+    if (error) throw error;
   }
 }

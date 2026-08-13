@@ -127,6 +127,8 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
       operationsService,
       scrapService,
       outputsService,
+      {} as any,
+      {} as any,
     );
   }, 30_000);
 

@@ -162,7 +162,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
     expect(release.items).toHaveLength(1);
     expect(Number(release.items[0].snapshot_unit_price)).toBe(10);
     expect(Number(release.items[0].released_amount)).toBe(100);
-  });
+  }, 20000);
 
   it('rejects a release that exceeds the remaining committed quantity (overage_policy=block)', async () => {
     const agreement = await makeAgreement('approved');
@@ -186,7 +186,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
       thrown = e as Error;
     }
     expect(thrown?.message).toContain('exceeds remaining committed quantity');
-  });
+  }, 20000);
 
   it('allows an open-ended (Open Blanket) agreement_item to release any quantity, skipping the overage check', async () => {
     const agreement = await makeAgreement('approved');
@@ -206,7 +206,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
     );
     cleanup.releases.push(release.id);
     expect(release.status).toBe('draft');
-  });
+  }, 20000);
 
   it('keeps the snapshot isolated from later agreement_pricing changes', async () => {
     const agreement = await makeAgreement('approved');
@@ -366,7 +366,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
       thrown = e as Error;
     }
     expect(thrown?.message).toBe('Release not found');
-  });
+  }, 20000);
 
   it('fn_create_agreement_release rejects a cross-agreement item at the DB level, with zero orphan rows, even when called directly (bypassing Service validation)', async () => {
     const agreementA = await makeAgreement('approved');

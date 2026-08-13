@@ -1,0 +1,64 @@
+-- Sefay Global Financial Platform — Migration M177
+-- Companies (Legal Entity layer above Tenant), per ADR-01 as refined by
+-- the Final Pre-Implementation Fix Gate.
+--
+-- Scope, exactly as approved: `companies` table ONLY. No fiscal-calendar
+-- column, no chart-of-accounts column — both were deliberately removed
+-- from this migration's scope during the Fix Gate review, which found
+-- that neither needs a forward-reference on `companies` at all:
+--   - A Company's default Fiscal Calendar (M182) is found by querying
+--     fiscal_calendars WHERE company_id = X AND is_default = true.
+--   - A Company's default Chart of Accounts (M183) is found the same way.
+-- This removes the ambiguity the prior design draft had left open,
+-- without introducing any nullable-until-later placeholder column here.
+--
+-- tenant_id is a plain FK for now (the composite `UNIQUE(tenant_id, id)`
+-- pattern begins with M178, which is the first migration that actually
+-- needs to be an FK *target* of a composite reference from another
+-- tenant-scoped table). Nothing references `companies` yet in this
+-- migration, so a bare `id` PRIMARY KEY is sufficient today; the
+-- composite unique constraint required for M178's own composite FK
+-- reference back to `companies` is added inside M178 itself, exactly
+-- the same way M178 adds it to `branches` — a decision already made and
+-- documented in the Final Pre-Implementation Fix Gate (Issue 2).
+--
+-- Zero existing Sefay table is altered by this migration. Inventory/WMS
+-- is untouched.
+
+CREATE TABLE companies (
+  id         UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id  UUID        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name       TEXT        NOT NULL,
+  tax_number TEXT,
+  is_default BOOLEAN     NOT NULL DEFAULT false,
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Exactly one default Company per tenant — the anchor every Accounting
+-- Owner (M178) resolves to until real multi-company usage exists.
+CREATE UNIQUE INDEX uq_companies_tenant_default ON companies(tenant_id) WHERE is_default = true AND deleted_at IS NULL;
+CREATE INDEX idx_companies_tenant ON companies(tenant_id) WHERE deleted_at IS NULL;
+
+ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_session_isolation ON companies
+  FOR ALL
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+GRANT ALL PRIVILEGES ON public.companies TO service_role;
+
+-- Backfill (required, not optional — see the accepted Migration Design's
+-- §9): exactly one default Company per existing tenant. Pure
+-- default-provisioning, not a transformation of any existing data —
+-- idempotent via the partial unique index above (ON CONFLICT DO NOTHING
+-- against it), safe to re-run.
+INSERT INTO companies (tenant_id, name, is_default)
+SELECT id, name, true
+FROM tenants
+WHERE deleted_at IS NULL
+ON CONFLICT DO NOTHING;
+
+-- Rollback (documented, not auto-executed):
+-- DROP TABLE IF EXISTS companies; -- safe only if no accounting_owners row exists yet

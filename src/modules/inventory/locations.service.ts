@@ -33,14 +33,33 @@ export class LocationsService {
     return location;
   }
 
+  async restrictions(id: string, warehouseId: string, tenantId: string) {
+    await this.findById(id, warehouseId, tenantId);
+    return this.locationsRepo.getRestrictions(tenantId, id);
+  }
+
   async create(warehouseId: string, tenantId: string, dto: CreateLocationDto) {
     await this.warehousesService.findById(warehouseId, tenantId);
-    return this.locationsRepo.create(warehouseId, tenantId, { ...dto });
+    const { restricted_to_item_ids, restricted_to_category_ids, ...rest } = dto;
+    const location = await this.locationsRepo.create(warehouseId, tenantId, { ...rest });
+    if (restricted_to_item_ids?.length || restricted_to_category_ids?.length) {
+      await this.locationsRepo.setRestrictions(
+        tenantId, (location as any).id, restricted_to_item_ids ?? [], restricted_to_category_ids ?? [],
+      );
+    }
+    return location;
   }
 
   async update(id: string, warehouseId: string, tenantId: string, dto: UpdateLocationDto) {
     await this.findById(id, warehouseId, tenantId);
-    return this.locationsRepo.update(id, warehouseId, tenantId, { ...dto });
+    const { restricted_to_item_ids, restricted_to_category_ids, ...rest } = dto;
+    const location = await this.locationsRepo.update(id, warehouseId, tenantId, { ...rest });
+    if (restricted_to_item_ids !== undefined || restricted_to_category_ids !== undefined) {
+      await this.locationsRepo.setRestrictions(
+        tenantId, id, restricted_to_item_ids ?? [], restricted_to_category_ids ?? [],
+      );
+    }
+    return location;
   }
 
   async remove(id: string, warehouseId: string, tenantId: string) {

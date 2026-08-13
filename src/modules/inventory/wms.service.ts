@@ -107,8 +107,24 @@ export class WmsService {
     }
   }
 
-  async confirmPick(pickListLineId: string, tenantId: string, quantity: number, actorId: string) {
+  // Migration 13.20 — batchId is optional (non-batch-tracked items pass
+  // undefined). fn_validate_pick_requirements (migration 171) raises if the
+  // item requires a batch/serial and none was given, or if FEFO would be
+  // violated — called BEFORE fn_confirm_pick, never inside it, so the
+  // existing tested picking engine is untouched.
+  async confirmPick(pickListLineId: string, tenantId: string, quantity: number, actorId: string, batchId?: string) {
     try {
+      const line: any = await this.wmsRepo.findPickListLineWithContext(pickListLineId, tenantId);
+      if (!line) throw new NotFoundException('Pick list line not found');
+      const warehouseId = line.pick_lists?.warehouse_id;
+
+      await this.wmsRepo.validatePickRequirements(
+        tenantId, warehouseId, line.item_id, line.variant_id ?? null, quantity, batchId ?? line.batch_id ?? null,
+      );
+      if (batchId) {
+        await this.wmsRepo.setPickListLineBatch(pickListLineId, tenantId, batchId);
+      }
+
       const result = await this.wmsRepo.confirmPick(pickListLineId, quantity, actorId);
       await this.stockService.invalidateStockCache(tenantId);
       return result;

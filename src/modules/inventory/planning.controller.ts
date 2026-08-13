@@ -35,4 +35,22 @@ export class PlanningController {
   purchaseSuggestions(@GetTenant() tenant: TenantContext) {
     return this.planningService.purchaseSuggestions(tenant.tenantId);
   }
+
+  @Get('safety-stock')
+  @RequirePermission('inventory.view')
+  safetyStock(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId: string,
+    @Query('item_id') itemId: string,
+    @Query('variant_id') variantId?: string,
+    @Query('lookback_days') lookbackDays?: string,
+  ) {
+    return this.planningService.calculateSafetyStock(
+      tenant.tenantId,
+      warehouseId,
+      itemId,
+      variantId,
+      lookbackDays ? Number(lookbackDays) : undefined,
+    );
+  }
 }

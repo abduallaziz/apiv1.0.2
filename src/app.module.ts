@@ -20,6 +20,7 @@ import { ItemsModule } from './modules/items/items.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { ManufacturingModule } from './modules/manufacturing/manufacturing.module';
 import { QualityModule } from './modules/quality/quality.module';
+import { ScannerModule } from './modules/scanner/scanner.module';
 import { OwnershipModule } from './modules/ownership/ownership.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
@@ -30,7 +31,6 @@ import { HrModule } from './modules/hr/hr.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { TablesModule } from './modules/tables/tables.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
-import { GiftCardsModule } from './modules/gift-cards/gift-cards.module';
 import { NotePresetsModule } from './modules/note-presets/note-presets.module';
 import { BillingModule } from './core/billing/billing.module';
 import { PlansModule } from './modules/plans/plans.module';
@@ -93,6 +93,7 @@ import { RootController } from './root.controller';
     InventoryModule,
     ManufacturingModule,
     QualityModule,
+    ScannerModule,
     OwnershipModule,
     PurchasingModule,
     InvoicesModule,
@@ -104,7 +105,6 @@ import { RootController } from './root.controller';
     TablesModule,
     CouponsModule,
     NotePresetsModule,
-    GiftCardsModule,
     PlansModule,
     SubscriptionsModule,
     ReportsModule,

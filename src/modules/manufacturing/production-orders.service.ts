@@ -16,6 +16,8 @@ import { AuditService } from '../../core/audit/audit.service';
 import { OperationsService } from './operations.service';
 import { ScrapService } from './scrap.service';
 import { OutputsService } from './outputs.service';
+import { QualityConfigService } from '../quality/quality-config.service';
+import { InspectionsService } from '../quality/inspections.service';
 
 @Injectable()
 export class ProductionOrdersService {
@@ -31,6 +33,8 @@ export class ProductionOrdersService {
     private readonly operationsService: OperationsService,
     private readonly scrapService: ScrapService,
     private readonly outputsService: OutputsService,
+    private readonly qualityConfigService: QualityConfigService,
+    private readonly inspectionsService: InspectionsService,
   ) {}
 
   async findAll(tenantId: string, query: QueryProductionOrdersDto) {
@@ -261,6 +265,32 @@ export class ProductionOrdersService {
         }
       }
       await this.outputsService.receiveAllUnposted(id, tenantId, existing.warehouse_id, actorId);
+      // Migration 13.19 — Manufacturing Quality Gate. Additive step AFTER
+      // the existing, unmodified fn_post_production_order call succeeds
+      // (output already received into stock via that unmodified RPC) — does
+      // NOT touch production costing, the stock ledger, or completion
+      // logic. Best-effort: a quality-config lookup failure must never
+      // block a production completion that already succeeded.
+      if (bom) {
+        try {
+          const rule = await this.qualityConfigService.resolvePlan(
+            tenantId, 'production_output', bom.item_id, null, null, existing.warehouse_id,
+          );
+          if (rule?.action === 'require_inspection') {
+            await this.inspectionsService.create(tenantId, {
+              reference_type: 'production_order',
+              reference_id: id,
+              item_id: bom.item_id,
+              variant_id: bom.variant_id ?? undefined,
+              template_id: rule.template_id ?? undefined,
+              warehouse_id: existing.warehouse_id,
+              quantity_inspected: Number(result.quantity_produced ?? dto.quantity_produced ?? 0),
+            } as any, actorId ?? undefined as any);
+          }
+        } catch {
+          // best-effort — never block the already-completed production order
+        }
+      }
       // Manual audit call (no @Audit() decorator on this route) — captures
       // before_data (pre-completion status/quantities), which the
       // interceptor alone never does. actorId is already available here,

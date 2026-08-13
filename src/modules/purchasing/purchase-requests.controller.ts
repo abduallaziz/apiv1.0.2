@@ -15,6 +15,7 @@ import { PurchaseRequestsService } from './purchase-requests.service';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
 import { RejectPurchaseRequestDto } from './dto/reject-purchase-request.dto';
+import { ConvertSuggestionsDto } from './dto/convert-suggestions.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -67,6 +68,20 @@ export class PurchaseRequestsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.purchaseRequestsService.create(tenant.tenantId, dto, user.sub);
+  }
+
+  @Post('from-suggestions')
+  @RequirePermission('purchasing.manage')
+  createFromSuggestions(
+    @Body() dto: ConvertSuggestionsDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.purchaseRequestsService.createFromSuggestions(
+      tenant.tenantId,
+      dto,
+      user.sub,
+    );
   }
 
   @Patch(':id')

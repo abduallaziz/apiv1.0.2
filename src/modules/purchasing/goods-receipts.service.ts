@@ -10,6 +10,9 @@ import { throwFromRpcError } from '../inventory/rpc-error.util';
 import { LocationsService } from '../inventory/locations.service';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { PurchaseOrdersService } from './purchase-orders.service';
+import { QualityConfigService } from '../quality/quality-config.service';
+import { InspectionsService } from '../quality/inspections.service';
+import { PutawayService } from '../inventory/putaway.service';
 
 // A receipt can only be created against a PO that's actually been approved
 // — 'partially_received' is included because a PO naturally sits there
@@ -23,6 +26,9 @@ export class GoodsReceiptsService {
     private readonly goodsReceiptsRepo: GoodsReceiptsRepository,
     private readonly locationsService: LocationsService,
     private readonly purchaseOrdersService: PurchaseOrdersService,
+    private readonly qualityConfigService: QualityConfigService,
+    private readonly inspectionsService: InspectionsService,
+    private readonly putawayService: PutawayService,
   ) {}
 
   async findAll(
@@ -129,11 +135,66 @@ export class GoodsReceiptsService {
   }
 
   async post(id: string, tenantId: string, actorId: string) {
-    await this.findById(id, tenantId);
+    const receipt = await this.findById(id, tenantId);
+    let posted;
     try {
-      return await this.goodsReceiptsRepo.post(id, actorId);
+      posted = await this.goodsReceiptsRepo.post(id, actorId);
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
+    }
+    await this.autoCreateInspections(tenantId, receipt, actorId);
+    await this.autoCreatePutawayTasks(tenantId, receipt, actorId);
+    return posted;
+  }
+
+  // Goods Receipt -> Putaway (Migration 13.20 integration point). Creates a
+  // putaway task per received line, with a suggested location resolved
+  // from putaway_rules. Does NOT move stock — fn_post_goods_receipt
+  // (unmodified) already placed the item wherever the receipt line
+  // specified; this task tracks the physical relocation to the suggested
+  // storage location. Best-effort, same principle as autoCreateInspections
+  // above — never blocks the already-completed receipt.
+  private async autoCreatePutawayTasks(tenantId: string, receipt: any, actorId: string) {
+    for (const item of receipt.items ?? []) {
+      try {
+        await this.putawayService.createFromReceipt(
+          tenantId, receipt.warehouse_id, item.item_id, item.variant_id ?? null, item.batch_id ?? null,
+          Number(item.quantity_received), item.location_id ?? null, receipt.id, actorId,
+        );
+      } catch {
+        // best-effort — never block the already-completed receipt
+      }
+    }
+  }
+
+  // Goods Receipt -> Inspection (Migration 13.19 integration point).
+  // Resolves quality_rules for each received item; if a rule with
+  // action='require_inspection' matches, creates a pending
+  // quality_inspection. Deliberately best-effort: a quality-config lookup
+  // failure must never block the receipt posting that already succeeded
+  // (the physical/financial transaction is the priority — same principle
+  // as the existing advisory-only quality hold check on the sales side).
+  private async autoCreateInspections(tenantId: string, receipt: any, actorId: string) {
+    const supplierId = receipt.purchase_orders?.supplier_id ?? null;
+    for (const item of receipt.items ?? []) {
+      try {
+        const rule = await this.qualityConfigService.resolvePlan(
+          tenantId, 'goods_receipt', item.item_id, null, supplierId, receipt.warehouse_id,
+        );
+        if (rule?.action === 'require_inspection') {
+          await this.inspectionsService.create(tenantId, {
+            reference_type: 'goods_receipt',
+            reference_id: receipt.id,
+            item_id: item.item_id,
+            variant_id: item.variant_id ?? undefined,
+            template_id: rule.template_id ?? undefined,
+            warehouse_id: receipt.warehouse_id,
+            quantity_inspected: item.quantity_received,
+          } as any, actorId);
+        }
+      } catch {
+        // best-effort — never block the already-completed receipt
+      }
     }
   }
 

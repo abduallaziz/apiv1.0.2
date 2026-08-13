@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import {
+  SupabaseModule,
+  SUPABASE_CLIENT,
+} from '../../shared/supabase/supabase.module';
 import { TenantSessionService } from '../../core/tenant/tenant-session.service';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
+import { ItemsModule } from '../items/items.module';
 
 import { WarehousesController } from './warehouses.controller';
 import { WarehousesService } from './warehouses.service';
@@ -66,8 +70,25 @@ import { CostLayersController } from './cost-layers.controller';
 import { SerialsService } from './serials.service';
 import { SerialsRepository } from './repositories/serials.repository';
 
+import { PutawayController } from './putaway.controller';
+import { PutawayService } from './putaway.service';
+import { PutawayRepository } from './repositories/putaway.repository';
+
+import { WarehouseTasksController } from './warehouse-tasks.controller';
+import { WarehouseTasksService } from './warehouse-tasks.service';
+import { WarehouseTasksRepository } from './repositories/warehouse-tasks.repository';
+
+import { ReplenishmentController } from './replenishment.controller';
+import { ReplenishmentService } from './replenishment.service';
+import { ReplenishmentRepository } from './repositories/replenishment.repository';
+
 @Module({
-  imports: [SupabaseModule, PermissionsModule, ApprovalEngineModule],
+  imports: [
+    SupabaseModule,
+    PermissionsModule,
+    ApprovalEngineModule,
+    ItemsModule,
+  ],
   controllers: [
     WarehousesController,
     LocationsController,
@@ -85,6 +106,9 @@ import { SerialsRepository } from './repositories/serials.repository';
     SnapshotsController,
     SerialsController,
     CostLayersController,
+    PutawayController,
+    WarehouseTasksController,
+    ReplenishmentController,
   ],
   providers: [
     WarehousesService,
@@ -102,40 +126,51 @@ import { SerialsRepository } from './repositories/serials.repository';
     AdvancedAnalyticsService,
     SnapshotsService,
     SerialsService,
+    PutawayService,
+    WarehouseTasksService,
+    ReplenishmentService,
     {
       provide: WarehousesRepository,
-      useFactory: (supabase: SupabaseClient) => new WarehousesRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new WarehousesRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: LocationsRepository,
-      useFactory: (supabase: SupabaseClient) => new LocationsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new LocationsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: ReorderPointsRepository,
-      useFactory: (supabase: SupabaseClient) => new ReorderPointsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new ReorderPointsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: StockRepository,
-      useFactory: (supabase: SupabaseClient, tenantSession: TenantSessionService) =>
-        new StockRepository(supabase, tenantSession),
+      useFactory: (
+        supabase: SupabaseClient,
+        tenantSession: TenantSessionService,
+      ) => new StockRepository(supabase, tenantSession),
       inject: [SUPABASE_CLIENT, TenantSessionService],
     },
     {
       provide: ReservationsRepository,
-      useFactory: (supabase: SupabaseClient) => new ReservationsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new ReservationsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: AdjustmentsRepository,
-      useFactory: (supabase: SupabaseClient) => new AdjustmentsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new AdjustmentsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: TransfersRepository,
-      useFactory: (supabase: SupabaseClient) => new TransfersRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new TransfersRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -145,7 +180,8 @@ import { SerialsRepository } from './repositories/serials.repository';
     },
     {
       provide: AnalyticsRepository,
-      useFactory: (supabase: SupabaseClient) => new AnalyticsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new AnalyticsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -160,22 +196,26 @@ import { SerialsRepository } from './repositories/serials.repository';
     },
     {
       provide: PlanningRepository,
-      useFactory: (supabase: SupabaseClient) => new PlanningRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new PlanningRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: AdvancedAnalyticsRepository,
-      useFactory: (supabase: SupabaseClient) => new AdvancedAnalyticsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new AdvancedAnalyticsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: SnapshotsRepository,
-      useFactory: (supabase: SupabaseClient) => new SnapshotsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new SnapshotsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: ExpiredBatchesRepository,
-      useFactory: (supabase: SupabaseClient) => new ExpiredBatchesRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new ExpiredBatchesRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -183,7 +223,36 @@ import { SerialsRepository } from './repositories/serials.repository';
       useFactory: (supabase: SupabaseClient) => new SerialsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
+    {
+      provide: PutawayRepository,
+      useFactory: (supabase: SupabaseClient) => new PutawayRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: WarehouseTasksRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new WarehouseTasksRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: ReplenishmentRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new ReplenishmentRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
   ],
-  exports: [WarehousesService, StockService, LocationsService, ExpiredBatchesRepository, SerialsRepository],
+  exports: [
+    WarehousesService,
+    StockService,
+    LocationsService,
+    ExpiredBatchesRepository,
+    SerialsRepository,
+    PutawayService,
+    LocationsRepository,
+    WmsService,
+    WarehouseTasksService,
+    TransfersService,
+    CountsService,
+  ],
 })
 export class InventoryModule {}

@@ -1,7 +1,8 @@
 import { Controller, Get, Post, Patch, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { NonConformancesService } from './non-conformances.service';
 import { CreateNonConformanceDto } from './dto/create-non-conformance.dto';
-import { CloseNonConformanceDto } from './dto/close-non-conformance.dto';
+import { UpdateNonConformanceStatusDto } from './dto/update-non-conformance-status.dto';
+import { CreateDefectDto } from './dto/create-defect.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -29,6 +30,12 @@ export class NonConformancesController {
     return this.nonConformancesService.findById(id, tenant.tenantId);
   }
 
+  @Get(':id/defects')
+  @RequirePermission('quality.view')
+  defects(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.nonConformancesService.defects(id, tenant.tenantId);
+  }
+
   @Post()
   @RequirePermission('quality.manage')
   @Audit('non_conformance.created')
@@ -36,15 +43,26 @@ export class NonConformancesController {
     return this.nonConformancesService.create(tenant.tenantId, dto);
   }
 
-  @Patch(':id/close')
+  @Post(':id/defects')
+  @RequirePermission('quality.manage')
+  @Audit('non_conformance.defect_added')
+  addDefect(@Param('id') id: string, @Body() dto: CreateDefectDto, @GetTenant() tenant: TenantContext) {
+    return this.nonConformancesService.addDefect(id, tenant.tenantId, dto);
+  }
+
+  // Single endpoint drives the whole lifecycle (investigating -> containment
+  // -> corrective_action -> verification -> closed) — the body's `status`
+  // determines the transition; the service enforces one-stage-at-a-time.
+  @Patch(':id/status')
   @RequirePermission('quality.manage')
   @HttpCode(HttpStatus.OK)
-  close(
+  @Audit('non_conformance.status_changed')
+  updateStatus(
     @Param('id') id: string,
-    @Body() dto: CloseNonConformanceDto,
+    @Body() dto: UpdateNonConformanceStatusDto,
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.nonConformancesService.close(id, tenant.tenantId, user.sub);
+    return this.nonConformancesService.updateStatus(id, tenant.tenantId, dto, user.sub);
   }
 }

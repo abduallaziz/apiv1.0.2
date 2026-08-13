@@ -54,7 +54,7 @@ describe('costing application exposure regression (Migration 13.15-fix)', () => 
     // LocationsService/PurchaseOrdersService are only touched when a line
     // sets location_id or the header sets purchase_order_id — neither is
     // used by this suite's receipts, so unused stubs are safe here.
-    goodsReceiptsService = new GoodsReceiptsService(goodsReceiptsRepo, {} as any, {} as any);
+    goodsReceiptsService = new GoodsReceiptsService(goodsReceiptsRepo, {} as any, {} as any, {} as any, {} as any, {} as any);
 
     const landedCostsRepo = new LandedCostsRepository(supabase);
     landedCostsService = new LandedCostsService(landedCostsRepo, goodsReceiptsService);

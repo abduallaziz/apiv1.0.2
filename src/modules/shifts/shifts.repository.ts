@@ -9,23 +9,25 @@ export class ShiftsRepository {
   ) {}
 
   async findAll(tenantId: string | null, branchId?: string) {
-  let query = this.supabase
-    .from('shifts')
-    .select('id, status, opening_cash, closing_cash, discrepancy, expected_cash, opened_at, closed_at, cashier_id, branch_id, users!cashier_id(name)')
-    .is('deleted_at', null)
-    .order('opened_at', { ascending: false });
+    let query = this.supabase
+      .from('shifts')
+      .select(
+        'id, status, opening_cash, closing_cash, discrepancy, expected_cash, opened_at, closed_at, cashier_id, branch_id, users!cashier_id(name)',
+      )
+      .is('deleted_at', null)
+      .order('opened_at', { ascending: false });
 
-  if (tenantId) query = query.eq('tenant_id', tenantId);
-  if (branchId) query = query.eq('branch_id', branchId);
+    if (tenantId) query = query.eq('tenant_id', tenantId);
+    if (branchId) query = query.eq('branch_id', branchId);
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((s: any) => ({
-  ...s,
-  cashier_name: s.users?.name ?? null,
-  users: undefined,
-}));
-}
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((s: any) => ({
+      ...s,
+      cashier_name: s.users?.name ?? null,
+      users: undefined,
+    }));
+  }
 
   async findOpenByUser(cashierId: string, tenantId: string) {
     const { data } = await this.supabase
@@ -98,9 +100,12 @@ export class ShiftsRepository {
   }
 
   async getShiftInvoices(shiftId: string, tenantId: string) {
+    // M189: cash_amount/card_amount added (M188) so ShiftEngine can bucket
+    // a split-payment order's real cash/card portions instead of missing
+    // it entirely. NULL for every non-split order (M188's own guarantee).
     const { data } = await this.supabase
       .from('orders')
-      .select('total, payment_method')
+      .select('total, payment_method, cash_amount, card_amount')
       .eq('shift_id', shiftId)
       .eq('tenant_id', tenantId)
       .eq('status', 'completed');

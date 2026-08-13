@@ -96,6 +96,33 @@ export class LocationsRepository extends ScopedRepository {
     return data;
   }
 
+  async setRestrictions(
+    tenantId: string,
+    locationId: string,
+    itemIds: string[],
+    categoryIds: string[],
+  ) {
+    await this.supabase.from('warehouse_location_restrictions').delete().eq('tenant_id', tenantId).eq('location_id', locationId);
+    const rows = [
+      ...itemIds.map((item_id) => ({ tenant_id: tenantId, location_id: locationId, item_id })),
+      ...categoryIds.map((category_id) => ({ tenant_id: tenantId, location_id: locationId, category_id })),
+    ];
+    if (rows.length === 0) return [];
+    const { data, error } = await this.supabase.from('warehouse_location_restrictions').insert(rows).select();
+    if (error) throw toHttpError(error);
+    return data;
+  }
+
+  async getRestrictions(tenantId: string, locationId: string) {
+    const { data, error } = await this.supabase
+      .from('warehouse_location_restrictions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('location_id', locationId);
+    if (error) throw toHttpError(error);
+    return data;
+  }
+
   async update(id: string, warehouseId: string, tenantId: string, payload: Record<string, unknown>) {
     const { data, error } = await this.supabase
       .from('warehouse_locations')
@@ -107,6 +134,24 @@ export class LocationsRepository extends ScopedRepository {
       .single();
     if (error) throw toHttpError(error);
     return data;
+  }
+
+  // Tenant-wide lookup by code, used by the Scanner Resolver Engine
+  // (#21 Phase 5). Deliberately NOT scoped to a single warehouse — the
+  // uniqueness constraint on `code` is only per-warehouse (uq_locations_
+  // warehouse_code), so the same code can legitimately exist in more than
+  // one warehouse within a tenant. Callers must handle a multi-row result
+  // as an ambiguous match, same as ItemBarcodesRepository's counterpart
+  // for serial numbers (item_serials.findByNumber).
+  async findByCode(code: string, tenantId: string) {
+    const { data, error } = await this.supabase
+      .from('warehouse_locations')
+      .select('*, warehouses(id, name)')
+      .eq('code', code)
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null);
+    if (error) throw error;
+    return data ?? [];
   }
 
   async softDelete(id: string, warehouseId: string, tenantId: string) {

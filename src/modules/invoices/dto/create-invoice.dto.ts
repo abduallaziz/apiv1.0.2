@@ -64,6 +64,13 @@ export class CreateInvoiceDto {
   @IsUUID()
   branch_id: string;
 
+  // Client-generated per checkout attempt (same value reused across a
+  // double-click/retry of the same attempt, a new value for a genuinely
+  // new sale) — the sole mechanism M187 relies on for idempotency. See
+  // migration 187_sale_idempotency.sql.
+  @IsUUID()
+  sale_attempt_id: string;
+
   @IsOptional()
   @IsUUID()
   shift_id?: string;
@@ -82,12 +89,6 @@ export class CreateInvoiceDto {
   @IsUUID()
   customer_id?: string;
 
-  // 'gift_card' is included here even though InvoicesService always
-  // re-derives/overrides it server-side when the gift card covers the whole
-  // total (never trusting the client for that) — the frontend now sends
-  // 'gift_card' directly in that case too (see PaymentModal.handleConfirm
-  // in web), so the DTO must accept it as valid input or validation rejects
-  // the request before the service's own override logic ever runs.
   @IsEnum([
     'cash',
     'card',
@@ -99,7 +100,6 @@ export class CreateInvoiceDto {
     'stc_pay',
     'apple_pay',
     'tab',
-    'gift_card',
   ])
   payment_method:
     | 'cash'
@@ -111,8 +111,7 @@ export class CreateInvoiceDto {
     | 'mastercard'
     | 'stc_pay'
     | 'apple_pay'
-    | 'tab'
-    | 'gift_card';
+    | 'tab';
 
   @IsOptional()
   @IsNumber()
@@ -146,13 +145,4 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsString()
   coupon_code?: string;
-
-  @IsOptional()
-  @IsString()
-  gift_card_code?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0.01)
-  gift_card_amount?: number;
 }

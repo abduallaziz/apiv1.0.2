@@ -75,6 +75,6 @@ import { SupabaseClient } from '@supabase/supabase-js';
       inject: [SUPABASE_CLIENT],
     },
   ],
-  exports: [ItemsService],
+  exports: [ItemsService, ItemBarcodesRepository],
 })
 export class ItemsModule {}

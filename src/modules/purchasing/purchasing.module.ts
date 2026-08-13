@@ -9,6 +9,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { ItemsModule } from '../items/items.module';
 import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
 import { DiscountEngineModule } from '../../engines/discount-engine/discount-engine.module';
+import { QualityModule } from '../quality/quality.module';
 
 import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
@@ -66,6 +67,7 @@ import { LandedCostsRepository } from './repositories/landed-costs.repository';
     ItemsModule,
     ApprovalEngineModule,
     DiscountEngineModule,
+    QualityModule,
   ],
   controllers: [
     SuppliersController,

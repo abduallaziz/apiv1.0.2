@@ -18,4 +18,20 @@ export class PlanningService {
   purchaseSuggestions(tenantId: string) {
     return this.planningRepo.purchaseSuggestions(tenantId);
   }
+
+  calculateSafetyStock(
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    variantId?: string,
+    lookbackDays?: number,
+  ) {
+    return this.planningRepo.calculateSafetyStock(
+      tenantId,
+      warehouseId,
+      itemId,
+      variantId,
+      lookbackDays,
+    );
+  }
 }

@@ -132,4 +132,39 @@ export class WmsRepository extends ScopedRepository {
     if (error) throw error;
     return data;
   }
+
+  async findPickListLineWithContext(pickListLineId: string, tenantId: string) {
+    const { data, error } = await this.supabase
+      .from('pick_list_lines')
+      .select('*, pick_lists(warehouse_id)')
+      .eq('id', pickListLineId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  // Enterprise validation gate (migration 171) — called BEFORE
+  // fn_confirm_pick, never inside it, so the existing tested picking
+  // engine (migration 116) stays untouched. Raises via
+  // fn_validate_pick_requirements if the item needs a batch/serial that
+  // wasn't given, or if FEFO would be violated.
+  async validatePickRequirements(
+    tenantId: string, warehouseId: string, itemId: string, variantId: string | null, quantity: number, batchId: string | null,
+  ) {
+    const { error } = await this.supabase.rpc('fn_validate_pick_requirements', {
+      p_tenant_id: tenantId, p_warehouse_id: warehouseId, p_item_id: itemId, p_variant_id: variantId,
+      p_quantity: quantity, p_batch_id: batchId,
+    });
+    if (error) throw error;
+  }
+
+  async setPickListLineBatch(pickListLineId: string, tenantId: string, batchId: string) {
+    const { error } = await this.supabase
+      .from('pick_list_lines')
+      .update({ batch_id: batchId })
+      .eq('id', pickListLineId)
+      .eq('tenant_id', tenantId);
+    if (error) throw error;
+  }
 }

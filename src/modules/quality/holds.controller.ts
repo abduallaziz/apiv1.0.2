@@ -29,15 +29,21 @@ export class HoldsController {
     return this.holdsService.findById(id, tenant.tenantId);
   }
 
+  @Get(':id/history')
+  @RequirePermission('quality.view')
+  history(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.holdsService.history(id, tenant.tenantId);
+  }
+
   @Post()
-  @RequirePermission('quality.manage')
+  @RequirePermission('quality.execute')
   @Audit('quality_hold.created')
   create(@Body() dto: CreateHoldDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
     return this.holdsService.create(tenant.tenantId, dto, user.sub);
   }
 
   @Post(':id/release')
-  @RequirePermission('quality.manage')
+  @RequirePermission('quality.approve')
   @HttpCode(HttpStatus.OK)
   release(
     @Param('id') id: string,

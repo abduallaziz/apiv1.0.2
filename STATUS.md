@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: Purchasing #9.5.6.2 — Amendments backend complete (§106) — July 26, 2026
+# Last Updated: Application Layer Deferral rule + Device Platform Phase 8 hold — August 8, 2026
 
 ---
 
@@ -50,6 +50,26 @@
 عند أي شك، **البقاء بوضع المراجعة وطلب التوضيح** بدل المضي قُدُمًا.
 
 هذي القاعدة ثابتة لكل الجلسات القادمة، لا تُنسَ ولا يُفترَض استثناء لها حتى لو الحوار طويل أو التصميم بدا ناضجًا جدًا.
+
+## 🛑 قاعدة دائمة — Application Layer Deferral (قرار المستخدم، 8 أغسطس 2026)
+
+**ممنوع بناء أي تطبيق مواجه للمستخدم (mobile/desktop/frontend) قبل اكتمال Sefay Core Platform.** لا استثناء لأي تطبيق، مهما كان صغيرًا، بما فيها: Mobile Inventory App، Mobile POS/Cashier App، Scanner Mobile App، Attend App، Employee App، Customer App، وأي تطبيق مستقبلي.
+
+**السبب:** التطبيق يجب أن يُبنى فوق منصة مستقرة فقط — Business Domains، Database Schema، APIs، Permissions، Authentication، Workflows، Notifications، Integrations، Security Rules — كلها يجب أن تستقر أولًا، وإلا يعني بناء التطبيق إعادة عمل لاحقًا.
+
+**الأثر المباشر على Sefay Universal Device Platform (#21):** المراحل 1-7 (Architectural Audit، Database Foundation، Device Management، Scanner Event Engine، Resolver Engine، Adapter Framework، Action Framework، Authorization Completion Patch — راجع القسم الخاص بـ#21 أدناه) **مكتملة وتبقى backend infrastructure فقط**. **Phase 8 (Mobile Scanner Application) وكل ما بعدها معلَّقة — ممنوع البدء بأي عمل تطبيق جوال** حتى إعلان اكتمال Core Platform صراحةً.
+
+**أولوية التنفيذ الجديدة اعتبارًا من الآن:**
+1. تدقيق نطاقات Sefay Core الحالية (Audit).
+2. تحديد الموديولات التجارية الناقصة.
+3. بناء خارطة طريق تنفيذية لاكتمال Core.
+4. إكمال بنية Backend/Core.
+5. التحقق: Database، APIs، Permissions، Tests، Runtime، Documentation.
+6. فقط بعد إعلان اكتمال Core يبدأ Application Layer.
+
+**ترتيب تنفيذ التطبيقات بعد اكتمال Core** (وليس قبل): 1) Android (mobile/tablet/touch POS/device integrations)، 2) iOS (iPhone/iPad)، 3) Windows (desktop/POS عند الحاجة).
+
+هذي القاعدة ثابتة لكل الجلسات القادمة، بنفس وزن Execution Gate أعلاه — لا يُفترض أنها انتهت لمجرد أن رسالة لاحقة تناقش ميزة تطبيق؛ البقاء بوضع Core-only حتى إعلان اكتمال صريح لـ Core Platform.
 
 ---
 
@@ -4384,3 +4404,754 @@ Following the 13.16C audit, Subcontracting was identified as the sole remaining 
 | 16 | Manufacturing | **Complete** — all eight named sub-scopes (BOM, multi-level BOM, production/work orders, routing, work centers, scrap, by-products, subcontracting) now implemented |
 
 No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #16's Subcontracting subset only, per Sequential Execution Order. Roadmap item #16 is now fully closed.
+
+---
+
+# 121. Migration 13.17 Phase A — Safety Stock + Reorder Planning Completion — August 6, 2026
+
+## Context
+Roadmap item #17 (Planning & Replenishment) was audited (design review, no code) and found genuinely Partial: `inventory_reorder_points` + `fn_purchase_suggestions` + `fn_calculate_demand_forecast` existed and worked (migrations 016/113/127), but (a) "Safety Stock" was only ever a manually-typed `min_quantity` floor with no relationship to demand variability, (b) zero frontend existed for any of Reorder Planning despite a complete backend, and (c) purchase suggestions were entirely read-only — nothing converted a suggestion into an actual Purchase Request. MRP (BOM explosion, net requirements, planned orders) was explicitly out of scope for this phase and deferred to a separate Phase B, approved as a distinct step requiring its own explicit approval.
+
+Approved scope for Phase A: statistical Safety Stock as an optional calculated recommendation (manual `min_quantity` override preserved, unchanged), the Reorder Planning frontend (rules/low-stock/suggestions), and a Suggestion→Purchase Request conversion endpoint reusing the existing Purchasing module's `purchase_requests` table and `PurchaseRequestsService.create()` exactly — no duplicate purchasing logic.
+
+## #17 Planning & Replenishment (Phase A)
+
+**Design decision (documented, not silently chosen):** `safety_stock = service_level_z × stddev_daily_demand × sqrt(lead_time_days)` — the standard demand-variability-only simplification of the classic safety-stock formula (lead time itself treated as fixed, not stochastic, since per-PO lead-time variance isn't tracked). Default `service_level_z = 1.65` (≈95% service level), overridable per reorder-point row.
+
+**Database (migration 158, fixed by 159):**
+- `inventory_reorder_points.service_level_z NUMERIC(4,2)` — new nullable column, purely additive. `min_quantity`'s existing behavior (manual floor, read by `fn_purchase_suggestions`) is completely untouched — confirmed by regression test 2 (manual override value unaffected by calling the new function).
+- `fn_calculate_safety_stock(tenant_id, warehouse_id, item_id, variant_id, lookback_days=90)` — computes `STDDEV_SAMP` of real daily sale-out quantities from `stock_movements` over the lookback window (zero-demand days included via `generate_series`, so variance isn't inflated by only counting sale days), resolves lead time with the same fallback order as `fn_purchase_suggestions` (reorder point's own `lead_time_days` → tenant's real average supplier lead time from `purchase_orders`/`goods_receipts` → 7-day default).
+- **Bug found and fixed during validation (159):** the lead-time fallback can legitimately resolve to a real `0` (same-day receiving, confirmed against live fixture data) — `COALESCE(0, 7)` does not substitute on `0`, only `NULL`, so `SQRT(0)` silently zeroed the entire formula regardless of real demand variability. Fixed with `GREATEST(COALESCE(v_lead_time, 7), 1)` — floors at 1 day. Caught by regression test 1, not by manual review; both migrations applied to the real Supabase project.
+
+**Backend (`api/src/modules/inventory/`):**
+- `planning.controller.ts` — new `GET /inventory/planning/safety-stock` (query: `warehouse_id`, `item_id`, `variant_id?`, `lookback_days?`) → `PlanningService.calculateSafetyStock()` → `PlanningRepository` → `fn_calculate_safety_stock` RPC. Same guard stack as the existing `demand-forecast`/`purchase-suggestions` endpoints (`inventory.view`).
+- `dto/create-reorder-point.dto.ts` — added optional `lead_time_days` and `service_level_z` fields (the column for the former existed since migration 113 but was never exposed in the DTO; now settable via the API, which the new frontend needs).
+
+**Purchasing integration (`api/src/modules/purchasing/`):**
+- New `POST /purchasing/purchase-requests/from-suggestions` (`purchasing.manage`) — `dto/convert-suggestions.dto.ts` (`ConvertSuggestionsDto`/`ConvertSuggestionLineDto`), `PurchaseRequestsService.createFromSuggestions()` which auto-generates a `PR-SUGG-<timestamp>` request number and **calls the existing `create()` method directly** — same repository path, same draft→submit→approve state machine, same tenant scoping and permission checks as a manually-authored Purchase Request. No new table, no new approval logic, no duplicated business rule.
+- Placed in `PurchasingModule` rather than `InventoryModule` specifically to avoid a circular module dependency (`PurchasingModule` already imports `InventoryModule`, not the reverse) — the frontend passes the already-fetched suggestion data as the request body rather than the backend re-querying `fn_purchase_suggestions` server-side.
+
+**Frontend (`web/src/features/planning/`):**
+- New `PlanningPage.tsx` at `/dashboard/planning` — three tabs: Reorder Rules (CRUD table + modal, including the new `service_level_z` field with an inline hint), Low Stock (`below-minimum` endpoint), Purchase Suggestions (checkbox-select + "Convert to Purchase Request" button, gated on `purchasing.manage`).
+- `api/planning.api.ts`, `hooks/usePlanning.ts` (React Query), `types/planning.types.ts` — mirrors the existing `warehouses` feature's file structure/conventions.
+- Sidebar: new `planning` `NavKey` registered in `business-type.config.ts` (added to `FULL_SIDEBAR`, inherited by `FOOD_SERVICE_SIDEBAR`), new nav item in `DashboardSidebar.tsx` under the Inventory group (`INVENTORY_ROLES` gated, same as Transfers/Adjustments/Stock Counts). i18n: `sidebar.planning` in `en.json`/`ar.json`, full `planning.*` namespace added to `messages/en/inventory.json` and `messages/ar/inventory.json`.
+
+**Permissions:** No new permission keys created, per the audit's own recommendation — `inventory.view`/`inventory.manage` gate the new safety-stock endpoint and reorder-point DTO fields exactly as they already gated the rest of the Planning/Reorder-Points controllers; `purchasing.manage` gates the new conversion endpoint, identical to the existing manual `POST /purchasing/purchase-requests`.
+
+**Regression suite:** `safety-stock-and-replenishment.regression.spec.ts` (7/7 passing, against the real Supabase project) covering all 6 requested scenarios plus tenant isolation: (1) calculated recommendation is a real positive number derived from actual demand variance, (2) manual `min_quantity` override is unaffected by the calculation, (3) existing `fn_purchase_suggestions` behavior/shape is unchanged for rows with no `service_level_z` set, (4) shortage detection still fires correctly, (5) a purchase suggestion with positive `suggested_order_quantity` is generated for the shortage, (6) a suggestion converts into a real `purchase_requests`/`purchase_request_items` row pair (the same tables the conversion endpoint writes to), (7) tenant isolation confirmed on the new function. `unified-lead-time.regression.spec.ts` (migration 127, the closest prior related suite) re-run — 6/6, unaffected.
+
+Note: `stock_movements` is an immutable append-only ledger (trigger blocks `UPDATE`/`DELETE`, migration 017) — the regression fixture item's test movements are intentionally left in the demo tenant rather than deleted (matches the ledger's own design), and the fixture item is deactivated (`is_active=false`, soft-deleted) rather than hard-deleted in `afterAll`, since `stock_movements.item_id` has `ON DELETE RESTRICT`.
+
+**Validation performed:**
+- `npx tsc --noEmit` (api and web) — zero errors
+- `npm run build` (api, `nest build`) — succeeds cleanly
+- `npm run build` (web, `next build`) — succeeds cleanly; `/dashboard/planning` route confirmed registered in the build output
+- `npx eslint` on the new frontend feature — zero errors
+- Full app boot via `npm run start:dev` — `Nest application successfully started`; `PlanningController {/api/v1/inventory/planning}` with the new `GET .../safety-stock` route, and `PurchaseRequestsController`'s new `POST .../from-suggestions` route both confirmed mapped, no circular-dependency error from the module placement decision above
+- Regression suites: new `safety-stock-and-replenishment` (7/7) + `unified-lead-time` re-run (6/6, unaffected) — 13/13 passing. Directly-adjacent areas (Reorder Points, Purchase Suggestions, Purchase Requests, Demand Forecast) all exercised with zero regressions found.
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 17 | Planning & Replenishment | **Partial** — Safety Stock (calculated + manual override), Reorder Planning (rules/low-stock/suggestions, backend **and** frontend), and Suggestion→Purchase Request conversion are now complete. **MRP (BOM explosion, net requirements, planned orders) remains not started** — Phase B, requires separate explicit approval before implementation per the user's own phasing decision. Item #17 cannot be marked fully complete until Phase B lands. |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #17 Phase A only, per Sequential Execution Order. **Migration 13.18 (or Phase B / MRP Engine) does not begin until the exact message "Approved – Proceed with Implementation" is received again for that specific scope**, per the Execution Gate.
+
+---
+
+# 122. Migration 13.17 Phase B — MRP Engine — August 7, 2026
+
+## Context
+Phase B was design-reviewed first (Architectural Audit → Database Design → Business Rules → State Machine → Migration Matrix), per the Execution Gate — no code until the exact approval message was received. Two design decisions were confirmed by the user before implementation: (1) conversion permissions split by planned-order type — purchase conversion requires `manufacturing.plan` **and** `purchasing.manage`; production conversion requires `manufacturing.plan` **and** `manufacturing.manage`; (2) MRP rerun replaces only `proposed` planned orders, preserving `approved`/`converted`/`cancelled` history untouched.
+
+**Pre-implementation finding confirmed no blocker**: the earlier Phase-A-era review had flagged `items.type` (loose string) as a potential blocker for purchase-vs-production branching — re-checked and found already resolved by migration 098 (`raw_material`/`semi_finished`/`finished_goods` added to the type taxonomy). Regardless, MRP branches on **whether an item has an active `bill_of_materials` row**, not on `items.type` — the same signal Manufacturing itself already uses, since two items of the same type string could still be one bought and one assembled.
+
+## #17 Planning & Replenishment (Phase B — MRP Engine)
+
+**Database (migration 160, 161, fixed by 162):**
+- `planned_orders` — new table. `order_type` (`purchase`/`production`), `bom_id` required only for production (CHECK-enforced), `source` (`independent_demand`/`dependent_demand`), `parent_planned_order_id` self-referencing FK for full BOM-explosion traceability, `mrp_run_id` groups one `fn_run_mrp()` call's output, `status` state machine (`proposed → approved → converted`, or `→ cancelled` from either of the first two).
+- `fn_get_open_production_supply(...)` — new helper (same shape/style as the existing `fn_get_incoming_quantity`), sums remaining planned-minus-produced quantity from open (`draft`/`in_progress`) production orders.
+- `fn_explode_bom_requirements(...)` — recursive PL/pgSQL: walks `bom_lines`, nets each component's gross requirement against `v_stock_balance`, `fn_get_incoming_quantity`, `fn_get_open_production_supply`, and `fn_calculate_safety_stock` (all **existing**, unmodified), inserts a `planned_orders` row, and recurses into any component that itself has an active BOM (sub-assembly). Depth-capped at 10 (defensive, not a realistic limit — `RAISE EXCEPTION` on cycle/bad data, regression-verified with a deliberately constructed 2-item cycle).
+- `fn_run_mrp(...)` — orchestrator for independent (top-level) demand: deletes this tenant+warehouse's `proposed` rows (rerun idempotency, confirmed to leave `approved`/`converted` untouched), then for every row returned by the **existing, unmodified** `fn_purchase_suggestions`, nets `suggested_order_quantity` (already netted against available/incoming by that function) against open production supply and safety stock, and either inserts a purchase planned order (leaf item, no active BOM) or a production planned order + recursive explosion (item has an active BOM).
+- **Bug found and fixed during implementation, before any regression test ran (162):** the original `fn_run_mrp` used `forecasted_demand_during_lead_time` (raw demand) as the top-level gross requirement and then separately subtracted `quantity_available`/`quantity_incoming` — but `fn_purchase_suggestions.suggested_order_quantity` already nets those out (and floors at `reorder_quantity`). Using the raw forecast would have silently dropped any real below-minimum shortage with little/no sales history (net requirement would compute to 0 despite a genuine shortage). Caught by code review of the formula against its own inputs before testing — fixed by using `suggested_order_quantity` as the already-netted gross requirement, adding only the two adjustments `fn_purchase_suggestions` doesn't already make (open production supply, safety stock).
+
+**Backend (`api/src/modules/manufacturing/`, new files):**
+- `mrp.repository.ts`, `mrp.service.ts`, `mrp.controller.ts` — registered in `manufacturing.module.ts` (already imports `PurchasingModule` and has `ProductionOrdersService`, so no new circular-dependency risk).
+- Routes (all under `/inventory/planning/mrp`, `manufacturing.plan` required on every one): `POST /run`, `GET /planned-orders` (filterable by `status`/`order_type`), `GET /planned-orders/:id`, `POST /planned-orders/:id/approve`, `POST /planned-orders/:id/cancel`, `POST /planned-orders/:id/convert`.
+- `convert` branches on `order_type`: purchase → checks `purchasing.manage` (via `PermissionsService.hasPermission`, the same check the guard itself uses — a single `@RequirePermission` decorator can't branch on request data) then calls the **existing, unmodified** `PurchaseRequestsService.createFromSuggestions()` (same method Phase A's suggestion conversion uses); production → checks `manufacturing.manage` then calls the **existing, unmodified** `ProductionOrdersService.create()`. Neither downstream service was touched — MRP only ever calls the same entry points a human would use manually, exactly as scoped.
+- `approve`/`cancel` enforce the state machine in the service layer (`proposed → approved`, terminal `cancelled` blocked once already `converted`).
+
+**Manufacturing/Purchasing integration**: `fn_post_production_order`, `fn_apply_stock_movement`, `fn_consume_cost_layers`, `fn_add_cost_layer`, every costing method, and the full PR→RFQ→PO chain are **untouched** — confirmed via grep, none redefined in these migrations.
+
+**Regression suite**: `mrp-engine.regression.spec.ts` (8/8 passing, against the real Supabase project), covering all 13 requested scenarios: single-level BOM explosion (test 1), multi-level 3-tier explosion with correct parent/child traceability and quantity math (test 2, finished→sub-assembly→raw-material), conversion to a real Purchase Request (test 3), on-hand inventory offsetting a component's net requirement to zero (test 4), an open production order offsetting a component's net requirement to zero (test 5), rerun idempotency preserving an approved row while regenerating proposed ones (test 6), tenant isolation (test 7), and the depth-guard cycle test (test 8, deliberately constructed 2-item BOM cycle, confirms `RAISE EXCEPTION` fires rather than an infinite loop). `safety-stock-and-replenishment` (Phase A) and `unified-lead-time` (migration 127) both re-run — 13/13, unaffected.
+
+**Validation performed:**
+- `npx tsc --noEmit` — zero errors
+- `nest build` — succeeds cleanly
+- Full app boot via `npm run start:dev` — `Nest application successfully started`; all six new `MrpController` routes confirmed mapped at `/api/v1/inventory/planning/mrp/*`, no circular-dependency error
+- Regression suites: new `mrp-engine` (8/8) + `safety-stock-and-replenishment` re-run (7/7, unaffected) + `unified-lead-time` re-run (6/6, unaffected) = 21/21 passing. Full historical `npx jest` sweep across the entire migration history re-run to confirm zero regressions to Inventory/Purchasing/Manufacturing/Costing/Transfers (result recorded in this session's final report).
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 17 | Planning & Replenishment | **Complete** — Safety Stock, Reorder Planning (backend + frontend), Purchase Suggestion conversion (Phase A), and now the MRP Engine (BOM explosion, net requirements, planned orders, Manufacturing/Purchasing integration — Phase B) are all implemented. No frontend was built for MRP this phase (not in the approved Phase B scope — recommended as a follow-up once the engine is in real use). |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #17 Phase B only, per Sequential Execution Order. Roadmap item #17 is now fully closed at the engine/backend level.
+
+---
+
+# 123. Migration 13.18A — Advanced Analytics Frontend — August 7, 2026
+
+## Context
+Item #18 (Advanced Analytics) was audited fresh (not trusting §110's unexplained "Complete" table row) and found to have a fully real, tested, already-complete backend (9 RPCs across migrations 142/143/144: valuation, turnover, aging, ABC analysis, dead stock, slow moving, overstock, stock accuracy, coverage — all `STABLE`, all reading real data from `cost_layers`/`stock_movements`/`stock_levels`) with **zero frontend** — confirmed via grep across all of `web/src`, zero matches for any of the 9 route paths. Approved scope for this migration: **frontend only** — no database, no backend, no new APIs, per explicit instruction.
+
+## #18 Advanced Analytics (Frontend)
+
+**New feature** (`web/src/features/inventory-analytics/`), following the exact structure/conventions established by Phase A's Planning page:
+- `types/inventory-analytics.types.ts` — one interface per report, matching each RPC's `RETURNS TABLE` column list exactly (no invented fields).
+- `api/inventory-analytics.api.ts` — thin `apiClient.get()` wrappers for all 9 existing endpoints, zero new backend calls.
+- `hooks/useInventoryAnalytics.ts` — one React Query hook per report.
+- `utils/exportAnalytics.ts` — generic CSV export helper, same pattern as the existing per-feature exporters (`exportStockLevels.ts` et al.) — reused the pattern, not a new export architecture.
+- `InventoryAnalyticsPage.tsx` — 10 tabs (Dashboard + 9 reports), warehouse filter (all tabs), date-range filter (Turnover/ABC — reusing the existing `DateRangePicker`, no native date inputs, per the standing UI convention), lookback-days input (Dead Stock/Slow Moving, matching their RPC signatures).
+
+**Dashboard tab**: 5 KPI cards (Total Valuation, Slow Moving Value, Dead Stock Value, Overstock Value, Stock Accuracy) — Dead Stock/Overstock values come directly from their RPCs' own `total_value`/`excess_value` columns; Slow Moving value is computed client-side (the RPC doesn't return a value column) by joining its rows against the Valuation report's `average_unit_cost` on `item_id`+`warehouse_id`, computed in the frontend only, no new backend field. Two `recharts` `BarChart`s (already an installed, already-used library — no new chart library introduced): ABC value-by-classification, and Aging value-by-bucket — both aggregate client-side from the existing report data.
+
+**Reports tabs**: all 9 implemented per the requested display fields (item/warehouse/quantity/cost/value for Valuation; movement/turnover-rate for Turnover; age buckets for Aging; classification/cumulative % for ABC; days-without-movement for Dead Stock; movement rate for Slow Moving; excess qty/value for Overstock; expected/counted/variance for Stock Accuracy — read from `total_expected_quantity`/`total_absolute_variance_quantity`, the actual RPC field names; available/coverage-days for Coverage). Each tab has its own CSV export button.
+
+**Navigation**: new `inventoryAnalytics` `NavKey` registered in `business-type.config.ts`, new sidebar entry under the Inventory group (same `INVENTORY_ROLES` gate as every sibling entry). Route: `/dashboard/inventory-analytics`.
+
+**Permissions**: no new permission keys — every one of the 9 backend endpoints was already gated by `inventory.view` before this migration; the frontend adds no new authorization surface.
+
+**Translations**: full `inventoryAnalytics.*` namespace added to `messages/en/inventory.json` and `messages/ar/inventory.json` (tabs, KPI labels, chart titles, all 9 tables' column headers, aging bucket labels), plus `sidebar.inventoryAnalytics` in `en.json`/`ar.json`. English numerals throughout (`formatNumber`/`formatCurrency` from the existing `@/lib/format`), no native date inputs.
+
+**Responsive**: KPI grid collapses `grid-cols-2` (mobile) → `md:grid-cols-5` (desktop); charts grid collapses to single column below `md`; all tables scroll horizontally (`overflow-x-auto`) on narrow viewports — same responsive pattern as every other dashboard table in the project (Warehouses, Planning, etc.), no new breakpoint system introduced.
+
+**Validation performed:**
+- `npx tsc --noEmit` (web) — zero errors (two rounds of fixes: a `recharts` `Formatter` type mismatch on `Tooltip`, resolved by dropping the `formatter` prop to match the existing `ReportsPage.tsx` chart's own pattern exactly, rather than fighting the library's generic type; and loosening `exportRowsToCsv`'s generic constraint from `Record<string, unknown>` to `object` so it accepts the concrete report row interfaces)
+- `npx eslint` — zero errors (one round of fixes: an impure `Date.now()` call during render for the Dead Stock "days without movement" column, moved into a `useState(() => Date.now())` lazy initializer per the React purity rule already enforced elsewhere in this codebase)
+- `next build` — succeeds cleanly, `/dashboard/inventory-analytics` confirmed in the route output
+- Backend: `npx tsc --noEmit` (api) reconfirmed zero errors; `git status` confirms **zero backend files touched** by this migration — no database, no SQL, no controllers/services/repositories/DTOs modified, exactly as scoped
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 18 | Advanced Analytics | **Complete** — all 9 reports (valuation, turnover, aging, ABC, dead stock, slow moving, overstock, stock accuracy, coverage) now have both a real backend (already complete pre-migration) and a real, navigable frontend. |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #18 frontend only, per Sequential Execution Order. Roadmap item #18 is now fully closed.
+
+---
+
+# 124. Migration 13.19 — Quality Management Full Implementation — August 7, 2026
+
+## Context
+Item #19's original 4-capability scope (inspection, hold, non-conformance, corrective action) was audited fresh and found genuinely partial: real backend for inspections/holds/non-conformances existed (Migration 8.2), but **Corrective Action had zero data capture** (`CloseNonConformanceDto` was a deliberately empty class), Quality Hold was **advisory-only** (never blocked a sale), and there was no frontend. The user then expanded scope to a full enterprise QMS (26 sections) and made two explicit architectural decisions before implementation: (1) Quality Hold becomes a **hard block** on inventory availability, not advisory; (2) Rework/Disposition, Customer Complaints, and Quality Cost are folded into existing entities (`quality_holds.disposition`, `non_conformances.source`, a read-only cost view) rather than becoming separate modules.
+
+**Pre-implementation consumer audit** (mandatory before touching Inventory Core): traced every `quantity_available` consumer — `v_stock_balance` (single source), `fn_create_reservation`'s own inline formula, `fn_apply_stock_movement`'s inline out-direction guard — and confirmed `fn_purchase_suggestions`/`fn_run_mrp`/`fn_explode_bom_requirements` all read `v_stock_balance` directly and would inherit the fix automatically. Found the existing `quantity_damaged`/`quantity_expired` sub-bucket pattern (migration 104) as an exact precedent for the hard-block design — no architectural conflict.
+
+## #19 Quality Management — Full Implementation
+
+**Database (migrations 163–168):**
+- **163/164 — Hard block (Inventory Core, additive-only extension):** `stock_levels.quantity_quality_held` new column (same shape as `quantity_damaged`/`quantity_expired`), `chk_unsellable_le_on_hand` extended, two new `stock_movements.movement_type` values (`quality_hold`/`quality_release`, reclassification pattern — `quantity_on_hand` never changes, `cost_layers` never touched, a real audited ledger row is always created). `v_stock_balance`, `fn_create_reservation`, and `fn_apply_stock_movement` all updated to exclude the held bucket from `quantity_available`.
+  - **Bug found and fixed mid-implementation (164):** 163's first pass of `fn_apply_stock_movement` recreated an outdated 14-param signature instead of the real 15-param one (backorder support, migration 105) — created a duplicate PostgREST overload, breaking every RPC call with "could not choose the best candidate function." Caught immediately via direct smoke test against the real Supabase project before any application code was written against it; fixed by restoring migration 105's full backorder logic byte-for-byte plus the quality-hold additions.
+  - **Second bug caught before applying:** the original `fn_create_quality_hold` design attempted to back-fill `stock_movements.reference_id` via `UPDATE` after insert — `stock_movements` is an immutable ledger (trigger blocks all `UPDATE`/`DELETE`, migration 017). Fixed by pre-generating the hold's UUID so the movement carries the correct `reference_id` from creation.
+- **165 — Quality Foundation:** `quality_templates`, `quality_template_checks`, `quality_rules` (configurable, sparse-filter matching on item/category/supplier/warehouse/transaction-type, same pattern as `inventory_reorder_points`), `quality_plans`, `quality_results` (per-checklist-item results), `fn_resolve_quality_plan` (read-only rule resolution). `quality_inspections` extended: `production_order` added to `reference_type`, plus `template_id`/`plan_id`/`warehouse_id`/`batch_id`/`quantity_inspected`/sampling fields.
+- **166 — Quality Hold extended:** `location_id`/`batch_id`/`serial_id`/`source_document_type`/`disposition` columns, `quality_hold_history`, `quality_status_history` (polymorphic, shared across inspections/holds/NCR/CAPA/deviations), and the three orchestrating RPCs — `fn_create_quality_hold` (creates the hold + applies the hard block in one transaction, defaults to full current availability when no quantity given), `fn_release_quality_hold` (reverses the hard block, restores availability exactly), `fn_reject_quality_hold` (disposition stands, quantity stays excluded).
+- **167 — NCR/CAPA/Deviations:** `non_conformances.status` widened to the full 6-stage lifecycle (`open → investigating → containment → corrective_action → verification → closed`), plus `category`/`root_cause`/`source`/`customer_id` (Customer Complaints folded in here, not a separate table, per the approved scope decision). `quality_defects`, `corrective_actions` (full CAPA: `assigned → in_progress → completed → verified → closed`, with `disposition` folding in Rework/Disposition), `corrective_action_history`, `quality_deviations`.
+- **168 — Supplier Quality + Manufacturing Gate:** `v_supplier_quality_scores` implemented as a **live view**, not a stored/refreshed table (deliberate engineering decision — always accurate, no staleness, no refresh job; documented explicitly rather than silently deviating from the §23 entity list), computed from `quality_inspections` joined through `goods_receipts → purchase_orders.supplier_id`. `fn_requires_manufacturing_inspection` resolves the Manufacturing Quality Gate via the same `fn_resolve_quality_plan`. `v_quality_cost_summary` (Quality Cost — a read-only aggregation over `quality_defects.cost_impact`, no new ledger, Costing Engine untouched).
+
+**Permissions:** `quality.execute` and `quality.approve` added (alongside existing `quality.view`/`quality.manage`), seeded to superadmin/owner/manager; `quality.view`-only role (inventory_clerk) left untouched. No duplicate keys.
+
+**Backend (`api/src/modules/quality/`):** Extended `InspectionsService`/`HoldsService`/`NonConformancesService`; new `CorrectiveActionsService`, `DeviationsService`, `QualityConfigService` (templates/plans/rules — deliberately combined into one small config surface rather than three near-empty modules). 10 controllers total (Inspections, Holds, Non-Conformances, Corrective Actions, Deviations, Templates, Plans, Rules, Supplier Quality, Quality Analytics) — Complaints has no separate controller (folded into Non-Conformances' `create`, per the approved decision).
+
+**Integration points:**
+- **Purchasing (Goods Receipt → Inspection):** `GoodsReceiptsService.post()` resolves applicable quality rules per received item immediately after posting succeeds, auto-creating pending inspections. Best-effort — a quality-config failure never blocks an already-completed receipt.
+- **Manufacturing (Production Output → Quality Gate):** `ProductionOrdersService.complete()` does the same immediately after `fn_post_production_order` succeeds, following the exact additive pattern already established by migrations 13.16A/13.16B (routing/scrap/by-products) — does not touch production costing, the stock ledger, or completion logic.
+- **Inventory (Stock Count → Inspection):** left as manual creation only (already fully functional via the Inspections API) — `CountsService` lives inside `InventoryModule`, which `QualityModule` itself depends on; auto-triggering from there would require a reverse import and create a real circular dependency. Documented as a deliberate scope boundary, not a silent omission.
+- **Sales:** `InvoicesService`'s existing advisory-only `fn_check_quality_holds` check is untouched — the actual hard-block enforcement now happens structurally at `fn_create_reservation`/`fn_apply_stock_movement`, not at that advisory check.
+
+**Frontend (`web/src/features/quality/`):** Dashboard (8 KPI cards from the new analytics endpoints) + 4 tabs (Inspections with pass/fail/conditional actions and auto-hold on fail, Quality Holds with release/reject, Non-Conformances with lifecycle advancement, Corrective Actions with the full assign→start→complete→verify→close flow) — same structural pattern as the Planning and Advanced Analytics pages. Route `/dashboard/quality`, sidebar entry, full `quality.*` i18n namespace (English + Arabic), wired through `request.ts`'s explicit namespace whitelist (the exact spot that caused the earlier Planning/Analytics translation bug — verified present this time).
+
+**Validation performed:**
+- `npx tsc --noEmit` (api + web) — zero errors after fixing 4 pre-existing regression test files whose `GoodsReceiptsService`/`ProductionOrdersService` constructor calls needed 2 additional stub args for the new integration-point dependencies
+- `nest build` / `next build` (web via dev server, not a fresh prod build — avoided re-running `npm run build` while the dev server was live, per the documented `.next` corruption gotcha) — clean
+- `npx eslint` (web) — zero errors
+- Full app boot via `NestFactory.create(AppModule).init()` — succeeds, all 10 new controllers and every route confirmed mapped (`/quality/inspections`, `/quality/holds`, `/quality/non-conformances`, `/quality/corrective-actions`, `/quality/deviations`, `/quality/templates`, `/quality/plans`, `/quality/rules`, `/quality/supplier-quality`, `/quality/analytics/*`), no circular-dependency error from the new `PurchasingModule → QualityModule` / `ManufacturingModule → QualityModule` imports
+- Live verification: the running dev API served real authenticated traffic to every new quality route (200 responses logged) during frontend testing
+- Regression suites: new `quality-management-13.19` (15/15, all requested scenarios) + `manufacturing-byproducts-13.16B` + `manufacturing-routing-scrap-13.16A` + `costing-application-13.15-fix` + `po-approval-engine` + `mrp-engine` + `safety-stock-and-replenishment` re-run (37/37, unaffected by the constructor signature changes) + full historical `npx jest` sweep (result recorded in this session's final report)
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 19 | Quality Management | **Complete** — Inspection (with templates/rules/sampling foundation), Quality Hold (real hard block on inventory availability), Non-Conformance (full 6-stage lifecycle), and Corrective Action (full CAPA with verification/closure) all implemented with real backend, tested RPCs, and a working frontend. Supplier Quality, Manufacturing Quality Gate, Deviation Management, Defect tracking, and Quality Cost aggregation also delivered. Rework/Disposition, Customer Complaints, and Quality Cost integrated into existing entities rather than separate modules, per approved scope decision. Stock Count auto-inspection triggering deliberately deferred (manual creation remains fully functional) to avoid a real circular module dependency. |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #19 only, per Sequential Execution Order. Roadmap item #19 is now fully closed.
+
+---
+
+# 125. Migration 13.20 — Advanced Warehouse Management (WMS) — August 7, 2026
+
+## Context
+Phase 0 audit (mandatory before coding) found far more of this scope already existed than the roadmap framing implied: a complete Pick/Pack/Ship system (migration 116 — all 4 picking strategies, real reservation-based picking, backend-only, never given a frontend) and a complete Zone→Aisle→Rack→Shelf→Bin location hierarchy with real trigger-enforced validation (migration 097, also never exposed in the frontend). The user confirmed three architectural decisions before implementation: (1) reuse `inventory.view`/`inventory.fulfill` for existing WMS execution, add `warehouse.manage`/`warehouse.approve` only for the genuinely new Putaway/Replenishment administration surface; (2) add `location_purpose` (functional: receiving/storage/picking/packing/quality_hold/damaged/shipping) alongside the existing structural `location_type`, not replacing it; (3) build `warehouse_tasks` only for Putaway and Replenishment — Picking (`pick_lists`), Transfers (`stock_transfers`), and Counting (`stock_counts`) keep their own existing, complete, independent models untouched.
+
+## #7 WMS Operations / Advanced Warehouse Management — Completion
+
+**Database (migrations 169–171):**
+- **169 — Location completion:** `warehouse_locations.location_purpose` (new, additive, independent of the existing `location_type`), `max_quantity`/`max_weight`/`max_volume` capacity columns, new `warehouse_location_restrictions` table (item/category allow-list per location — no rows = unrestricted). Two new read-only helpers: `fn_location_occupied_quantity`, `fn_location_allows_item`.
+- **170 — Putaway Engine + Warehouse Tasks:** `putaway_rules` (sparse-filter matching — item > category > warehouse-only, same pattern as `quality_rules`), `warehouse_replenishment_rules` (min/max at a picking location, `source_location_id` **NOT NULL** by design — replenishment is strictly a move of existing stock, never a receipt), `warehouse_tasks` + `warehouse_task_history` (Putaway and Replenishment only, per the approved decision). RPCs: `fn_suggest_putaway_location` (capacity-validated), `fn_create_putaway_task`, `fn_assign_warehouse_task`, `fn_confirm_warehouse_task` (physically relocates stock via the **existing** `fn_apply_stock_movement` 'adjustment_out'/'adjustment_in' pair — no new movement type invented), `fn_cancel_warehouse_task`, `fn_run_replenishment_check`.
+  - **Correctness bug caught and fixed before applying, not after:** a replenishment task with no `source_location_id` would have let `fn_confirm_warehouse_task` post only the 'in' movement with no matching 'out' — silently creating phantom stock from nothing. Fixed two ways: `warehouse_replenishment_rules.source_location_id` made `NOT NULL` at the schema level, plus a defense-in-depth runtime guard in `fn_confirm_warehouse_task` that refuses any `task_type='replenishment'` confirmation with no source.
+- **171 — Picking enterprise validation:** `pick_list_lines.batch_id` (new, nullable — does not touch `pick_lists`/`fn_create_pick_list`/`fn_confirm_pick`, migration 116, at all). `fn_suggest_fefo_batch` (earliest-expiring batch with sufficient `cost_layers.quantity_remaining`) and `fn_validate_pick_requirements` (raises `BATCH_OR_SERIAL_REQUIRED` if a `track_batches`/`track_serial` item is picked with no identifier; raises `FEFO_VIOLATION` if a later-expiring batch is picked ahead of an earlier one) — both called by the **application layer** immediately before `fn_confirm_pick`, never inside it, so the already-tested picking engine is unmodified.
+- **Bug found and fixed in migration 163/164's own follow-on work this session, unrelated to this migration's own logic but surfaced during smoke testing:** none — 163/164 issues were resolved in Migration 13.19; this migration's own three files applied cleanly on first smoke test of the core engine (putaway task creation → assignment → confirmation → real stock relocation, verified against the real Supabase project) after the replenishment guard fix above.
+
+**Permissions:** `warehouse.manage`, `warehouse.approve` added (seeded to superadmin/owner/manager). Existing `inventory.view`/`inventory.fulfill` continue gating Picking/Packing/Shipping exactly as before — no duplicate keys, per the approved decision.
+
+**Backend (`api/src/modules/inventory/`, new files):** `PutawayController/Service/Repository`, `WarehouseTasksController/Service/Repository`, `ReplenishmentController/Service/Repository` — all registered in the existing `InventoryModule` (which now also imports `ItemsModule`, no circular dependency). `LocationsController`/`Service`/`Repository` extended (not replaced) for `location_purpose`/capacity/restrictions — restriction shortcuts (`restricted_to_item_ids`/`restricted_to_category_ids`) on the create/update DTOs are translated into `warehouse_location_restrictions` rows by the service, not stored on `warehouse_locations` directly. `WmsController`'s existing `confirmPick` extended with an optional `batch_id`, validated via `fn_validate_pick_requirements` before the existing `fn_confirm_pick` RPC — the picking engine itself untouched.
+
+**Integration — Goods Receipt → Putaway:** `GoodsReceiptsService.post()` creates a putaway task per received line immediately after posting succeeds (best-effort — a putaway-config failure never blocks the already-completed receipt), mirroring the exact pattern already established for Goods Receipt → Quality Inspection (migration 13.19). Does not move stock itself — `fn_post_goods_receipt` (unmodified) already placed the item; the task tracks physical relocation to the suggested storage location.
+
+**Frontend:**
+- Extended the existing `Locations` feature (`web/src/features/locations/`) — `LocationFormModal` now exposes parent-location selection, structural type, functional purpose, and capacity fields.
+- New `web/src/features/wms/` feature — Dashboard (4 KPIs: pending putaway, pending replenishment, active pick lists, ready-to-ship), and 5 tabs: Putaway (rules list + replenishment rules + run-check trigger), Warehouse Tasks (assign/confirm/cancel for both putaway and replenishment), Picking (pick lists with per-line confirm), Packing (per-line confirm against picked shipments), Shipping (ship/track packed shipments). Route `/dashboard/wms`, sidebar entry, full `wms.*` i18n namespace (English + Arabic), wired through `request.ts`'s explicit namespace whitelist (verified correct this time — no repeat of the earlier Planning/Analytics translation bug).
+- Mobile Warehouse Foundation: deliberately not built as new UI — the existing quantity/location/batch confirmation fields on Warehouse Tasks and Picking are already scan-ready inputs (plain text/number fields a barcode scanner can type into); no Barcode Engine was implemented, per the explicit "remains separate Migration 13.21" instruction.
+
+**Validation performed:**
+- `npx tsc --noEmit` (api + web) — zero errors after fixing 2 pre-existing regression test files whose `GoodsReceiptsService` constructor calls needed one additional stub arg for the new `PutawayService` dependency (same pattern as every prior migration this session that added a constructor dependency)
+- `nest build` — clean. Frontend validated via the live dev server (not a fresh `next build`, to avoid the documented `.next` corruption gotcha while the dev server is running) — zero compile errors, zero `MISSING_MESSAGE` errors for the new `wms`/`locations` namespaces
+- Full app boot via `NestFactory.create(AppModule).init()` — succeeds, all 3 new controllers and every route confirmed mapped (`/inventory/putaway/*`, `/inventory/warehouse-tasks/*`, `/inventory/replenishment/*`), no circular-dependency error from `InventoryModule`'s new `ItemsModule` import
+- Regression suites: new `wms-13.20` (14/14, all requested scenarios) + 7 directly-adjacent suites re-run (Costing, PO Approval, Quality Management, Manufacturing By-products, Manufacturing Routing/Scrap, MRP Engine, Safety Stock — 52/52, unaffected by the constructor signature change) = 66/66 passing
+
+## Updated Final State
+| # | Item | Status |
+|---|---|---|
+| 7 | WMS Operations / Advanced Warehouse Management | **Complete** — Location hierarchy + functional purpose + capacity/restrictions, Putaway Engine (rules, suggestions, tasks, confirmation with real stock relocation), Replenishment (rules, low-stock detection, tasks), Warehouse Tasks (assignment/completion/history), Picking (existing 4-strategy engine + new batch/serial/FEFO validation), Packing, Shipping — all with a working frontend. Mobile/scan foundation present via existing scan-ready input fields; full Barcode Engine deferred to Migration 13.21 as instructed. |
+
+No other items from the 24-point roadmap were reassessed in this pass — this migration is scoped to #7/WMS only, per Sequential Execution Order. Roadmap item #7 (previously marked complete backend-only) is now fully closed including frontend.
+
+## #21 Sefay Universal Device Platform (Migration 13.21) — Phase 2 + Phase 3 (in progress)
+
+Escalated by the user from a plain "Barcode & Scanning System" item into a 15-phase Universal Device Platform master plan. Phase 1 (Architectural Audit) confirmed zero pre-existing device/session/event infrastructure and that `item_barcodes`/`warehouse_locations`/`item_batches`/`item_serials` must be reused, not duplicated. Executing continuously phase-by-phase per the user's approved execution protocol (literal "Approved – Proceed with Implementation" received before Phase 2 began); no further per-phase approval required unless a genuine architecture/data-integrity/security/breakage blocker is hit (Problem Stop Protocol).
+
+**Phase 2 — Database Foundation (migration 172):** 7 new tables, strictly additive — no existing table touched. `scanner_devices` (registered hardware, soft-delete), `scanner_device_capabilities` (barcode_1d/barcode_2d/rfid/camera/bluetooth per device), `scanner_sessions` (device+user+warehouse+workflow_type), `scanner_events` (raw scan ingestion — **immutable ledger**, same append-only trigger pattern as `stock_movements`; `client_event_id` unique per tenant+device when present, for offline-replay idempotency, Phase 9), `scanner_actions` (what the Action Framework did with a resolved event — records `target_service` as a human-readable label, never a duplicated business rule), `scanner_audit_logs` (immutable, actor can be `device` or `user`), `scanner_sync_queue` (offline queue, same idempotency-key pattern as events). All 7 tables: RLS `tenant_session_isolation` policy, `service_role` grant, per the standing new-table checklist.
+- Smoke-tested directly against the real Supabase project: insert device/session/event, duplicate `client_event_id` correctly rejected (`23505`), UPDATE on `scanner_events` correctly blocked by the immutability trigger.
+
+**Phase 3 — Device Management (backend, complete):** New `ScannerModule` (`api/src/modules/scanner/`) — `DevicesController`/`Service`/`Repository`, routes under `/scanner/devices` (list/get/create/update/soft-delete), capabilities set atomically with device create. New permissions `devices.view`/`devices.manage` (seeded to the 3 full-access roles) — scanning *actions themselves* deliberately reuse existing `inventory.*`/`warehouse.*`/`quality.*` permissions on whatever service the Action Framework calls, per the approved design; no separate `scan.execute` key.
+
+**Phase 4 — Scanner Event Engine (complete, migrations 173–174):** `EventsController`/`Service`/`Repository` under `/scanner/events` (list/get/history/ingest), plus `SessionsRepository` (read-only session validation) and `ScannerAuditLogsRepository` (immutable audit writes). Pipeline: device ownership/authorization check → optional session validation (must belong to the device, must be `active`) → normalization (`normalizeScanValue`: trim/collapse-whitespace/uppercase, raw value always preserved) → idempotency (explicit `client_event_id` uniqueness, or a 2s same-device/same-value dedup window when none is supplied) → insert into the immutable `scanner_events` ledger → audit log entry (`scan_event.validated` or `scan_event.duplicate_detected`) → device `last_seen_at`/health touch. No entity resolution happens here — reserved for Phase 5 (Resolver Engine) by design.
+- **Two schema issues caught by this phase's own testing before merge:** (1) migration 172's `scanner_events.status` CHECK (`pending/resolved/failed/duplicate`) was a Phase-2-era placeholder that didn't match the actual 5-state lifecycle worked out at the API-design level — migration 173 replaces it with the values Phase 4 actually writes (`validated`/`rejected`/`duplicate`) and documents how PROCESSED/FAILED map onto the separate, mutable `scanner_actions.status` instead of mutating the immutable events row. (2) `scanner_events.session_id` was `NOT NULL` in migration 172, but sessionless scans (no active workflow session) are a valid case the DTO/service always intended to support — migration 174 drops the constraint.
+- **Orphaned test row found and fixed:** the Phase 2 smoke test's cleanup deleted a `scanner_sessions` row directly, which silently failed to CASCADE-delete its `scanner_events` child (blocked by the immutability trigger), leaving one leftover row that then violated migration 173's new status CHECK. Removed via a scoped trigger-disable/delete/trigger-enable step inside migration 173 itself. Lesson applied to this phase's own regression suite: cleanup soft-deactivates sessions/devices (`status`/`deleted_at`) instead of deleting them, since both are now referenced by immutable ledger rows.
+
+**Validation performed:** `npx tsc --noEmit` clean. ESLint clean on all new files (remaining `no-unsafe-*` warnings on Supabase query returns match the same pre-existing pattern already present in every other repository in the codebase, e.g. `quality/repositories/holds.repository.ts` — not introduced by this change). Full app boot via `NestFactory.create(AppModule).init()` succeeds. New tests: 5 unit tests (`normalizeScanValue`) + 17 integration tests (`scanner-event-engine-13.21-phase4.regression.spec.ts`, run directly against the real Supabase project) — DTO validation (4), ingestion happy-path + normalization (1), unknown/disabled device rejection (2), invalid session rejection (1), client_event_id dedup (1), dedup-window dedup with no client_event_id (1), audit trail creation (1), tenant isolation (1) — all passing. Full historical `npx jest` sweep: **279/279 passing** (up from 262 pre-Phase-4; the purchasing-suite timeout flakiness noted after Phase 3 did not recur).
+
+**Phase 5 — Resolver Engine (complete, migration 175):** New `resolver/` subtree in `ScannerModule` — `ResolverService` (fixed-priority pipeline: `item_barcodes` → `warehouse_locations.code` → `item_batches.batch_number` → `item_serials.serial_number` → `item_rfid_tags`) plus one resolver class per source (`ItemBarcodeResolver`/`LocationResolver`/`BatchResolver`/`SerialResolver`/`RfidResolver`), all identification-only — none of them touch inventory/stock/cost or execute a workflow. `GET /scanner/resolve?value=&warehouse_id=` exposes it standalone; `EventsService.ingest()` (Phase 4) now also calls it internally and writes `resolved_entity_type`/`resolved_entity_id` into the same atomic insert (no post-hoc UPDATE, since `scanner_events` is immutable).
+- **Reuse, not duplication:** barcode resolution reuses `ItemBarcodesRepository.lookupByBarcode` (items module); serial resolution reuses `SerialsRepository.findByNumber` (inventory module, already array-shaped for the same non-unique-serial reason this phase needed); location resolution reuses a new `findByCode` method added to the existing `LocationsRepository` rather than a parallel query. Only `item_batches` (no prior repository existed) and the genuinely new `item_rfid_tags` table got new read-only repositories.
+- **Ambiguity handling:** `warehouse_locations.code` is only unique per-warehouse and `item_batches.batch_number`/`item_serials.serial_number` are only unique per-item — so a tenant-wide lookup can legitimately return more than one row. The pipeline treats 2+ matches on one resolver as `ambiguous` and stops immediately (does not fall through to the next-priority resolver, since a conflict is a real finding, not an absence of one); an optional `warehouse_id` context hint can narrow a multi-warehouse location match back down to one.
+- **Disabled/inactive entities:** never rejected — a match still resolves, with `resolution_metadata.is_active` reporting the state. Business-validity enforcement is explicitly out of scope for this engine (that is the Action Framework's job, Phase 7), per the approved architecture rule "Resolver only returns identity information."
+- **Database change:** migration 175 adds `item_rfid_tags` (new master data — zero prior RFID support existed, confirmed in the Phase 1 audit, so this is not a duplicate) and widens `scanner_events.resolved_entity_type`'s CHECK to the actual 6-entity set (`item`/`variant`/`location`/`batch`/`serial`/`rfid`, plus `unresolved` kept for schema compatibility though the code always uses `NULL`).
+- **Performance:** every resolver query hits an existing unique or composite index (`item_barcodes(tenant_id, barcode)`, `warehouse_locations(warehouse_id, code)`, `item_batches` and `item_serials`' existing tenant+item(+variant) unique indexes, `item_rfid_tags(tenant_id, tag_value)`) — no new caching layer added, per the explicit "do not add unnecessary caching before proving the need" instruction; nothing in the current scan volume (interactive, one event at a time) approaches a level where index-backed point lookups would need it.
+
+**Phase 5 validation:** `npx tsc --noEmit` clean. ESLint clean on new files (same pre-existing `no-unsafe-*` pattern as the rest of the repository's Supabase-return-typed repositories, not introduced here). Full app boot succeeds with the resolver pipeline's 5 new providers + `ItemsModule`/`InventoryModule` imports wired into `ScannerModule` (no circular dependency). 19 unit tests (one per resolver's match/no-match/ambiguous/inactive-flag behavior, mocked repositories) + 7 integration tests against the real Supabase project (`scanner-resolver-engine-13.21-phase5.regression.spec.ts`: priority-order resolution for barcode/batch/serial, location ambiguity + warehouse-hint disambiguation, unknown-value not-found, tenant isolation) — all passing. Full historical `npx jest` sweep: 298/300 (the 2 failures are the same pre-existing `releases.regression.spec.ts` network-timeout flakiness already seen after Phase 3, unrelated to this change — reconfirmed by isolating that suite).
+
+**Phase 6 — Adapter Framework (complete, no DB changes):** New `adapters/` subtree in `ScannerModule` — a hardware-independent abstraction, not a NestJS provider/controller layer (no new API surface; Phase 6 produces a library other layers consume). `adapter.types.ts` defines the contract (`IDeviceAdapter`: connect/disconnect/healthCheck/capabilities/parseInput/normalizeOutput/onScan), `ITransport` (the hardware I/O boundary), `NormalizedDeviceEvent` (intentionally the same field shape as Phase 4's `CreateScanEventDto`, so an adapter's output is a direct pass-through, not a translation layer), and `AdapterError` (typed error codes + a `recoverable` flag). `base-adapter.ts` implements the shared lifecycle state machine (`registered→initialized→connected→streaming→error→disconnected`, invalid transitions throw) plus recovery (`recover()`, single-shot reconnect from the `error` state) — subclasses supply only `deviceType`, `capabilities()`, and `parseInput()`'s hardware-specific framing rules. 7 concrete adapters: `UsbHidAdapter`/`BluetoothAdapter` (strip Enter/STX-ETX terminators), `CameraAdapter`/`SunmiAdapter` (already-decoded strings, trim only), `ZebraAdapter`/`HoneywellAdapter` (strip an optional AIM symbology prefix via a shared `stripAimPrefix` util, recorded in output metadata), `RfidAdapter` (extracts the hex EPC run, `scan_type` auto-derives to `'rfid'` from its capability set). `adapter-registry.ts` (static descriptor map, not a DB table — nothing about "which adapter classes exist" is tenant-specific or runtime-mutable) + `adapter-factory.ts` (`createAdapter(deviceType, transport)`).
+- **Key architecture decision, stated explicitly rather than silently built around:** USB/Bluetooth/Camera/RFID hardware is physically attached to the browser tab or mobile device the warehouse worker is holding, never to this Node.js backend process — so `connect()`/`disconnect()` cannot mean "the server opens a USB socket." Every adapter is built against an injected `ITransport`; production transports (WebHID/WebBluetooth wrappers, native Sunmi/Zebra/Honeywell SDKs) are supplied by whichever client runtime owns the hardware (browser SDK or the Phase 8 Mobile Scanner App), and this phase ships a `MockTransport` (test-only) to exercise the full contract end-to-end without physical hardware. This is the correct topology for a cloud SaaS backend, not a stubbed placeholder for unfinished work.
+- **Architecture rules enforced by omission, not by convention alone:** no adapter or `BaseAdapter` method has a dependency capable of touching inventory, cost, stock, or any Sefay service/repository — the entire subtree has zero imports outside itself plus `adapter.types.ts`.
+
+**Phase 6 validation:** `npx tsc --noEmit` clean. ESLint clean on all new files after fixing 2 real `require-await` findings (`MockTransport.open/close` and `BaseAdapter.healthCheck` had no actual `await` — converted to direct `Promise.resolve()`/`Promise.reject()` returns, no behavior change) and replacing two test `any[]` arrays with the proper `NormalizedDeviceEvent[]` type. 27 tests: `adapters.unit.spec.ts` (18 — parseInput framing per device type, AIM symbology metadata, RFID hex-extraction + error, capability detection matching the registry, registry/factory listing all 7 types, `AdapterError` shape) + `adapter-lifecycle.integration.spec.ts` (9 — connect/disconnect/healthCheck lifecycle, ScanEvent production shaped like `CreateScanEventDto`, chunk-burst handling without getting stuck in an invalid state, single malformed chunk dropped without disconnecting, pre-connect chunks ignored, connect failure → `error` state + recoverable `AdapterError`, `recover()` reconnect, `recover()` rejected outside the `error` state) — all passing. Full app boot succeeds (no new DI wiring to break — this module has none). Full historical `npx jest` sweep: 326/327 — the 1 failure (`agreements.regression.spec.ts`) is the same class of pre-existing Supabase-network-timeout flakiness already seen twice this phase-set (passes cleanly in isolation; the Adapter Framework makes zero database calls, so it cannot be the cause).
+
+**Phase 7 — Action Framework (complete, no DB changes):** New `actions/` subtree in `ScannerModule` — a thin mapping layer, zero business logic. `action.types.ts` defines the contract (`ActionRequest` = resolved entity + workflow context + caller permissions; `ActionResult`; `IActionHandler`; `ActionDescriptor`). `ActionRegistry` is a static, code-level table of 8 descriptors (`requiredEntityTypes`, `requiredPermission`, `targetService` label, handler instance) — one per supported action (receiving/putaway/picking/packing/shipping/transfer/counting/manufacturing). `ActionExecutorService.execute()` implements the full flow: validate the resolution matched and its `entity_type` is one the action accepts → validate the caller holds the required permission → write a `pending` `scanner_actions` audit row → call the handler → mark the audit row `success`/`failed`.
+- **8 handlers, each a direct call to an existing, already-shipped service** — no new business logic anywhere: `ReceivingAction`→`GoodsReceiptsService.post`, `PutawayAction`→`WarehouseTasksService.confirm` (forwards the resolved **location** id as `confirmed_location_id`), `PickingAction`→`WmsService.confirmPick` (forwards the resolved **batch** id only when the scan resolved to a batch — the existing FEFO/batch-required validation from migration 171 runs unmodified), `PackingAction`→`WmsService.confirmPack`, `ShippingAction`→`WmsService.shipShipment`, `TransferAction`→`TransfersService.receive`, `CountingAction`→`CountsService.submitCount`, `ManufacturingAction`→`ProductionOrdersService.complete` (the only method matching "only if existing service is available" — per-component material-issue-by-scan has no existing standalone service method to map onto and was explicitly NOT invented).
+- **Permission keys reused, not invented:** each action's `requiredPermission` in the registry is the exact same key its target service's own controller already gates on (`purchasing.receive`, `warehouse.approve`, `inventory.fulfill`, `inventory.transfer`, `inventory.count`, `manufacturing.execute`) — re-checked here because the Action Framework calls the service directly, bypassing that controller's guard.
+- **Business-rule failures are not framework bugs:** a target service throwing (e.g. "exceeds remaining committed quantity", a quality hold, a FEFO violation) is caught, recorded on the `scanner_actions` audit row as `failed` with the real error message, and returned as a structured `{success:false, error}` — not swallowed, not re-thrown as a framework exception. Only framework-level problems (unmatched/wrong-type resolution, missing permission) throw `BadRequestException`/`ForbiddenException`.
+- **Module wiring:** `InventoryModule` now exports `WmsService`/`WarehouseTasksService`/`TransfersService`/`CountsService` (previously internal-only), `ManufacturingModule` now exports `ProductionOrdersService` (was `exports: []`) — both additive, no existing consumer affected. `ScannerModule` imports `PurchasingModule`/`InventoryModule`/`ManufacturingModule` for these services only, never their repositories or RPCs directly.
+
+**Phase 7 validation:** `npx tsc --noEmit` clean. ESLint clean on all new/changed files (same pre-existing `no-unsafe-*`/`any`-cast pattern as the rest of the repository, not introduced here). Full app boot succeeds with 3 new module imports into `ScannerModule` — no circular-dependency error. 15 tests: `action-executor.unit.spec.ts` (6 — invalid-resolution rejection, wrong-entity-type rejection, missing-permission rejection, success path writes pending→success audit rows, target-service failure caught and marked failed with structured result) + `action-handlers.unit.spec.ts` (9 — Receiving/Putaway/Picking/Packing/Transfer/Counting mapping correctness, including PutawayAction rejecting a non-location resolution and PickingAction only forwarding `batch_id` when the resolution is actually a batch) — all passing. Full historical `npx jest` sweep: **342/342 passing** (up from 327 pre-Phase-7 — the two previously-flaky purchasing tests did not recur).
+
+## Phase 7 Authorization Patch — closing a gap found in post-implementation audit
+
+A user-requested audit of the authorization flow (before approving Phase 8) surfaced a real gap: `ActionExecutorService.execute()` checked `request.callerPermissions.includes(...)` — a caller-supplied `string[]` — with **zero production code path that ever called it**, meaning the permission check, while correctly centralized and never duplicated in handlers, had no verified connection to the real Sefay permission system (`PermissionsService`, role/tenant resolution, superadmin bypass). Not a Problem Stop (no existing functionality was broken — nothing called `ActionExecutorService` yet at all), but a real integration gap correctly caught before Phase 8 would have built on top of it.
+
+**Fix — single source of truth, not a second permission system:**
+- New [`permission-resolution.util.ts`](api/src/core/permissions/permission-resolution.util.ts): `resolveUserPermission(permissionsService, logger, user, requiredPermission)` — the exact bypass/hybrid decision logic `PermissionGuard.canActivate` used inline (superadmin bypass → QA/demo-tenant bypass → legacy `hasPermission` + shadow-mode `hasPermissionForUser` comparison → logged divergence → hybrid cutover via `ENFORCE_HYBRID_PERMISSIONS`), extracted verbatim, not reimplemented.
+- [`permission.guard.ts`](api/src/core/permissions/permission.guard.ts) refactored to call this shared function instead of inlining the logic — a pure extraction, confirmed byte-identical by running the guard's own pre-existing 5-test suite (`permission.guard.spec.ts`) unchanged and unmodified: **5/5 still pass**, including the exact-call-argument and logger-spy assertions.
+- [`action.types.ts`](api/src/modules/scanner/actions/action.types.ts): `ActionRequest.callerPermissions: string[]` removed entirely, replaced with `user: JwtPayload` — the same JWT payload shape `TenantGuard`/`JwtAuthGuard` already attach to every HTTP request. No caller can supply a permission list anymore; there is nothing left to trust.
+- [`action-executor.service.ts`](api/src/modules/scanner/actions/action-executor.service.ts): now injects the real `PermissionsService` and calls `resolveUserPermission(...)` with the request's real `user` — same call PermissionGuard makes for every controller route. Still the ONLY place permission validation happens (unchanged from Phase 7 — handlers were audited again and confirmed to contain zero permission checks).
+- Flow realized: **Authenticated User (JwtPayload) → resolveUserPermission (shared with PermissionGuard) → ActionExecutorService → Action Handler → Existing Sefay Service.**
+
+**Validation:** `npx tsc --noEmit` clean. ESLint clean (same pre-existing `no-unsafe-*` pattern, not introduced). Full app boot succeeds (no new module wiring needed — `PermissionsModule` was already imported into `ScannerModule`). New integration suite `scanner-action-authorization-13.21-phase7-patch.regression.spec.ts` (4 tests, real `PermissionsService` against the real `role_permissions` table, no mocking of the permission source): a `manager` user (grants `inventory.fulfill` in the seed) succeeds; a `cashier` user (does not grant it) is rejected before the handler runs; `superadmin` bypasses identically to controller behavior; the QA/demo-tenant bypass applies unchanged. `action-executor.unit.spec.ts` extended with 2 more cases (real-permission-source call verified via mock `PermissionsService`, denial path). Full historical `npx jest` sweep: **348/348 passing** (up from 342 pre-patch).
+
+**Remaining phases (on hold, not started) — status revised below:** ~~Mobile Scanner App~~, Offline Sync, Frontend Control Center, Analytics, Security/Performance/Certification/Release (process phases, scope to be clarified when reached).
+
+## ⏸️ Sefay Universal Device Platform (#21) — Phase 8 onward placed on hold (2026-08-08)
+
+Per the user's permanent "Application Layer Deferral" architectural decision (see the standing policy section near the top of this file, added the same date): **no user-facing application may be built before the Sefay Core Platform is complete.** This directly applies to Phase 8 (Mobile Scanner Application) and every phase after it in the Device Platform's own 15-phase plan (Offline Sync, Frontend Control Center, Analytics, Security/Performance/Certification/Release) — none of them may begin.
+
+**Current state of #21, frozen here:** Phases 1–7 + the Phase 7 Authorization Completion Patch are complete, tested (348/348 passing on the full historical suite), and remain exactly what they are — backend infrastructure only (`api/src/modules/scanner/`: devices, event ingestion, resolver, hardware-adapter contracts, action framework, all wired to the real Sefay permission system). Nothing here is rolled back or undone; it simply is not extended further until Core Platform completion is declared.
+
+**New execution priority, effective immediately (superseding "what's next for #21" until further notice):**
+1. Audit current Sefay Core domains.
+2. Identify missing business modules.
+3. Build an execution roadmap for Core completion.
+4. Complete backend/core architecture.
+5. Validate: database, APIs, permissions, tests, runtime, documentation.
+6. Only after Core completion does Application Layer work (including Device Platform Phase 8+) begin.
+
+**Application order once Core completion is declared:** Android (mobile/tablet/touch POS/device integrations) → iOS (iPhone/iPad) → Windows (desktop/POS when required). No exceptions for small applications.
+
+Awaiting the next Core Platform audit instruction from the user.
+
+## 🔒 Inventory/WMS Workstream Checkpoint — 2026-08-08
+
+Documentation-only checkpoint, created per explicit user instruction to lock and preserve the Inventory/WMS workstream before any Core Platform domain transition. No code, migration, or business logic changed by this checkpoint itself.
+
+**Status: Inventory/WMS core scope is COMPLETE.** All 24-point Inventory roadmap items touching this domain (#1, #6, #7, #10, #12–19 — see their own sections above) are marked Complete, tested, and stable. The Sefay Universal Device Platform (#21, Migration 13.21), built on top of Inventory without modifying its core tables, is complete through **Phase 7 + the Phase 7 Authorization Patch** and **remains frozen as backend infrastructure** per the standing Application Layer Deferral rule (see policy section near the top of this file) — Phase 8 (Mobile Scanner App) has not started and must not start until Core Platform completion is explicitly declared.
+
+- **Last completed migration:** `175_scanner_resolver_rfid_and_entity_types.sql`
+- **Last full validation:** `npx tsc --noEmit` clean, ESLint clean, full app boot succeeds, **348/348** regression tests passing (as of the Phase 7 Authorization Patch — the most recent code change in this domain).
+- **Known open items (neither is being started under this checkpoint):** (a) MRP suggestions frontend — backend-complete (migrations 160–162), no UI yet, low priority; (b) UOM & Conversion — belongs to a different domain per the Master Plan, not Inventory itself.
+- **No open bugs.** Every historical Inventory bug this session's audit surfaced (POS/inventory deduction gap, `fn_apply_stock_movement` overload, reservation availability, ownership quantity check, goods-receipt location regression, safety-stock zero-lead-time, MRP gross requirement, item_batches/serial dual-write) is closed via a fix-forward migration, documented in its own historical section above — none reopened or altered by this checkpoint.
+- **Full migration history, completed/remaining matrices, and cross-domain dependency map** for this checkpoint were produced as a standalone Reconciliation Report in-session (not duplicated here to avoid conflicting with this file's own historical sections) — summary: every currently-required Inventory integration (Sales, Purchasing, Manufacturing, Quality, Scanner) is **already integrated and tested**; Accounting/UOM/Notifications integrations are correctly listed as future dependencies, not current gaps.
+
+**Explicit instruction preserved by this checkpoint:** do not transition to UOM, Accounting, Notifications, Approval Workflow, HR, CRM, or any other Core domain, and do not start any standalone application (Android/iOS/Windows/Mobile Inventory/Mobile POS/Scanner Mobile/Attend/Employee/Customer apps), until the user explicitly decides to move past this checkpoint. Existing Sefay Web Frontend development is unaffected and may continue normally.
+
+## ⚠️ CORRECTION to the Inventory/WMS Workstream Checkpoint above — 2026-08-08
+
+The checkpoint above incorrectly stated **"Inventory/WMS core scope is COMPLETE."** This is corrected, per explicit user instruction, without deleting or rewriting the section above (append-only policy) — the paragraph above remains as a historical record of what was written; **the status line in it is superseded by this correction:**
+
+**Corrected status: Inventory/WMS is IN PROGRESS and temporarily PAUSED — not complete.**
+
+Inventory/WMS implementation has reached a validated intermediate checkpoint. Every operational/WMS capability implemented so far (foundations, WMS, Receiving, Putaway, Picking/Packing/Shipping, Transfers, Reservations, cost-layer/costing foundations, Batch/Serial/FEFO, Counts/Adjustments, Replenishment/MRP foundations, Sales stock deduction, Purchasing→Inventory, Manufacturing→Inventory, Quality→Inventory, Scanner backend integration, Inventory analytics/reports, Permissions/RLS) is stable and tested — **348/348 passing is a validation result for what has been built, not a completion declaration for the entire Inventory roadmap.**
+
+**Why paused, not complete:** the remaining Inventory scope contains financial/accounting dependencies that correctly belong to — and require — the Master Plan's **Advanced Accounting & Financial Management** initiative (`master-roadmap.md` Group B.14), which is itself still `PLANNED_NOT_STARTED`. Specifically, the following remain open **because they depend on Accounting Core, not because of any Inventory defect:**
+- Inventory valuation integration with a real ledger
+- COGS accounting (cost layers currently compute correctly but post nowhere)
+- Purchase accounting integration (goods receipt cost has no journal-entry destination)
+- Sales accounting integration (stock deduction has no corresponding revenue/COGS posting)
+- Manufacturing costing/accounting integration (production cost has no ledger destination)
+- Landed-cost accounting integration (landed cost is allocated correctly at the inventory layer, but not posted)
+- Financial posting for inventory movements generally
+- Period/financial closing implications for inventory valuation
+
+**Execution order now standing:** Inventory/WMS (paused at this validated checkpoint) → Accounting Core (Advanced Accounting & Financial Management, per the existing Master Plan scope — no redesign, no external-bridge substitution) → **resume Inventory/WMS** → complete the remaining Inventory↔Accounting integration listed above → final Inventory/WMS completion checkpoint → continue the remaining Core roadmap per the Reconciliation Report's §I execution order.
+
+**Exact resume point:** last validated migration `175_scanner_resolver_rfid_and_entity_types.sql`; last full validation 348/348 passing. When Inventory work resumes, it resumes from exactly this point — no rework of anything listed as already-implemented above.
+
+**Universal Device Platform status is unchanged by this correction:** still complete through Phase 7 + the Authorization Patch, still frozen as backend infrastructure, Phase 8 still not started.
+
+**Still not authorized by this correction:** no Accounting implementation, no migrations, no UOM, no Notifications, no Approval Workflow, no application-layer work. This correction only fixes the status label — it does not authorize starting Accounting Core; that still requires its own explicit approval under the standing Execution Gate protocol.
+
+## 🏗️ Sefay Global Financial Platform — Migration M176 Applied (2026-08-09)
+
+**Status: Accounting Core implementation has begun.** Following the full architecture review series (Domain/Entity Audit → Coexistence + Transition Gate → Database Architecture Specification → Final Schema Integrity Review → Final Pre-Migration Clarification → Final Pre-Implementation Fix Gate) and the literal approval phrase, **Migration M176 — Foundation & Reference Catalogs** was implemented and applied. This is the first of the fourteen-migration series (M176–M189) planned for the Financial Core; **M177 onward have NOT been created** and require their own separate implementation turn.
+
+**What M176 does:** `176_accounting_foundation_reference_catalogs.sql` — enables the `btree_gist` extension (required by later migrations for effective-dated, non-overlapping exclusion constraints on Branch Assignment History, Fiscal Periods, and Posting Rule Versions — none of which exist yet), and creates the two approved **global** reference catalogs: `accounting_owner_types` (`branch`/`central`/`regional`/`other`, seeded) and `financial_event_source_types` (initial known module/entity-type pairs: sales/order, purchasing/goods_receipt, inventory/stock_movement, manufacturing/production_order, expenses/expense, seeded). Both tables deliberately carry **no `tenant_id` and no RLS** — confirmed correct per the Final Pre-Migration Clarification's withdrawal of an earlier, incorrect composite-FK-on-tenant_id proposal for these two tables, since they hold zero tenant-owned data.
+
+**Zero existing tables touched.** No FK to, and no column added on, `tenants`, `branches`, or any other pre-existing Sefay table. Inventory/WMS, Sales, Purchasing, Manufacturing, and Permissions are completely unaffected.
+
+**Validation performed:**
+- Migration applied cleanly (`npm run migrate`), single atomic transaction.
+- Re-running `npm run migrate` correctly reports "Database is up to date. No migrations to apply." — idempotency confirmed via Sefay's migration-tracking convention (already-applied files are never re-executed), not via `IF NOT EXISTS` guards on the tables themselves.
+- `accounting_owner_types` contains exactly the 4 approved rows; `financial_event_source_types` contains exactly the 5 approved seed rows — verified by direct query against the real Supabase project.
+- Both tables confirmed to have no `tenant_id` column (a `SELECT tenant_id` against either correctly errors with "column does not exist").
+- `btree_gist` extension: `CREATE EXTENSION IF NOT EXISTS btree_gist` executed as part of the same successful, non-rolled-back migration transaction — sufficient evidence of activation (an extension failure would have aborted the entire migration, which it did not); `pg_extension` itself is a system catalog not exposed through PostgREST, so it cannot be queried directly through the application's Supabase client, which is expected and not a gap.
+- Sanity check: `branches` (19 rows) and `tenants` (16 rows) counts read successfully and are unaffected by this migration, confirming no unintended interaction with existing data.
+- `npx tsc --noEmit` clean, `npm run build` clean (no TypeScript/application code was touched by this migration — expected, since M176 is pure DDL/seed data).
+- Full historical `npx jest` sweep: **348/348 passing**, identical to the pre-M176 baseline — zero regression.
+- Full app boot via `NestFactory.create(AppModule).init()` succeeds.
+
+**Explicitly NOT done, per the approved scope:** M177 (Companies) and every subsequent migration through M189 were **not created**. No Accounting application code (services/controllers/APIs/Posting Engine/Journal Engine) was written. No Inventory/WMS code was touched — it remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING, now with the first Accounting Core migration underneath it, but still requiring the full M177–M188 sequence before its own Inventory↔Accounting integration work (§ above) can resume.
+
+## 🏗️ Sefay Global Financial Platform — Migration M177 Applied (2026-08-09)
+
+**M177 — Companies** (`177_accounting_companies.sql`) implemented and applied, per its own separate explicit approval. Pre-implementation checks confirmed: no existing `companies`/`company` table anywhere in Sefay's 176 prior migrations (fresh grep, zero matches); M176 unchanged (still the immediately-preceding applied migration).
+
+**What M177 does:** creates `companies(id, tenant_id, name, tax_number, is_default, deleted_at, timestamps)` — **exactly the scope approved by the Final Pre-Implementation Fix Gate, with no fiscal-calendar or chart-of-accounts column.** That gate found neither column is actually needed on `companies` at all: a Company's default Fiscal Calendar (M182) and default Chart of Accounts (M183) are each resolved by querying their own table for `company_id = X AND is_default = true`, mirroring the `accounting_books.is_default` pattern already designed — removing the ambiguity the original draft left open without introducing any forward-reference placeholder. `tenant_id` is a plain FK for now (M177 is not yet the target of any composite FK from another table — that begins with M178, which is where the composite-unique-constraint pattern is actually first needed, exactly as already documented in the Fix Gate's Issue 2 resolution). RLS: standard `tenant_session_isolation`, identical pattern to every other tenant-scoped table.
+
+**Backfill performed, as required (not optional) per the accepted Migration Design:** exactly one default Company row (`is_default=true`) per existing active tenant — pure default-provisioning, no data transformation, idempotent (`ON CONFLICT DO NOTHING` against the partial unique index `uq_companies_tenant_default`).
+
+**Validation performed:**
+- Migration applied cleanly, single atomic transaction.
+- **Backfill correctness verified directly against the real Supabase project:** 15 active tenants → exactly 15 default companies created, zero tenants missing a default company, zero tenants with more than one default company.
+- Confirmed `companies` has no `default_fiscal_calendar_id`/`default_chart_of_accounts_id` column (`SELECT` against either correctly errors "column does not exist") — the scope restriction is real, not merely documented.
+- Sanity check: `branches` count (19) unaffected — no existing table touched.
+- `npx tsc --noEmit` clean, `npm run build` clean.
+- Full historical `npx jest` sweep: **348/348 passing.** One transient failure (`wms-13.20.regression.spec.ts`, unrelated to `companies`/`tenants` schema) occurred on the first full-suite run, passed cleanly in isolation (14/14) and on a full-suite re-run (348/348) — confirmed as the same class of pre-existing network/contention flakiness already documented multiple times earlier this session (e.g., the Purchasing suite after Phase 3/6 of the Scanner Platform work), not a regression caused by M177.
+- Full app boot succeeds.
+- Idempotency confirmed: re-running `npm run migrate` reports "Database is up to date. No migrations to apply."
+
+**Explicitly NOT done:** M178 was not created. No Accounting application code was written. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M178 — Accounting Owners (scope: add `UNIQUE(tenant_id, id)` to `branches` as a prerequisite bundled statement, per the Fix Gate's Issue 2 resolution, then create `accounting_owners` with `company_id NOT NULL`, `branch_id` nullable) — requires its own separate explicit approval.
+
+## 🏗️ Sefay Global Financial Platform — Migration M178 Applied (2026-08-09)
+
+**M178 — Accounting Owners** (`178_accounting_owners.sql`) implemented and applied, per its own separate explicit approval. Pre-implementation checks confirmed: M176/M177 unchanged (verified present, untouched); no `UNIQUE(tenant_id, id)` existed on `branches` prior to this migration (fresh grep across `001_initial_schema.sql`, zero matches) — matching the Fix Gate's own finding that **no table in Sefay uses this composite pattern yet**, confirming M178 is correctly the first to introduce it.
+
+**What M178 does:**
+1. `ALTER TABLE branches ADD CONSTRAINT uq_branches_tenant_id UNIQUE (tenant_id, id)` — pure additive, trivially satisfied by all existing rows since `id` is already the PK.
+2. `ALTER TABLE companies ADD CONSTRAINT uq_companies_tenant_id UNIQUE (tenant_id, id)` — same reasoning, the composite-FK target M177's own table needed but didn't yet have (exactly as pre-announced in M177's own migration comments).
+3. Creates `accounting_owners(id, tenant_id, company_id NOT NULL, branch_id NULLABLE, owner_type_code, name, status, timestamps)` with **composite, tenant-safe FKs** to both `companies` and `branches` (`(tenant_id, company_id/branch_id) → (tenant_id, id)`), and a **plain FK** to the GLOBAL `accounting_owner_types` catalog from M176 (correctly not composite — that table holds no tenant-owned data). `UNIQUE(tenant_id, branch_id) WHERE branch_id IS NOT NULL` ensures a branch has at most one Accounting Owner, ever. No polymorphic ownership anywhere — every FK targets exactly one specific table via exactly one specific column pair.
+
+**Critical validation — cross-tenant rejection proven at the database level, not RLS**, per the explicit requirement: five tests run directly against the real Supabase project:
+- Accounting Owner for Tenant A referencing Tenant B's **Company** (a valid row, wrong tenant) → **rejected**, Postgres error `23503`, `fk_accounting_owners_company` violated.
+- Accounting Owner for Tenant A referencing Tenant B's **Branch** (a valid row, wrong tenant) → **rejected**, Postgres error `23503`, `fk_accounting_owners_branch` violated.
+- A valid same-tenant insert with `branch_id = NULL` (representing a Central Accounting Owner) → **succeeds**, confirming the approved "Central is not a fake Branch" design is mechanically real, not just documented.
+- An invalid `owner_type_code` not present in the M176 global catalog → **rejected** by the plain FK.
+- A `NULL company_id` → **rejected** by the `NOT NULL` constraint.
+
+All five results are exactly as required — the tenant-consistency guarantee comes from the composite FK constraints themselves, proven by attempting the violation with the service-role client (which bypasses RLS), not merely by RLS happening to also block it.
+
+**Validation performed (full protocol):** migration applied cleanly; the five cross-tenant/integrity tests above all passed; existing data confirmed unaffected (`branches`=19, `companies`=15, `accounting_owner_types` still exactly the 4 approved rows) after test cleanup; `npx tsc --noEmit` clean; `npm run build` clean; full historical `npx jest` sweep — **348/348 passing**, zero regression; full app boot succeeds; idempotency confirmed (`npm run migrate` reports "up to date" on re-run).
+
+**Explicitly NOT done:** M179 was not created. No Accounting application code was written. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+## 🏗️ Sefay Global Financial Platform — Migration M179 Applied (2026-08-09)
+
+**M179 — Branch Accounting Assignment History** (`179_branch_accounting_assignments.sql`) implemented and applied, per its own separate explicit approval. This is the critical historical-integrity migration: the effective-dated, exclusion-constrained relationship replacing the rejected mutable `has_independent_ledger` boolean.
+
+**Two findings from this migration's own pre-implementation inspection:**
+1. **M178 added `UNIQUE(tenant_id, id)` to `branches` and `companies` but not to `accounting_owners` itself** — M179's own composite FK needed it, so it was added here as the first statement, following the exact same established pattern (pure additive, trivially satisfied since `id` is already the PK).
+2. **`branches` has no `company_id` column at all** — Branch and Company are both direct children of Tenant, not Branch-belongs-to-Company. This means "the Branch's Company must equal the Accounting Owner's Company" is **not a checkable statement in the current schema, at any level** — explicitly documented as DATABASE ENFORCED = tenant consistency only; APPLICATION ENFORCED = N/A, no relational path exists to check. This is a genuine, honestly-reported boundary, not silently patched — it only becomes checkable if a future, separately-approved Multi-Company migration adds `branches.company_id`, which was correctly NOT invented here (out of M179's approved scope).
+
+**What M179 does:** `branch_accounting_assignments(id, tenant_id, branch_id, accounting_owner_id, effective_from, effective_to, reason, created_by, created_at)` with composite tenant-safe FKs to both `branches` and `accounting_owners`; a `CHECK (effective_to IS NULL OR effective_to > effective_from)`; and the critical **exclusion constraint** — `EXCLUDE USING gist (tenant_id WITH =, branch_id WITH =, daterange(effective_from, effective_to, '[)') WITH &&)` — using `btree_gist` (enabled in M176) to guarantee, at the database level, that no two assignments for the same branch can ever overlap. Half-open `[)` interval semantics mean a period ending exactly where the next begins is correctly NOT an overlap (the required boundary case). **Mutation policy**, the smallest safe rule proven sufficient: DELETE is always blocked (a trigger raises on any attempt — assignments are permanent, append-only history); UPDATE is blocked for every column except one narrow, explicit transition — setting `effective_to` on a still-open (`effective_to IS NULL`) row exactly once, closing the current period the moment a new one begins. Once closed, a row is fully immutable.
+
+**Validation performed — every scenario from the approved specification tested directly against the real Supabase project:**
+- **Cross-tenant rejection** (database-level, service-role client, RLS bypassed): Tenant A assignment referencing Tenant B's Branch → rejected, `23503`. Tenant A assignment referencing Tenant B's Accounting Owner → rejected, `23503`.
+- **The exact three-period worked example from the specification**: Branch 127 → Owner A (2026–2031) → Central Owner (2031–2033, boundary-touching Period 1's end) → Owner A again (2033–open) — **all three inserted successfully**, proving the boundary-touching case is correctly NOT treated as an overlap.
+- **Overlap rejection**: a deliberate 2029–2032 assignment (overlapping two existing periods) → rejected, `23P01` (exclusion constraint violation).
+- **Second open-ended assignment rejection**: a second `effective_to IS NULL` row for the same branch → rejected, `23P01` — at most one "current" assignment per branch, enforced by the database, not application discipline.
+- **Date sanity**: `effective_to` before `effective_from` → rejected by the `CHECK` constraint.
+- **Historical resolution, exactly as specified**: a point-in-time query for 2027 → correctly resolves to Owner A; 2032 → correctly resolves to Central Owner; 2035 → correctly resolves to Owner A again. The current topology never reinterprets historical dates.
+- **Current-assignment invariant**: exactly one open-ended row exists per branch at any time — confirmed directly.
+- **Mutation guard, all three cases**: DELETE of a closed historical row → rejected by the trigger. UPDATE changing `accounting_owner_id` on a closed row → rejected. UPDATE of `effective_to` on an already-closed row → rejected. The one **allowed** mutation — closing a still-open row's `effective_to` — succeeds; a subsequent attempt to re-close the now-closed row is correctly rejected.
+- `npx tsc --noEmit` clean, `npm run build` clean.
+- Full historical `npx jest` sweep: **348/348 passing** on the confirming re-run. One suite (`manufacturing-locations.regression.spec.ts`) reported a transient failure on the first full-suite run despite all its own tests passing — reproduced as passing cleanly in isolation (4/4) and on a full-suite re-run (46/46 suites, 348/348 tests) — confirmed as the same class of pre-existing network/contention flakiness already documented multiple times this session (unrelated to `branch_accounting_assignments` or any Accounting Core schema).
+- Full app boot succeeds. Idempotency confirmed (`npm run migrate` reports "up to date" on re-run).
+
+**Explicitly NOT done:** M180 was not created. No Ledger, Accounting Book, Fiscal Calendar, Chart of Accounts, Journal, or Journal Line object was created. No Accounting application code was written. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M180 — Ledgers (1:1 with Accounting Owner, non-polymorphic) — requires its own separate explicit approval.
+
+## ⚠️ CORRECTION — Company Entity Rejected; M177–M179 Rolled Back (2026-08-10)
+
+**Architectural decision (authoritative, from the system owner):** Tenant = Company. Sefay does not have, and will not have, a separate Company domain entity. Tenant is the sole authoritative business/legal identity boundary, using its existing `name`/`tax_number`/`currency` fields. This decision was reached via a full audit process: a Company Entity Architecture Audit (found no pre-existing Company/Organization/Legal-Entity concept anywhere in Sefay's schema, migrations 001–176, or TypeScript codebase — the only "company" references in `src/modules` were the unrelated Inventory Ownership `ownership_type` enum), followed by a Tenant=Company Forward-Fix Audit, followed by a Migration Rebuild Audit (which found the migration runner (`api/src/database/migrate.ts`) tracks applied migrations by filename only, with no content checksum and no rollback/down-migration mechanism — meaning M177/M178 could not safely be rewritten in place without desyncing any future fresh environment from the current database).
+
+**Correction executed:** rather than layering a forward-fix migration on top of the rejected Company design, **M177, M178, and M179 were fully reverted from the live database** by direct, explicitly-approved ("Approved – Proceed with Implementation") DDL — not a new numbered migration file. Dependency inspection first confirmed (live query): zero foreign keys from any other table referenced `companies`, `accounting_owners`, or `branch_accounting_assignments`; live row counts were 15 `companies`, 4 `accounting_owners`, 4 `branch_accounting_assignments` (correcting an earlier statement in this same review chain that assumed `accounting_owners` was empty — it was not; those 4+4 rows were validation-test data from M178/M179's own worked examples).
+
+**Objects removed:** `branch_accounting_assignments` table (with its guard trigger and `fn_guard_branch_accounting_assignment_mutation()` function), `accounting_owners` table (cascading its own constraints/indexes/RLS policy), the M178-added `uq_branches_tenant_id` constraint on the pre-existing `branches` table, and `companies` table (cascading its constraints/indexes/RLS policy, including the M178-added `uq_companies_tenant_id`). The `schema_migrations` tracking rows for `177_accounting_companies.sql`, `178_accounting_owners.sql`, and `179_branch_accounting_assignments.sql` were deleted.
+
+**Verification performed (all via live query against the real database):** `companies`/`accounting_owners`/`branch_accounting_assignments` confirmed absent from `information_schema.tables`; `uq_branches_tenant_id` confirmed absent from `pg_constraint`; `fn_guard_branch_accounting_assignment_mutation` confirmed absent from `pg_proc`; `schema_migrations` confirmed to end at `176_accounting_foundation_reference_catalogs.sql` with no 177/178/179 rows; M176's objects (`accounting_owner_types` with its 4 seeded rows: branch/central/other/regional, and `financial_event_source_types`) confirmed intact; `branches` table confirmed unaffected (22 rows, same as before).
+
+**Migration files 177–179 themselves are NOT deleted** — they remain in `api/src/database/migrations/` as permanent historical record of a design decision that was made and then corrected, per this project's append-only discipline. They must never be re-applied as-is; the corrected Accounting foundation will be built as a new migration (renumbered from M177) once separately designed and approved.
+
+**Database is now, in effect, at the post-M176 state.** No M180 was created. No Ledger, Company, or any other new entity was created. Inventory/WMS remains untouched, IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+## 🏗️ Sefay Global Financial Platform — Accounting Foundation Rebuilt: M177 Applied (2026-08-10)
+
+Following the Company rollback above, a full Accounting Foundation re-architecture review was completed (Domain Map → Book/Ledger terminology resolution → Fiscal Calendar versioning → Journal posting-integrity model → Chart of Accounts entity resolution → Dimension extensibility strategy), approved as "APPROVED FOR M177." **M177 was then rebuilt from scratch and applied**, per its own separate explicit "Approved – Proceed with M177."
+
+**Pre-implementation mechanical finding:** the old, superseded `177_accounting_companies.sql`, `178_accounting_owners.sql`, and `179_branch_accounting_assignments.sql` files were still present on disk (never deleted, per the append-only file-history policy) but no longer recorded in `schema_migrations` after the rollback — meaning the migration runner (`migrate.ts`, filename-only tracking, no checksum) would have silently re-applied all three rejected files the moment `npm run migrate` ran again. **Fix, separately approved before proceeding:** the three files were renamed with a non-`.sql` suffix (`.superseded`) so the runner's `.sql`-extension filter never picks them up again — content fully preserved, nothing deleted, nothing rewritten.
+
+**M177 (rebuilt) — Accounting Owner** (`177_accounting_owners.sql`, new content, same filename slot as the historical/superseded file, no collision after the rename): creates `accounting_owners(id, tenant_id NOT NULL, branch_id NULLABLE, owner_type_code NOT NULL, name, status, created_at, updated_at)` with a composite tenant-safe FK to `branches(tenant_id, id)` (re-adding `uq_branches_tenant_id`, which the rollback had removed), a plain FK to the M176 `accounting_owner_types` catalog, `UNIQUE(tenant_id, branch_id) WHERE branch_id IS NOT NULL`, `UNIQUE(tenant_id, id)` as the composite-FK target for M178+, and the standard `tenant_session_isolation` RLS policy. **No `companies` table, no `company_id` column, anywhere** — `tenant_id` is the sole, direct ownership anchor, per the authoritative Tenant=Company decision. No Ledger, Book, Fiscal Calendar, Chart of Accounts, or Journal object created — strictly out of this migration's scope.
+
+**Validation performed (full protocol):**
+- Schema confirmed exactly as designed (8 columns, all FKs/constraints present, `uq_branches_tenant_id` re-added to `branches`).
+- Confirmed zero trace of `companies`/`company_id` anywhere in the schema.
+- **Cross-tenant FK rejection** (live, real tenant/branch IDs): Tenant A owner referencing Tenant B's branch → rejected, `23503`.
+- **Valid same-tenant branch owner** insert succeeds.
+- **Central owner** (`branch_id = NULL`, `owner_type_code = 'central'`) insert succeeds — no fake Branch.
+- **Uniqueness**: second owner for the same branch → rejected, `23505` (`uq_accounting_owners_tenant_branch`). A second Central owner for the same tenant is correctly *allowed* (no uniqueness rule constrains Central — only branch-backed owners are constrained to one-per-branch).
+- **RLS**: `tenant_session_isolation` policy confirmed present with the exact standard `USING`/`WITH CHECK` expression used across all 133+ other instances in the codebase.
+- All validation test rows cleaned up after the run; live row count confirmed back to 0.
+- `npx tsc --noEmit` clean. `npm run build` (`nest build`) clean.
+- `npx eslint src/` reports pre-existing repository-wide lint debt (8643 errors, mostly Prettier formatting) unrelated to this migration — M177 added no `.ts` files, so it cannot be the source; this is an existing baseline condition, not a regression.
+- Full regression suite: two consecutive full runs each hit exactly one different, unrelated suite (`wms-13.20.regression.spec.ts`, then `purchasing/agreements.regression.spec.ts`) failing on a Jest test-timeout, both confirmed passing cleanly in isolation (14/14 and 7/7 respectively) — the same pre-existing network/contention flakiness class already documented multiple times this session, unrelated to `accounting_owners`. **Third full run: 348/348 passing, zero failures.**
+- Runtime boot confirmed via successful `nest build` and the migration runner's own successful permission-seed step.
+- Idempotency confirmed: re-running `npm run migrate` reports "✅ Database is up to date. No migrations to apply."
+
+**Explicitly NOT done:** M178, M179, and every later migration were not created. No Ledger, Book, Fiscal Calendar, Chart of Accounts, or Journal object was created. No Company entity was reintroduced. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M178 — Branch Accounting Assignment History (effective-dated Branch→Accounting Owner routing, content equivalent to the proven, never-actually-wrong design from the superseded file) — requires its own separate explicit approval.
+
+## 🏗️ Sefay Global Financial Platform — M178 Applied (2026-08-10)
+
+**M178 — Branch Accounting Assignment History** (`178_branch_accounting_assignments.sql`), applied per its own separate explicit "Approved – Proceed with M178." Content is substantively identical to the proven-correct design from the superseded `179_branch_accounting_assignments.sql.superseded` — that design never depended on Company at any point, so no architectural change was needed, only the migration number and its FK target (the rebuilt M177 `accounting_owners`, which already carries `UNIQUE(tenant_id, id)` from its own creation — no prerequisite constraint needed to be re-added here, unlike the original M179 which had to add it to the then-incomplete M178).
+
+**What it does:** `branch_accounting_assignments(id, tenant_id, branch_id, accounting_owner_id, effective_from, effective_to, reason, created_by, created_at)` with composite tenant-safe FKs to both `branches` and `accounting_owners`; `CHECK (effective_to IS NULL OR effective_to > effective_from)`; the critical exclusion constraint `EXCLUDE USING gist (tenant_id WITH =, branch_id WITH =, daterange(effective_from, effective_to, '[)') WITH &&)` guaranteeing no two assignments for the same branch can ever overlap, with half-open `[)` semantics correctly treating boundary-touching periods as non-overlapping; and the append-only mutation guard trigger (DELETE always blocked; UPDATE blocked except closing an open row's `effective_to` exactly once).
+
+**Validation performed (full protocol, all against the live database with real tenant/branch data):**
+- Schema and all 7 constraints confirmed exactly as designed.
+- **Cross-tenant rejection**: assignment referencing another tenant's branch → `23503`; referencing another tenant's accounting owner → `23503`.
+- **The exact three-period worked example**: Branch → Owner A (2026–2031) → Central Owner (2031–2033, boundary-touching) → Owner A again (2033–open) — all three inserted successfully.
+- **Overlap rejection**: a deliberate 2029–2032 assignment → `23P01`.
+- **Second open-ended assignment rejection**: → `23P01`.
+- **Date sanity**: `effective_to` before `effective_from` → `23514` (CHECK violation).
+- **Historical resolution**: 2027 → Owner A, 2032 → Central Owner, 2035 → Owner A again — all three resolved correctly via `daterange(...) @> date`, matching the exact expected owner IDs.
+- **Mutation guard, all cases**: DELETE on a closed row → rejected. UPDATE of `accounting_owner_id` on a closed row → rejected. UPDATE of `effective_to` on an already-closed row → rejected. The one allowed mutation — closing a still-open row's `effective_to` — succeeded; a subsequent re-close attempt on the now-closed row → rejected.
+- **RLS**: `tenant_session_isolation` policy confirmed present.
+- All test rows cleaned up (trigger temporarily disabled via `ALTER TABLE ... DISABLE TRIGGER` for cleanup only, then re-enabled — standard, documented practice for removing test data from an append-only table without altering the schema).
+- `npx tsc --noEmit` clean, `npm run build` clean.
+- Full regression suite: **348/348 passing on the first run, zero flakiness this time.**
+- Runtime boot confirmed via successful build and migration runner's permission-seed step.
+- Idempotency confirmed: `npm run migrate` reports "up to date" on re-run.
+
+**Explicitly NOT done:** M179 and every later migration were not created. No Fiscal Calendar, Accounting Book, Chart of Accounts, or Journal object was created. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M179 — Fiscal Calendar + Fiscal Year + Fiscal Period (versioned, effective-dated, immutable-once-generated, per the Final Pre-Implementation Correction) — requires its own separate explicit approval.
+
+## 🏗️ Sefay Global Financial Platform — M179 Applied (2026-08-10)
+
+**M179 — Fiscal Calendar + Fiscal Year + Fiscal Period** (`179_fiscal_calendar_year_period.sql`), applied per its own separate explicit "Approved – Proceed with M179." Implements the design from the Final Pre-Implementation Correction §2 exactly: current fiscal-calendar configuration can never reinterpret historical Accounting.
+
+**What it does:**
+- `fiscal_calendars`: tenant-owned, versioned/effective-dated (`start_month`, `start_day`, `effective_from`, `effective_to`), same exclusion-constraint + guard-trigger pattern as M178 — at most one version in effect per tenant at any time, corrected forward only, never rewritten.
+- `fiscal_years` / `fiscal_periods`: **generated, immutable facts** — `fn_generate_fiscal_year(tenant_id, calendar_id, calendar_year, year_label)` reads the given Calendar version's `start_month`/`start_day` **once, at call time**, computes concrete `start_date`/`end_date`, and writes them permanently onto the row together with 12 monthly Fiscal Period rows. Neither table is ever re-derived from the Calendar again. A guard trigger blocks any UPDATE of dates/provenance and all DELETE on both tables — only `status` (open/closed/locked) may change, since closing state is a business fact, not a historical one.
+- Exclusion constraints prevent overlapping Calendar versions, overlapping Fiscal Years, and overlapping Fiscal Periods, all per-tenant.
+
+**Validation performed (full protocol, live database, real tenant data):**
+- Schema/constraints confirmed exactly as designed on all three tables.
+- **Fiscal-year-change scenario (the core requirement)**: Calendar A (Jan-start) generated FY2026 (2026-01-01 → 2027-01-01, 12 periods) and FY2027; Calendar A then closed (`effective_to = 2028-01-01`) and Calendar B (Apr-start) introduced; FY2028 generated under Calendar B correctly started 2028-04-01 — **and FY2026, re-queried afterward, was confirmed byte-for-byte unchanged (still 2026-01-01 → 2027-01-01)**, proving the calendar change did not reinterpret the historical year.
+- **Cross-tenant rejection**: `fn_generate_fiscal_year` called with another tenant's calendar ID → rejected (calendar not found for that tenant); direct cross-tenant FK on `fiscal_years.fiscal_calendar_id` → `23503`.
+- **Regeneration rejection**: calling `fn_generate_fiscal_year` twice for the same tenant/year_label → `23505` (`uq_fiscal_years_tenant_label`) — a Fiscal Year can never be silently regenerated.
+- **Calendar overlap rejection**: a new calendar version overlapping an existing effective range → `23P01`.
+- **Fiscal Year overlap rejection**: a manually-inserted overlapping year → `23P01`.
+- **Period protection**: a manually-inserted colliding period → rejected (hit `uq_fiscal_periods_year_number` in this specific test case; the period-level EXCLUDE constraint provides the same date-range protection for non-colliding-number overlaps, by the identical mechanism already proven on `fiscal_years` and M178's `branch_accounting_assignments`).
+- **Immutability**: direct UPDATE of `fiscal_years.start_date` → rejected by trigger; UPDATE of `status` (open→closed) → succeeds, confirming dates are frozen while business status remains mutable.
+- **Date sanity**: `end_date <= start_date` → `23514`.
+- **Historical resolution**: a 2027-06-15 date resolved correctly to FY2027/Period 6 even after Calendar B was introduced for 2028 onward — confirming point-in-time resolution is unaffected by later calendar changes.
+- **RLS**: `tenant_session_isolation` confirmed present on all three tables.
+- All test rows cleaned up (triggers temporarily disabled for cleanup only, same documented practice as M178, then re-enabled).
+- `npx tsc --noEmit` clean, `npm run build` clean.
+- Full regression suite: **348/348 passing, zero flakiness.**
+- Runtime boot confirmed via successful build and migration runner's permission-seed step.
+- Idempotency confirmed: `npm run migrate` reports "up to date" on re-run.
+
+**Explicitly NOT done:** M180 and every later migration were not created. No Accounting Book, Chart of Accounts, or Journal object was created. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M180 — Accounting Book (one default `Primary` book per Accounting Owner; `Management`/`Statutory`/`Adjustment` book types supported by the schema without redesign, per the Final Pre-Implementation Correction §1) — requires its own separate explicit approval.
+
+## 🏗️ Sefay Global Financial Platform — M180 Applied (2026-08-10)
+
+**M180 — Accounting Book** (`180_accounting_books.sql`), applied per its own separate explicit "Approved – Proceed with M180." Implements the Final Pre-Implementation Correction §1 exactly: "Ledger" is not a table — it never appears in the schema; `accounting_books` is the real, minimal container Journal Entries will post into once M182 exists.
+
+**What it does:** `accounting_books(id, tenant_id, accounting_owner_id, book_type IN ('primary','management','statutory','adjustment'), name, is_default, status, timestamps)`, composite tenant-safe FK to `accounting_owners(tenant_id, id)`, `CHECK (is_default = false OR book_type = 'primary')` (only a Primary book may be the default), `UNIQUE(tenant_id, accounting_owner_id) WHERE is_default` (exactly one default per owner), `UNIQUE(tenant_id, accounting_owner_id, book_type)` (at most one book per type per owner today — a deliberately narrow, separately-relaxable-later constraint), `UNIQUE(tenant_id, id)` as the future Journal Entry FK target, standard RLS.
+
+**Database-level auto-creation guarantee (not application-only):** a new `AFTER INSERT` trigger on `accounting_owners` (`fn_create_default_accounting_book`) automatically inserts a default Primary Book the instant any Accounting Owner is created — branch or Central — so an Owner can never exist without a Book to post into, regardless of which code path created it.
+
+**Validation performed (full protocol, live database, real tenant/branch data):**
+- Schema/constraints confirmed exactly as designed.
+- **Auto-creation**: creating a branch-backed Accounting Owner automatically produced exactly 1 Primary/default Book; creating a Central Owner (`branch_id = NULL`) also automatically produced its own Primary/default Book.
+- **Cross-tenant rejection**: a book referencing another tenant's owner → `23503`.
+- **Default uniqueness**: a second `is_default = true` book for the same owner → `23505` (`uq_accounting_books_owner_default`).
+- **Book-type uniqueness**: a second `management` book for the same owner → `23505` (`uq_accounting_books_owner_type`); the first `management` book succeeded.
+- **Default-implies-Primary CHECK**: a `statutory` book marked `is_default = true` → `23514` rejected.
+- **Future book types work without redesign**: `statutory` and `adjustment` books (non-default) for the same owner both created successfully alongside the existing Primary and Management books — proving Management/Statutory/Adjustment require zero schema change, only new rows, exactly as the Final Pre-Implementation Correction required.
+- **Owner isolation**: all books returned for a given owner correctly scoped to that owner only.
+- **RLS**: `tenant_session_isolation` confirmed present.
+- All test rows cleaned up (owners and their auto-created/extra books).
+- `npx tsc --noEmit` clean, `npm run build` clean.
+- Full regression suite: **348/348 passing, zero flakiness.**
+- Runtime boot confirmed via successful build and migration runner's permission-seed step.
+- Idempotency confirmed: `npm run migrate` reports "up to date" on re-run.
+
+**Explicitly NOT done:** M181 and every later migration were not created. No Ledger table (retired as a concept), no Accounts/Chart of Accounts, no Journal Entry, no Journal Line, no posting engine was created. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M181 — Accounts (single `accounts` table per Tenant, no separate Chart-of-Accounts entity, per the Final Pre-Implementation Correction §4) — requires its own separate explicit approval.
+
+## 🏗️ Sefay Global Financial Platform — M181 Applied (2026-08-10)
+
+**M181 — Accounts** (`181_accounts.sql`), applied per its own separate explicit "Approved – Proceed with M181." Implements the Final Pre-Implementation Correction §4 exactly: `accounts` **is** the Chart of Accounts — no separate `chart_of_accounts` table was created.
+
+**What it does:** `accounts(id, tenant_id, parent_account_id, code, name, account_type IN ('asset','liability','equity','revenue','expense'), normal_balance IN ('debit','credit'), is_posting_account, is_system_account, is_active, sort_order, timestamps)`. `UNIQUE(tenant_id, code)` — one COA per Tenant, account codes unique within it, freely reusable across tenants. Self-referencing composite tenant-safe FK (`fk_accounts_parent`) for the hierarchy. `UNIQUE(tenant_id, id)` as the future Journal Line FK target.
+
+**Database-level guard (`fn_guard_accounts_mutation`, one trigger covering INSERT/UPDATE/DELETE)** enforces everything a plain FK/CHECK cannot express:
+- **DELETE always blocked**, unconditionally, for every account (system or not) — Journal Lines will reference accounts historically once M182 exists; deactivation is the only removal path.
+- **System-account protection**: once `is_system_account = true`, `code`/`account_type`/`normal_balance`/`is_system_account` itself can never change, and the account can never be deactivated.
+- **Hierarchy integrity**: an account cannot be its own parent; a parent account must not itself be a posting account (rejected before insert/update); **cycle detection** by walking the parent chain on every insert/update (capped at depth 100 as a corruption safety net) — an A→B→A cycle is rejected at the database level, not just prevented by convention.
+- **Posting/non-posting consistency**: an account cannot be flagged `is_posting_account = true` while it still has children — a parent/header account is definitionally non-posting.
+
+**Validation performed (full protocol, live database, real tenant data), 14 scenarios, all passing:**
+1. Header (non-posting) + child (posting) account creation.
+2. Account-code uniqueness within a tenant → `23505`.
+3. The same code is correctly allowed across different tenants (each tenant has its own independent COA).
+4. Cross-tenant parent FK rejection → `23503`.
+5. Self-parent rejection → trigger exception.
+6. Parenting a new account under an existing **posting** account → trigger exception (parent must be non-posting).
+7. **Cycle prevention**: Node A → Node B, then attempting to set A's parent to B (A→B→A) → trigger exception.
+8. Marking an account with existing children as `is_posting_account = true` → trigger exception.
+9. Marking an account `is_system_account = true`, then: changing its `code` → rejected; deactivating it → rejected.
+10. A normal (non-system) account **can** be deactivated successfully.
+11. DELETE rejected for both a normal account and a system account — unconditional, as designed.
+12. RLS (`tenant_session_isolation`) confirmed present.
+13. `account_type`/`normal_balance` CHECK constraints reject invalid values → `23514`.
+
+All test rows cleaned up (trigger temporarily disabled for cleanup only, then re-enabled — same documented practice as M178/M179). `npx tsc --noEmit` clean, `npm run build` clean. Full regression suite: **348/348 passing, zero flakiness.** Runtime boot confirmed via successful build and migration runner's permission-seed step. Idempotency confirmed: `npm run migrate` reports "up to date" on re-run.
+
+**Explicitly NOT done:** M182 and every later migration were not created. No Journal Entry, Journal Line, posting engine, additional Fiscal object, Dimension, or Ledger table was created. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M182 — Journal Entry + Journal Line + posting engine (the `SECURITY DEFINER` posting function, immutability guard, debit=credit invariant, per the Final Pre-Implementation Correction §3) — requires its own separate explicit approval.
+
+## 🏗️ Sefay Global Financial Platform — M182 Applied (2026-08-10)
+
+**M182 — Journal Entry + Journal Line + database-level Posting Engine** (`182_journal_entries_and_posting_engine.sql`), applied per its own separate explicit "Approved – Proceed with M182." Implements the Final Pre-Implementation Correction §3 exactly: double-entry integrity is enforced by the database, not application code.
+
+**What it does:**
+- `journal_entries` (header) and `journal_lines` (detail), both tenant-scoped with composite tenant-safe FKs to `accounting_books`, `fiscal_periods`, `accounts`, and the M176 `financial_event_source_types` catalog (paired `source_module`/`source_entity_type`, both-or-neither via CHECK).
+- `journal_lines` CHECKs: a line is debit-only or credit-only (never both nonzero), and never zero-amount; amounts are non-negative (negative rejected at the column CHECK).
+- **`fn_post_journal_entry(tenant_id, entry_id, posted_by)`**, `SECURITY DEFINER`, the sole sanctioned path to `status = 'posted'`: locks the entry row (`FOR UPDATE`) first — the concurrency guarantee — then in the same transaction verifies ≥2 lines, `SUM(debit) = SUM(credit)`, every line's account exists/is active/is a posting account, the Accounting Book is active, and the Fiscal Period resolved from `posting_date` exists and is `open`; only then atomically sets `status='posted'` via a transaction-local GUC flag (`sefay.posting_engine_active`) that the guard trigger requires for that specific transition.
+- **`fn_reverse_journal_entry(tenant_id, entry_id, reversed_by, posting_date, reason)`**, `SECURITY DEFINER`: rejects if the original isn't `posted` or is already reversed; creates a new entry with every line's debit/credit swapped, posts it through the *same* `fn_post_journal_entry` (so a reversal is validated by every invariant a normal entry is), then marks the original `reversed` via its own GUC flag (`sefay.reversal_engine_active`).
+- **Guard triggers** on both tables: `journal_entries` blocks DELETE unless `draft`; blocks any field change on a `posted` row except the sanctioned `posted→reversed` transition; blocks a `reversed` row from ever changing again. `journal_lines` blocks INSERT/UPDATE/DELETE entirely once the parent entry is not `draft` — closing the bypass where a header stays untouched but its lines are tampered with directly.
+
+**Validation performed (full protocol, live database, real tenant/branch/owner/book/period/account data), 17 scenarios plus a dedicated true-concurrency test, all passing:**
+1. Draft creation, draft line editing (freely allowed).
+2. Posting with fewer than 2 lines → rejected.
+3. Unbalanced entry (100 debit vs 90 credit) → rejected.
+4. Zero-amount line, negative-amount line, both-sides-nonzero line → all three rejected by CHECK constraints (`23514`).
+5. Posting a line against a non-posting (header) account → rejected; posting a line against a deactivated account → rejected.
+6. Posting into a **closed** fiscal period → rejected, naming the period and its status.
+7. Cross-tenant book reference on entry creation → `23503`; cross-tenant account reference on a line → `23503`.
+8. Posting against an **inactive** Accounting Book → rejected.
+9. A correctly balanced entry → **posted successfully**, with `fiscal_period_id` auto-resolved and `posted_at`/`posted_by` set.
+10. **Direct status-bypass**: `UPDATE journal_entries SET status='posted'` issued directly (not through the function) → rejected by the guard trigger.
+11. **Posted immutability**: UPDATE of the posted header → rejected; DELETE of the posted header → rejected; UPDATE of a posted line → rejected; DELETE of a posted line → rejected; INSERT of a new line onto a posted entry → rejected. All five paths closed.
+12. **Sequential double-post** of the same already-posted entry → rejected ("not in draft status").
+13. **True concurrency test** (separate dedicated run): two `fn_post_journal_entry` calls fired simultaneously via `Promise.allSettled` against the same draft entry — **exactly one succeeded, the other was cleanly rejected**, final state confirmed posted exactly once with no corruption, proving the `FOR UPDATE` row lock genuinely serializes concurrent posting attempts rather than merely relying on sequential testing.
+14. **Reversal**: original transitioned to `reversed`; new reversal entry created and auto-posted with debit/credit correctly swapped on every line (`cash: debit→credit`, `revenue: credit→debit`); `reversal_of_id` correctly links back.
+15. **Double-reversal rejection**: attempting to reverse an already-reversed entry → rejected.
+16. Draft entry DELETE → allowed (only drafts may be deleted).
+17. RLS (`tenant_session_isolation`) confirmed present on both tables.
+
+All test rows cleaned up (triggers temporarily disabled for cleanup only, then re-enabled — same documented practice as prior migrations). `npx tsc --noEmit` clean, `npm run build` clean. Full regression suite: **348/348 passing, zero flakiness.** Runtime boot confirmed via successful build and migration runner's permission-seed step. Idempotency confirmed: `npm run migrate` reports "up to date" on re-run.
+
+**Explicitly NOT done:** M183 and every later migration were not created. No Ledger table, AR/AP, Cash, Tax, Inventory Accounting integration, or Dimensions were created. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Accounting Foundation status:** with M182 complete, the core Foundation chain approved across this session's architecture-review series is now fully implemented and validated end-to-end: Tenant (=Company) → Branch → Accounting Owner (Branch/Central) → Branch Accounting Assignment History (effective-dated) → Fiscal Calendar/Year/Period (versioned, immutable-once-generated) → Accounting Book (Primary, extensible to Management/Statutory/Adjustment) → Accounts (single COA per Tenant) → Journal Entry/Journal Line (database-enforced double-entry, immutable once posted, reversal-only correction). Every later capability (AR/AP, Tax, Cash/Bank, Inventory Accounting integration, Dimensions, Consolidation) is additive on top of this chain, per the Final Architectural Audit's extensibility analysis — none require revisiting Tenant, Branch, Accounting Owner, Book, Accounts, or Journal. Next steps require a separate, explicit human decision on which integration/extension to approve next.
+
+## 📋 Accounting Integration Audit (2026-08-10)
+
+A full, read-only Accounting Integration Audit was performed across Sales, Purchasing, Inventory, Payments, Tax, AR/AP, and Cash/Bank, using the actual repository/schema as source of truth (no assumptions, no DB changes). Key findings: `financial_event_source_types` (M176) already covers `sales/order`, `purchasing/goods_receipt`, `inventory/stock_movement`, `manufacturing/production_order`, `expenses/expense` — sufficient for those modules' eventual integration with zero catalog change needed. `stock_movements`/`cost_layers`/`fn_add_cost_layer()` already provide a complete, working costing engine Accounting must consume, never reinterpret. **Critical corrected finding**: the existing `payments` table is Sefay's own SaaS billing payment mechanism (FK'd to billing `invoices`, providers stripe/moyasar/tap) — **not** a customer/supplier payment ledger; no such ledger exists anywhere in Sefay today, a genuine missing capability, not something to reuse. AR/AP were determined to be Accounting-side control accounts referencing existing `customers`/`suppliers`/`orders`/`goods_receipts` — never duplicate invoice/bill tables. Recommended sequence: M183 (Account Role Assignments) → Sales → Purchasing → Inventory → Payments (new table required) → Tax (only if a real VAT reporting requirement is confirmed).
+
+## 🏗️ Sefay Global Financial Platform — M183 Applied (2026-08-10)
+
+**M183 — Account Role Assignments** (`183_account_role_assignments.sql`), applied per its own separate explicit "Approved – Proceed with M183." Implements the Integration Audit §11/§19 exactly: a fixed, versioned platform vocabulary of account "roles" that future Sales/Purchasing/Inventory/Payment posting integrations will map business events onto, without ever hardcoding an account UUID.
+
+**What it does:**
+- `account_roles`: GLOBAL catalog (same pattern as M176's `accounting_owner_types` — no `tenant_id`, no RLS, zero tenant-owned data), seeded with 8 roles: `sales_revenue`, `inventory_asset`, `cogs`, `accounts_receivable`, `accounts_payable`, `tax_payable`, `default_cash`, `default_bank`.
+- `account_role_assignments`: tenant-scoped (`tenant_id`, `role_code`, `account_id`, timestamps), composite tenant-safe FK to `accounts(tenant_id, id)`, plain FK `role_code → account_roles.code` (an undefined role is rejected by the database itself, not just application validation), `UNIQUE(tenant_id, role_code)` (one account per role per tenant), standard `tenant_session_isolation` RLS.
+- **No posting logic, no Sales/Purchasing/Inventory modification, no Payment/Tax/AR/AP tables, no new Journal/Ledger object** — exactly the narrow scope approved.
+
+**Validation performed (full protocol, live database, real tenant data), 9 scenarios, all passing:**
+1. Schema/constraints confirmed exactly as designed.
+2. Role catalog integrity: all 8 seeded roles present with correct labels.
+3. A valid assignment (Tenant A → `sales_revenue` → its own account) succeeds.
+4. **Cross-tenant account rejection**: Tenant A assigning a Tenant B account → `23503` (`fk_account_role_assignments_account`).
+5. **Duplicate role rejection**: a second assignment for the same tenant/role → `23505` (`uq_account_role_assignments_tenant_role`).
+6. The same role is correctly allowed for a different tenant (each tenant's mapping is independent).
+7. **Invalid/undefined role rejection**: an unrecognized `role_code` → `23503` (FK to `account_roles`) — the database itself rejects any role outside the fixed catalog, not merely application-layer validation.
+8. Multiple different roles for the same tenant succeed independently.
+9. RLS confirmed present on `account_role_assignments`; `account_roles` correctly carries no tenant policy, consistent with the identical platform-default RLS flag already observed (and already accepted) on M176's own global tables (`accounting_owner_types`, `financial_event_source_types`) — not a new or unexpected condition.
+
+All test rows cleaned up. `npx tsc --noEmit` clean, `npm run build` clean. Full regression suite: **348/348 passing, zero flakiness.** Runtime boot confirmed via successful build and migration runner's permission-seed step. Idempotency confirmed: `npm run migrate` reports "up to date" on re-run.
+
+**Explicitly NOT done:** M184 and every later migration were not created. No posting logic, no Sales/Purchasing/Inventory changes, no Payment/Tax/AR/AP tables, no new Journal/Ledger object. M176–M182 were not modified. Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M184 — Sales Posting Integration (per the Integration Audit's recommended sequence) — requires its own separate explicit approval.
+
+## 🏗️ Sefay Global Financial Platform — M184 Applied (2026-08-10)
+
+**M184 — Sales Posting Integration** (`184_sales_posting_integration.sql`), applied per its own separate explicit "Approved – Proceed with M184." Connects the existing `orders`/`order_items`/`stock_movements` to the M182 Posting Engine — no new Sales Invoice, no new Accounting Customer, no new Payment/AR/Tax table. `orders` remains the sole source of truth.
+
+**Two honest architectural boundaries found and explicitly surfaced (not invented around), per this migration's own pre-implementation inspection:**
+1. **Split payments cannot be posted.** `orders.payment_method = 'split'` has no cash/card/wallet breakdown anywhere in the schema. `fn_post_sales_order` explicitly rejects a split-payment order with a named exception rather than guessing an allocation. This order cannot be posted until Sales itself records a real breakdown — a Sales-side gap, not an Accounting-side one.
+2. **Accounts Receivable is never used by this integration.** Every `orders.payment_method` value (`cash`/`card`/`split`/`wallet`) implies settlement at the point of sale — there is no "on account/unpaid" value anywhere in the schema. The `accounts_receivable` role (seeded in M183) is simply never triggered by Sales' current data model; this is reported as a finding, not silently assumed away.
+
+**What it does:**
+- `fn_post_sales_order(tenant_id, order_id, posted_by, posting_date)`, `SECURITY DEFINER`: locks the `orders` row first (M182's own concurrency pattern), verifies `status='completed'` and `branch_id IS NOT NULL`, checks idempotency under that lock, rejects `split` payments explicitly, verifies `total = subtotal - discount + tax` (a data-integrity check on the order itself), resolves the Accounting Owner via M178's effective-dated Branch Assignment at the order's own date, resolves the Owner's default Book via M180, resolves every needed Account via M183's `account_role_assignments` (raising a named exception for any missing role), reads (never recomputes) the order's inventory cost via `SUM(stock_movements.total_cost) WHERE reference_type='order' AND reference_id=order_id AND movement_type='sale'` (the existing convention already used by migration 043's POS inventory deduction and every other module that reads sale movements back), builds the Journal Entry/Lines as plain INSERTs (draft), then posts through M182's **unmodified** `fn_post_journal_entry` — every invariant it already enforces (balance, account validity, book/period status) applies identically here, with zero duplicated posting logic.
+- `fn_reverse_sales_order(tenant_id, order_id, reversed_by, posting_date, reason)`: looks up the order's original (non-reversal) posting and delegates entirely to M182's **unmodified** `fn_reverse_journal_entry` — covers both post-posting cancellation and refund identically, since both are mechanically "reverse the original" from the ledger's perspective. The original entry is never mutated.
+- **One additive, partial unique index** on the existing `journal_entries` table: `uq_journal_entries_source_original (tenant_id, source_module, source_entity_type, source_entity_id) WHERE reversal_of_id IS NULL AND source_entity_id IS NOT NULL` — the database-level idempotency/concurrency backstop (a reversal legitimately shares its source with its original, per M182's own design, so reversals are deliberately excluded from this uniqueness). M182's own columns, triggers, and functions are otherwise completely unmodified.
+
+**Validation performed (full protocol, live database, real tenant/branch/owner/book/period/account/role data), all scenarios passing:**
+1. Completed cash order (subtotal 100, tax 15) → posted successfully: `Dr Cash 115 / Cr Revenue 100 / Cr Tax Payable 15`.
+2. Revenue correctly computed net of discount (subtotal 100, discount 20 → revenue line credited 80).
+3. Discount handling confirmed as above.
+4. Tax handling: a zero-tax order correctly produces only 2 lines (no zero-amount tax line, consistent with M182's own non-zero-line CHECK).
+5. Payment-method routing: `card` → `default_bank` account confirmed used; `split` → explicitly rejected with the named architectural-boundary exception.
+6. **Inventory sale → COGS + Inventory Asset**: run against a real tenant with actual `items`/`warehouses` data — a `stock_movements` row with `total_cost=50` produced a 4-line entry (`Cash`, `Revenue`, `Dr COGS 50`, `Cr Inventory Asset 50`) — confirmed the cost was read verbatim from `stock_movements`, never recomputed.
+7. Non-inventory sale (test 1, no matching `stock_movements` rows) correctly produced only 3 lines — no COGS/Inventory Asset lines fabricated.
+8. Cross-tenant rejection: posting a Tenant B order under Tenant A's context → rejected ("order not found for tenant").
+9. Missing-branch rejection: an order with `branch_id = NULL` → rejected with a named exception.
+10. Missing Account Role rejection: an order with nonzero tax but no `tax_payable` role assigned → rejected, naming the missing role.
+11. Inactive account rejection: reused M182's own engine check (deactivating the Revenue account) → rejected.
+12. Non-posting account rejection: reused M182's own engine check (marking Cash non-posting) → rejected.
+13. Closed fiscal period rejection: reused M182's own engine check → rejected.
+14. Duplicate posting rejection: re-posting an already-posted order → rejected ("already been posted").
+15. **True concurrency test**: two `fn_post_sales_order` calls fired simultaneously for the same order via `Promise.allSettled` — exactly one succeeded, the other cleanly rejected.
+16. Cancellation before posting: a `cancelled` order → rejected ("not completed"), and confirmed zero Journal Entry rows were ever created for it.
+17. Refund after posting: `fn_reverse_sales_order` correctly reversed the original entry (`status → reversed`), created a new posted reversal entry whose `source_entity_id` correctly matches the original order.
+18. Original Journal immutability: after reversal, a direct `UPDATE` on the original entry → still rejected by M182's own guard trigger, completely unaffected by this migration.
+19. Source traceability: every posted entry carries `source_module='sales', source_entity_type='order', source_entity_id=<the real order id>`.
+20. Idempotency: `npm run migrate` reports "up to date" on re-run.
+21. RLS: no new tables were created by this migration (only functions and one index on an existing table), so no new RLS surface exists — `journal_entries`/`journal_lines`' existing M182 RLS policies apply unchanged.
+
+`npx tsc --noEmit` clean, `npm run build` clean. Full regression suite: **348/348 passing, zero flakiness.** Runtime boot confirmed via successful build and migration runner's permission-seed step.
+
+**Transparency note on validation data, and follow-up investigation (2026-08-10):** proving the inventory-cost-consumption path (scenario 6) required inserting one real `stock_movements` test row against a live tenant with genuine `items`/`warehouses`. **Confirmed this cannot be cleaned by any approved Inventory mechanism**: `stock_movements`' guard trigger (`fn_block_stock_movements_mutation`, migration 017) blocks both UPDATE and DELETE unconditionally, with no exception carve-out, admin override, or correction/void RPC anywhere in the codebase. Using `adjustment_in`/`adjustment_out` to "cancel" it would fabricate a fake physical stock event, not perform a real cleanup — correctly rejected as an invented workaround, not attempted.
+
+**Exact remaining row and its verified impact:**
+```
+id: 35201c91-1ca9-4c03-832f-bb1dc23726cb, tenant_id: 9bcd3369-d664-47c8-b297-3bc9b429aacf
+warehouse_id: 4fb8bf54-3840-4f07-b7e2-b5d46e97eb7c, item_id: 142c0130-8764-4312-84e8-9c3285c5e2cc
+movement_type: sale, direction: out, quantity: 5, unit_cost: 10, total_cost: 50
+reference_type: order, reference_id: e5f2c70b-... (test order, already deleted — nothing else references it)
+occurred_at: 2026-08-09T23:30:16Z
+```
+Checked, not assumed: `ReportsService.getCogsReport()` (`src/modules/reports/reports.service.ts:738-750`) filters only by `tenant_id`/`movement_type`/`occurred_at` range — no `reference_id` validity check — so this tenant's COGS report **will overstate COGS by 50.00 and quantity by 5 units for this one item, for any query range covering 2026-08-09**. `cost_layers`/`stock_levels` projections are unaffected (the row was inserted directly, not through `fn_apply_stock_movement`), so live stock quantities/costing are not distorted — the exposure is isolated to this one reporting query, this one tenant, this one date. Disclosed here in full and left unresolved pending a real DBA action outside this session's constraints, per explicit instruction not to invent a workaround.
+
+Re-verified after this investigation: `npm run migrate` → up to date; full regression → **348/348, zero flakiness**. M176–M184 confirmed unaffected.
+
+**Decision (2026-08-10, system owner):** M184 itself is confirmed sound — the incident is a validation-methodology issue (a direct `INSERT` into the immutable `stock_movements` ledger during testing), not an M184 or Inventory architectural defect. Accounting is **not** paused for this; only M185 is held until the row is removed. **No migration will be created to delete this row** — it is test-data cleanup, not a schema or business-logic change, and does not belong in the permanent migration history. The row requires a **controlled DBA/database-owner action**, executed and documented outside Claude's tooling — Claude may not break the Immutable Ledger and will not invent an `adjustment` movement to fake-cancel it.
+
+**Once the DBA has removed the row, Claude's role is limited to read-only verification**: (1) confirm the row is gone, (2) confirm `getCogsReport()` for the affected tenant/date returns to the correct value, (3) confirm `cost_layers`/`stock_levels` are unchanged (they were never touched by the row in the first place), (4) run the full regression suite (348/348), (5) document the incident in STATUS.md/TASKS.md as test-data-only, explicitly not an M184 defect, (6) then resume with M185.
+
+**Permanent new testing rule (2026-08-10, standing, no exceptions):** Claude must never again issue a direct `INSERT` into `stock_movements` or any other real Immutable Ledger table during integration testing. Future integration-test validation must either (a) go through the official application/RPC write path (e.g., `fn_apply_stock_movement`), or (b) use isolated, cleanly-removable fixtures/data that do not touch a real immutable ledger table. This rule applies to all future Accounting integration migrations (M185+ and beyond).
+
+**Explicitly NOT done:** M185 and every later migration were not created. No Payment/AR/AP/Tax/Inventory/Ledger/COA table, no Dimensions were created. Sales/Purchasing/Inventory business logic was not modified — only read. M176–M183 were not modified (M182's `journal_entries` table gained one additive index only; its columns, triggers, and functions are untouched). Inventory/WMS untouched, remains IN PROGRESS / PAUSED / DEPENDENCY BLOCKED ON ACCOUNTING.
+
+**Next migration:** M185 — Purchasing Posting Integration (per the Integration Audit's recommended sequence) — requires its own separate explicit approval.
+
+## 🔎 Access Control — Post-Hoc Security Review, No Active Issue Found (2026-08-11)
+
+User asked to review the Access Control system (previously built per §68 and its follow-up fix entries) for outstanding problems, referencing an earlier verbal instruction to check it "after a few hours on Railway" that was never followed up on. Reviewed `STATUS.md` §68 through the latest access-control entries plus live current source.
+
+**Confirmed fixed, with evidence (not re-litigated, only re-verified against current code):**
+- Privilege-escalation gap (tenant owner could self-grant `analytics.view.all`/`audit.view.all` and reach `/superadmin/*` cross-tenant platform data) — fixed via `HARDCODED_PLATFORM_ONLY_KEYS`, blocking both the write path (`assertPermissionIsCustomizable`) and the read/listing path (`listPermissionsCatalog`) from a single shared constant (`access-control/platform-only-permissions.const.ts`), confirmed still present and imported by both call sites today.
+- Read-path bug where `resolveGrantedKeys`/`getResolutionDetail` ignored `tenant_role_permissions` entirely for any tenant-custom role (`lookupSystemRoleId` only matched system roles, `tenant_id IS NULL`) — fixed, confirmed by the STATUS.md entry describing the write path as always having worked correctly.
+- `superadmin` system role now excluded from `listRolesForTenant` — confirmed present (`.neq('name', 'superadmin')`).
+- Full audit of the 22 repositories not inheriting `ScopedRepository` — completed, only the one vulnerability above found; the rest manually filter `tenant_id` explicitly per query.
+
+**Remaining open item, non-urgent, explicitly documented as a stopgap since it was written:** the platform-only permission block is a hardcoded `Set` of exactly two permission keys, not a schema-level flag — any future cross-tenant permission added later needs the same manual addition to this constant or it will be visible/toggleable in the tenant `/access-control` UI (though still blocked in practice at the route level by `SuperAdminGuard`, which does not depend on this permission check at all). No exploit path exists today; this is a maintainability/generalization gap, not a live vulnerability.
+
+**Recommended durable fix (NOT started, requires its own separate "Approved – Proceed with Implementation" under the standing Architectural Approval Protocol):** add `is_platform_only BOOLEAN NOT NULL DEFAULT false` to `permissions`, replace the hardcoded `Set` lookup with a column read at both call sites, seed `true` for the current two keys. Deferred at owner's explicit request — logged here as a tracked follow-up item, not forgotten, not silently dropped.
+
+Zero code changes, zero migrations, zero file modifications performed in this review — documentation-only, per the standing Architectural Approval Protocol (no schema/code change without "Approved – Proceed with Implementation").
+
+## 🏛️ D01 — Role Hierarchy: Final Decision (Model A now, Model B future-safe) — 2026-08-11
+
+Owner decided Sefay needs a formal Role Hierarchy for D01 (Pricing Override Policy) to resolve a single "Effective Role" when a user holds more than one role via `user_roles` (discovered live: two production users, `sh@sh.com` and `claude.test.local@sefay-test.com`, each hold `owner`+`cashier` simultaneously — added via the existing but UI-less `POST /users/:id/roles` backend endpoint, not by Claude, confirmed by `created_at`/device-fingerprinted `audit_logs` predating this session).
+
+**Approved System Role Hierarchy** (`roles.priority`, not yet added — design only):
+```
+superadmin        100   protected
+owner              90   protected
+manager            70
+cashier             50   ⎫ intentional tie
+inventory_clerk     50   ⎭
+worker              30
+none                 0
+```
+Derived from live evidence: `superadmin` scope is cross-tenant (`analytics.view.all`, `audit.view.all`, `superadmin.queue/health/backup.*` — the only genuinely platform-wide grants in `permissions.seed.ts`), so it outranks `owner` despite `owner` having a marginally larger raw grant count (~71 vs ~70) — scope beats raw count. `manager`(~62)/`cashier`(~17)/`inventory_clerk`(~15)/`worker`(~7) ordered by actual grant-count breadth in `rolePerms` (`permissions.seed.ts:568-822`). `none` (0 grants, "no login access") sits at the floor. **7 system roles total, not 5** — `inventory_clerk` and `none` (seeded in `059_create_roles_table.sql:33-40`) were missing from earlier informal discussion of this hierarchy and are now correctly included.
+
+**Effective Role Resolution:** `argmax(priority)` over a user's `user_roles`; tie broken by `is_primary=true`. **Scope: D01 only, for now (Model A)** — `resolveEffectiveRole()` is a new, isolated function, never called by `hasPermissionForUser`/`PermissionGuard`. The platform's general authorization stays exactly as-is: full permission-set **union** across every role a user holds, plus the existing `user_permissions_override` layer on top (independent of role count, confirmed in the prior session turn this table has zero structural link to `user_roles`).
+
+**Custom Role priority bounds:** any tenant-created role (`roles.tenant_id IS NOT NULL`) must get `0 < priority < 90` — strictly between `worker`/`none` and `owner`, enforced as a DB-level CHECK constraint (design only, not yet written) so no application bug can let a custom role reach or exceed `owner`, let alone `superadmin`. `owner`/`superadmin` priority values are hard-protected, consistent with the existing protection already enforced in `access-control.service.ts` for role edits/deletes.
+
+**Explicit Future Direction — Model B (not started, no timeline, documented so no later design accidentally forecloses it):** Sefay may later widen `resolveEffectiveRole()`'s single caller (D01) to also drive the platform's general authorization decision (`hasPermissionForUser`/`PermissionGuard`), replacing today's full-union model with a single-effective-role model for permission resolution itself. The `priority` column, its seeded values, and the Protected Role / Custom Role bounds are being designed now specifically so that transition requires only **rewiring one call site**, not a schema or data migration — `priority` is deliberately scoped as "Role Resolution Priority" (which role wins when several are held), never conflated with "how many permissions a role grants," so it stays valid and unchanged under either model. No code implements Model B today; `hasPermissionForUser`/`PermissionGuard` are untouched and will remain untouched until a separate, explicit "Approved – Proceed with Implementation" is given for that specific change.
+
+Zero code changes, zero migrations performed — design/decision documentation only, per the standing Architectural Approval Protocol.

@@ -1,12 +1,16 @@
 import { Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import {
+  SupabaseModule,
+  SUPABASE_CLIENT,
+} from '../../shared/supabase/supabase.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ItemsModule } from '../items/items.module';
 import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
 import { OwnershipModule } from '../ownership/ownership.module';
 import { PurchasingModule } from '../purchasing/purchasing.module';
+import { QualityModule } from '../quality/quality.module';
 
 import { BomController } from './bom.controller';
 import { BomService } from './bom.service';
@@ -36,6 +40,10 @@ import { SubcontractOrdersController } from './subcontract-orders.controller';
 import { SubcontractOrdersService } from './subcontract-orders.service';
 import { SubcontractOrdersRepository } from './repositories/subcontract-orders.repository';
 
+import { MrpController } from './mrp.controller';
+import { MrpService } from './mrp.service';
+import { MrpRepository } from './repositories/mrp.repository';
+
 // BOM (6.3), Work Centers (6.4), and Production Orders (6.6) implemented.
 // Production Orders reuses BomRepository/WarehousesService/LocationsService/
 // StockService directly — no duplicate inventory logic, no new module
@@ -43,8 +51,26 @@ import { SubcontractOrdersRepository } from './repositories/subcontract-orders.r
 // Migration 13.16A adds Routing (Operations) and Scrap Tracking, following
 // the exact same sibling-trio pattern — no new module imports needed.
 @Module({
-  imports: [SupabaseModule, PermissionsModule, InventoryModule, ItemsModule, ApprovalEngineModule, OwnershipModule, PurchasingModule],
-  controllers: [BomController, WorkCentersController, ProductionOrdersController, OperationsController, ScrapController, OutputsController, SubcontractOrdersController],
+  imports: [
+    SupabaseModule,
+    PermissionsModule,
+    InventoryModule,
+    ItemsModule,
+    ApprovalEngineModule,
+    OwnershipModule,
+    PurchasingModule,
+    QualityModule,
+  ],
+  controllers: [
+    BomController,
+    WorkCentersController,
+    ProductionOrdersController,
+    OperationsController,
+    ScrapController,
+    OutputsController,
+    SubcontractOrdersController,
+    MrpController,
+  ],
   providers: [
     BomService,
     WorkCentersService,
@@ -53,6 +79,7 @@ import { SubcontractOrdersRepository } from './repositories/subcontract-orders.r
     ScrapService,
     OutputsService,
     SubcontractOrdersService,
+    MrpService,
     {
       provide: BomRepository,
       useFactory: (supabase: SupabaseClient) => new BomRepository(supabase),
@@ -60,17 +87,20 @@ import { SubcontractOrdersRepository } from './repositories/subcontract-orders.r
     },
     {
       provide: WorkCentersRepository,
-      useFactory: (supabase: SupabaseClient) => new WorkCentersRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new WorkCentersRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: ProductionOrdersRepository,
-      useFactory: (supabase: SupabaseClient) => new ProductionOrdersRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new ProductionOrdersRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: OperationsRepository,
-      useFactory: (supabase: SupabaseClient) => new OperationsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new OperationsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -85,10 +115,16 @@ import { SubcontractOrdersRepository } from './repositories/subcontract-orders.r
     },
     {
       provide: SubcontractOrdersRepository,
-      useFactory: (supabase: SupabaseClient) => new SubcontractOrdersRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new SubcontractOrdersRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: MrpRepository,
+      useFactory: (supabase: SupabaseClient) => new MrpRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],
-  exports: [],
+  exports: [ProductionOrdersService],
 })
 export class ManufacturingModule {}

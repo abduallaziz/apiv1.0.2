@@ -65,6 +65,12 @@ const permissions = [
     description: 'Cancel invoices (flat, matches InvoicesController guard)',
   },
   {
+    name: 'invoice.price_override',
+    resource: 'invoice',
+    action: 'price_override',
+    description: 'Override an item unit price during a sale (D01)',
+  },
+  {
     name: 'expense.request',
     resource: 'expense',
     action: 'request',
@@ -338,7 +344,57 @@ const permissions = [
     name: 'quality.manage',
     resource: 'quality',
     action: 'manage',
-    description: 'Create/complete inspections, create/release holds, manage non-conformances',
+    description: 'Configure quality templates/plans/rules, create non-conformances, assign corrective actions',
+  },
+  {
+    name: 'quality.execute',
+    resource: 'quality',
+    action: 'execute',
+    description: 'Perform inspections, create quality holds, work corrective actions',
+  },
+  {
+    name: 'quality.approve',
+    resource: 'quality',
+    action: 'approve',
+    description: 'Release/reject quality holds, verify and close corrective actions, decide deviations, close non-conformances',
+  },
+
+  // Warehouse (WMS) — Picking/Packing/Shipping execution reuses the
+  // existing inventory.view/inventory.fulfill (per approved design, no
+  // duplicate warehouse.view/warehouse.execute keys). These two are only
+  // for the genuinely new administration surface: Putaway Rules, Location
+  // configuration (purpose/capacity/restrictions), Replenishment Rules,
+  // and Warehouse Task assignment/approval.
+  {
+    name: 'warehouse.manage',
+    resource: 'warehouse',
+    action: 'manage',
+    description: 'Configure putaway rules, replenishment rules, location purpose/capacity/restrictions; create/assign warehouse tasks',
+  },
+  {
+    name: 'warehouse.approve',
+    resource: 'warehouse',
+    action: 'approve',
+    description: 'Confirm/complete warehouse tasks (putaway/replenishment placement)',
+  },
+
+  // Scanner Platform (Universal Device Platform, #21) — device
+  // registration/pairing/health is administrative; scanning itself reuses
+  // existing inventory.* / warehouse.* / quality.* permissions on the
+  // Action Framework's target service, per the approved design (no
+  // separate "scan.execute" key — the action is authorized by whatever
+  // it actually does, not by the fact a scanner triggered it).
+  {
+    name: 'devices.view',
+    resource: 'devices',
+    action: 'view',
+    description: 'View registered scanner devices, sessions and events',
+  },
+  {
+    name: 'devices.manage',
+    resource: 'devices',
+    action: 'manage',
+    description: 'Register/edit/disable scanner devices, assign devices to users/warehouses',
   },
 
   // Ownership
@@ -496,14 +552,6 @@ const permissions = [
     description: 'Create and manage discount coupons',
   },
 
-  // Gift Cards
-  {
-    name: 'gift_cards.manage',
-    resource: 'gift_cards',
-    action: 'manage',
-    description: 'Issue and manage gift cards',
-  },
-
   // Order note presets
   {
     name: 'note_presets.manage',
@@ -564,6 +612,12 @@ add('superadmin', [
   'manufacturing.execute',
   'quality.view',
   'quality.manage',
+  'quality.execute',
+  'quality.approve',
+  'warehouse.manage',
+  'warehouse.approve',
+  'devices.view',
+  'devices.manage',
   'ownership.view',
   'ownership.manage',
   'purchasing.view',
@@ -587,7 +641,6 @@ add('superadmin', [
   'tables.manage',
   'kitchen.manage',
   'coupons.manage',
-  'gift_cards.manage',
   'note_presets.manage',
 ]);
 add('owner', [
@@ -632,6 +685,12 @@ add('owner', [
   'manufacturing.execute',
   'quality.view',
   'quality.manage',
+  'quality.execute',
+  'quality.approve',
+  'warehouse.manage',
+  'warehouse.approve',
+  'devices.view',
+  'devices.manage',
   'ownership.view',
   'ownership.manage',
   'purchasing.view',
@@ -655,7 +714,6 @@ add('owner', [
   'tables.manage',
   'kitchen.manage',
   'coupons.manage',
-  'gift_cards.manage',
   'note_presets.manage',
 ]);
 add('manager', [
@@ -691,6 +749,12 @@ add('manager', [
   'manufacturing.execute',
   'quality.view',
   'quality.manage',
+  'quality.execute',
+  'quality.approve',
+  'warehouse.manage',
+  'warehouse.approve',
+  'devices.view',
+  'devices.manage',
   'ownership.view',
   'ownership.manage',
   'purchasing.view',
@@ -714,7 +778,6 @@ add('manager', [
   'tables.manage',
   'kitchen.manage',
   'coupons.manage',
-  'gift_cards.manage',
   'note_presets.manage',
 ]);
 add('inventory_clerk', [

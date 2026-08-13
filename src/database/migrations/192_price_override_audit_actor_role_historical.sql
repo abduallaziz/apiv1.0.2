@@ -1,0 +1,39 @@
+-- 192 — price_override_audit.actor_role_id becomes a historical identifier
+-- (D01-M3 Repair, approved 2026-08-13). "Approved – Proceed with M3 Repair."
+--
+-- Root cause (proven live during D01-M3 validation, not theoretical):
+-- actor_role_id REFERENCES roles(id) ON DELETE SET NULL requires Postgres
+-- to issue an internal UPDATE on price_override_audit whenever a
+-- referenced role is deleted, to apply the SET NULL action — but
+-- trg_price_override_audit_no_update (191_price_override_audit.sql)
+-- rejects every UPDATE unconditionally, including this system-issued one.
+-- deleteRole() on a custom role ever used in an override therefore fails
+-- outright instead of succeeding with SET NULL as originally designed.
+--
+-- Option C (a trigger exception recognizing "this UPDATE came from a
+-- referential action") was evaluated and rejected: PostgreSQL has no
+-- reliable, unspoofable way to distinguish a referential-action-driven
+-- UPDATE from a manual one inside a trigger (pg_trigger_depth() reflects
+-- nesting depth only, not cause, and is trivially reproducible by wrapping
+-- any manual UPDATE inside another function/trigger).
+--
+-- Decision: Option B. actor_role_id stops being a live referential
+-- relationship and becomes a frozen historical identifier — exactly the
+-- same role this table already plays via actor_role_name_snapshot, which
+-- remains the authoritative historical source for the role's name. This
+-- makes the conflict structurally impossible (no FK = no referential
+-- action = nothing for the immutability trigger to ever block), rather
+-- than working around it.
+--
+-- Scope: this single ALTER only. No other column, type, trigger, RLS
+-- policy, index, or unique constraint on price_override_audit changes.
+-- The 2 existing rows are untouched — their actor_role_id values are
+-- preserved as plain UUIDs, no data rewrite needed.
+
+ALTER TABLE price_override_audit DROP CONSTRAINT price_override_audit_actor_role_id_fkey;
+
+-- Rollback (documented, not auto-executed — re-adding this FK would only
+-- be safe if every existing actor_role_id value still resolves to a live
+-- roles.id row; not verified here, would need re-checking at rollback time):
+-- ALTER TABLE price_override_audit ADD CONSTRAINT price_override_audit_actor_role_id_fkey
+--   FOREIGN KEY (actor_role_id) REFERENCES roles(id) ON DELETE SET NULL;

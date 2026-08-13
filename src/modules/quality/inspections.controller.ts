@@ -29,22 +29,29 @@ export class InspectionsController {
     return this.inspectionsService.findById(id, tenant.tenantId);
   }
 
+  @Get(':id/results')
+  @RequirePermission('quality.view')
+  results(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+    return this.inspectionsService.results(id, tenant.tenantId);
+  }
+
   @Post()
-  @RequirePermission('quality.manage')
+  @RequirePermission('quality.execute')
   @Audit('quality_inspection.created')
   create(@Body() dto: CreateInspectionDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
     return this.inspectionsService.create(tenant.tenantId, dto, user.sub);
   }
 
   @Patch(':id/complete')
-  @RequirePermission('quality.manage')
+  @RequirePermission('quality.execute')
   @HttpCode(HttpStatus.OK)
   @Audit('quality_inspection.completed')
   complete(
     @Param('id') id: string,
     @Body() dto: CompleteInspectionDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.inspectionsService.complete(id, tenant.tenantId, dto);
+    return this.inspectionsService.complete(id, tenant.tenantId, dto, user.sub);
   }
 }

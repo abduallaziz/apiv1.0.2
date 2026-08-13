@@ -9,6 +9,7 @@ import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-purchase-request.dto';
 import { RejectPurchaseRequestDto } from './dto/reject-purchase-request.dto';
+import { ConvertSuggestionsDto } from './dto/convert-suggestions.dto';
 import { ApprovalEngine } from '../../engines/approval-engine/approval.engine';
 import { ApprovalHistoryRepository } from '../../engines/approval-engine/approval-history.repository';
 
@@ -70,6 +71,29 @@ export class PurchaseRequestsService {
         quantity_requested: line.quantity_requested,
         notes: line.notes ?? null,
       })),
+      requestedBy,
+    );
+  }
+
+  // Planning workflow: Stock Risk -> Purchase Suggestion -> User Review -> Purchase Request.
+  // Reuses create() exactly (same DTO shape, same repository path) so a
+  // suggestion-originated request has no separate code path or state
+  // machine from a manually-authored one.
+  async createFromSuggestions(
+    tenantId: string,
+    dto: ConvertSuggestionsDto,
+    requestedBy: string,
+  ) {
+    const requestNumber = `PR-SUGG-${Date.now()}`;
+    return this.create(
+      tenantId,
+      {
+        branch_id: dto.branch_id,
+        warehouse_id: dto.warehouse_id,
+        request_number: requestNumber,
+        notes: dto.notes ?? 'Generated from purchase suggestions',
+        items: dto.items,
+      },
       requestedBy,
     );
   }

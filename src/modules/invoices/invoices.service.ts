@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -15,7 +16,6 @@ import { MetricsService } from '../../core/metrics/metrics.service';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { LoyaltyService } from '../../core/loyalty/loyalty.service';
 import { CouponsService, Coupon } from '../coupons/coupons.service';
-import { GiftCardsService, GiftCard } from '../gift-cards/gift-cards.service';
 import { CustomersService } from '../customers/customers.service';
 import { NotificationService } from '../../core/notification/notification.service';
 import {
@@ -57,7 +57,6 @@ export class InvoicesService {
     private readonly tenantsRepo: TenantsRepository,
     private readonly loyaltyService: LoyaltyService,
     private readonly couponsService: CouponsService,
-    private readonly giftCardsService: GiftCardsService,
     private readonly customersService: CustomersService,
     private readonly notificationService: NotificationService,
     private readonly cache: RedisCacheService,
@@ -79,6 +78,22 @@ export class InvoicesService {
     ip: string,
     device: string,
   ) {
+    // M187 idempotency: checked before any other work (including the shift
+    // check below) so a genuine resubmit — double-click, client retry,
+    // second tab — with the SAME sale_attempt_id never re-runs loyalty
+    // redemption, coupon redemption, or any other side effect a second
+    // time. A different sale_attempt_id is always treated as a new sale.
+    const existingAttempt = await this.repo.findBySaleAttemptId(
+      tenant,
+      dto.sale_attempt_id,
+    );
+    if (existingAttempt) {
+      throw new ConflictException({
+        message: 'This sale was already created',
+        order_id: existingAttempt.id,
+      });
+    }
+
     // البيع ممنوع بلا جلسة صندوق مفتوحة — الحد المالي لكل بيع هو جلسة الصندوق النشطة،
     // وليس مجرد اختياريًا كما كان الحال. لازم يُفحَص هنا أولًا قبل أي عمل آخر (كوبون/بطاقة
     // هدايا/نقاط ولاء) حتى لا تُنفَّذ أي آثار جانبية لبيع سيُرفَض لاحقًا لعدم وجود جلسة.
@@ -170,65 +185,62 @@ export class InvoicesService {
       ),
     };
 
-    // بطاقة الهدايا تسدّد جزءًا أو كامل الفاتورة مباشرة (رصيد مخزَّن حقيقي) — بخلاف
-    // الكوبون/نقاط الولاء (خصم يقلّل المبلغ)، فهي لا تدخل بحساب discount_amount إطلاقًا.
-    // ما تبقّى بعدها هو ما تُحقَّق عليه طريقة الدفع المختارة (dto.payment_method).
-    let giftCard: GiftCard | null = null;
-    let giftCardAmount = 0;
-    if (dto.gift_card_code) {
-      if (!dto.gift_card_amount) {
+    const storedPaymentMethod = dto.payment_method;
+
+    if (dto.payment_method === 'cash') {
+      if (!dto.cash_tendered) {
         throw new BadRequestException(
-          'gift_card_amount required when gift_card_code is provided',
+          'cash_tendered required for cash payment',
         );
       }
-      giftCard = await this.giftCardsService.validate(
-        tenant,
-        dto.gift_card_code,
-        dto.gift_card_amount,
+      this.paymentEngine.processCashPayment(built.total, dto.cash_tendered);
+    } else if (dto.payment_method === 'split') {
+      if (dto.cash_amount === undefined || dto.card_amount === undefined) {
+        throw new BadRequestException(
+          'cash_amount and card_amount required for split payment',
+        );
+      }
+      this.paymentEngine.processSplitPayment(
+        built.total,
+        dto.cash_amount,
+        dto.card_amount,
       );
-      giftCardAmount = Math.min(dto.gift_card_amount, built.total);
-    }
-    const amountDueAfterGiftCard = parseFloat(
-      (built.total - giftCardAmount).toFixed(2),
-    );
-
-    // A gift card that covers the entire total means no cash/card/etc. ever
-    // actually changed hands — whatever payment_method the frontend happened
-    // to have selected (defaults to 'cash') is a leftover UI selection, not a
-    // real payment. Overriding it here (not trusting the client) is the only
-    // honest thing to store — matches the same "server is source of truth"
-    // reasoning already applied to gift_card_amount/coupon discounts above.
-    const storedPaymentMethod =
-      amountDueAfterGiftCard <= 0 ? 'gift_card' : dto.payment_method;
-
-    if (amountDueAfterGiftCard > 0) {
-      if (dto.payment_method === 'cash') {
-        if (!dto.cash_tendered) {
-          throw new BadRequestException(
-            'cash_tendered required for cash payment',
-          );
-        }
-        this.paymentEngine.processCashPayment(
-          amountDueAfterGiftCard,
-          dto.cash_tendered,
-        );
-      } else if (dto.payment_method === 'split') {
-        if (dto.cash_amount === undefined || dto.card_amount === undefined) {
-          throw new BadRequestException(
-            'cash_amount and card_amount required for split payment',
-          );
-        }
-        this.paymentEngine.processSplitPayment(
-          amountDueAfterGiftCard,
-          dto.cash_amount,
-          dto.card_amount,
-        );
-      } else if (dto.payment_method === 'tab' && !dto.customer_id) {
+      // M188 persistence guard: processSplitPayment above only checks the
+      // split covers the total (allowing an overpay/"change" scenario it
+      // was originally designed for). What gets PERSISTED must reconcile
+      // exactly — no negative component, no overpayment — since these
+      // values, once stored, are what a future accounting/shift-
+      // reconciliation migration will trust as the real breakdown. Mirrors
+      // the same DB-level CHECK added in migration 188 (defense in depth).
+      if (dto.cash_amount < 0 || dto.card_amount < 0) {
         throw new BadRequestException(
-          'customer_id required for tab (open account) payment',
+          'cash_amount and card_amount must not be negative',
         );
       }
+      const splitSum = parseFloat(
+        (dto.cash_amount + dto.card_amount).toFixed(2),
+      );
+      if (splitSum !== built.total) {
+        throw new BadRequestException(
+          `cash_amount + card_amount (${splitSum}) must equal the payable amount (${built.total}) exactly`,
+        );
+      }
+    } else if (dto.payment_method === 'tab' && !dto.customer_id) {
+      throw new BadRequestException(
+        'customer_id required for tab (open account) payment',
+      );
     }
+
+    // M188: the persisted breakdown is derived here, once, strictly from
+    // server-validated values — never a raw pass-through of dto.cash_amount/
+    // dto.card_amount for non-split methods, so a client cannot smuggle a
+    // breakdown onto a cash/card/tab/etc. order by sending those fields
+    // anyway (requirement: cannot bypass split validation via persisted
+    // values). Both null together for every method except 'split'.
+    const persistedCashAmount =
+      dto.payment_method === 'split' ? dto.cash_amount : null;
+    const persistedCardAmount =
+      dto.payment_method === 'split' ? dto.card_amount : null;
 
     // نقطة الاسترداد الفعلية (الذرّية، القابلة للرمي) تصير هنا عمدًا — بعد كل تحقق آخر
     // ممكن يفشل (كوبون/بطاقة هدايا/طريقة الدفع) لكن قبل إنشاء الفاتورة مباشرة. لو صارت
@@ -263,10 +275,31 @@ export class InvoicesService {
     );
 
     let invoice: { id: string };
-    if (usePooledWrite) {
-      invoice = await this.repo.createWithItemsPooled(
-        tenant,
-        {
+    try {
+      if (usePooledWrite) {
+        invoice = await this.repo.createWithItemsPooled(
+          tenant,
+          {
+            branch_id: branchId,
+            shift_id: shiftId,
+            cashier_id: cashierId,
+            customer_id: dto.customer_id ?? null,
+            status: 'completed',
+            subtotal: built.subtotal,
+            discount: built.discount_amount,
+            tax: built.tax_amount,
+            total: built.total,
+            payment_method: storedPaymentMethod,
+            notes: dto.notes ?? null,
+            coupon_code: coupon?.code ?? null,
+            sale_attempt_id: dto.sale_attempt_id,
+            cash_amount: persistedCashAmount,
+            card_amount: persistedCardAmount,
+          },
+          built.items,
+        );
+      } else {
+        invoice = await this.repo.create(tenant, {
           branch_id: branchId,
           shift_id: shiftId,
           cashier_id: cashierId,
@@ -279,42 +312,46 @@ export class InvoicesService {
           payment_method: storedPaymentMethod,
           notes: dto.notes ?? null,
           coupon_code: coupon?.code ?? null,
-          gift_card_code: giftCard?.code ?? null,
-          gift_card_amount: giftCard ? giftCardAmount : null,
-        },
-        built.items,
-      );
-    } else {
-      invoice = await this.repo.create(tenant, {
-        branch_id: branchId,
-        shift_id: shiftId,
-        cashier_id: cashierId,
-        customer_id: dto.customer_id ?? null,
-        status: 'completed',
-        subtotal: built.subtotal,
-        discount: built.discount_amount,
-        tax: built.tax_amount,
-        total: built.total,
-        payment_method: storedPaymentMethod,
-        notes: dto.notes ?? null,
-        coupon_code: coupon?.code ?? null,
-        gift_card_code: giftCard?.code ?? null,
-        gift_card_amount: giftCard ? giftCardAmount : null,
-      });
+          sale_attempt_id: dto.sale_attempt_id,
+          cash_amount: persistedCashAmount,
+          card_amount: persistedCardAmount,
+        });
 
-      await this.repo.insertItems(
-        built.items.map((item) => ({
-          order_id: invoice.id,
-          tenant_id: tenant.tenantId,
-          item_id: item.item_id,
-          item_name: item.item_name,
-          variant_id: item.variant_id ?? null,
-          variant_name: item.variant_name ?? null,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          total_price: parseFloat((item.unit_price * item.quantity).toFixed(2)),
-        })),
-      );
+        await this.repo.insertItems(
+          built.items.map((item) => ({
+            order_id: invoice.id,
+            tenant_id: tenant.tenantId,
+            item_id: item.item_id,
+            item_name: item.item_name,
+            variant_id: item.variant_id ?? null,
+            variant_name: item.variant_name ?? null,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total_price: parseFloat(
+              (item.unit_price * item.quantity).toFixed(2),
+            ),
+          })),
+        );
+      }
+    } catch (err: any) {
+      // Race backstop for M187: two concurrent requests with the same
+      // sale_attempt_id can both pass the early check above before either
+      // commits. uq_orders_tenant_sale_attempt (migration 187) is the real
+      // guarantee — the loser hits a unique-violation (Postgres 23505) here
+      // and resolves to the winner's order instead of erroring blindly.
+      if (err?.code === '23505') {
+        const existing = await this.repo.findBySaleAttemptId(
+          tenant,
+          dto.sale_attempt_id,
+        );
+        if (existing) {
+          throw new ConflictException({
+            message: 'This sale was already created',
+            order_id: existing.id,
+          });
+        }
+      }
+      throw err;
     }
 
     await this.auditService.log({
@@ -337,13 +374,6 @@ export class InvoicesService {
 
     if (coupon) {
       await this.couponsService.redeem(coupon.id, invoice.id);
-    }
-    if (giftCard) {
-      await this.giftCardsService.redeem(
-        giftCard.id,
-        giftCardAmount,
-        invoice.id,
-      );
     }
 
     // خصم المخزون: أفضل-محاولة (best-effort) — مشكلة بالمخزون لا توقف بيعًا مكتمِلًا أبدًا
@@ -371,7 +401,9 @@ export class InvoicesService {
           })),
         );
         if (heldItems && heldItems.length > 0) {
-          const names = [...new Set(heldItems.map((h: any) => h.item_name))].join(', ');
+          const names = [
+            ...new Set(heldItems.map((h: any) => h.item_name)),
+          ].join(', ');
           stockWarning = `Sold item(s) under active quality hold: ${names}`;
         }
       } catch (err) {
@@ -379,7 +411,9 @@ export class InvoicesService {
         // log and continue exactly as if no holds existed.
         this.logger.warn(
           `Quality hold check failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${
-            err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err)
+            err && typeof err === 'object' && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : String(err)
           }`,
         );
       }
@@ -394,25 +428,32 @@ export class InvoicesService {
       // check above exactly (same non-blocking pattern, same
       // append-to-stockWarning behavior).
       try {
-        const expiredBatches = await this.expiredBatchesRepo.checkExpiredBatches(
-          tenant.tenantId,
-          warehouseId,
-          built.items.map((item) => ({
-            item_id: item.item_id,
-            variant_id: item.variant_id ?? null,
-          })),
-        );
+        const expiredBatches =
+          await this.expiredBatchesRepo.checkExpiredBatches(
+            tenant.tenantId,
+            warehouseId,
+            built.items.map((item) => ({
+              item_id: item.item_id,
+              variant_id: item.variant_id ?? null,
+            })),
+          );
         if (expiredBatches && expiredBatches.length > 0) {
-          const names = [...new Set(expiredBatches.map((b: any) => b.item_name))].join(', ');
+          const names = [
+            ...new Set(expiredBatches.map((b: any) => b.item_name)),
+          ].join(', ');
           const expiredBatchWarning = `Sold item(s) with expired batch stock: ${names}`;
-          stockWarning = [stockWarning, expiredBatchWarning].filter(Boolean).join(' | ');
+          stockWarning = [stockWarning, expiredBatchWarning]
+            .filter(Boolean)
+            .join(' | ');
         }
       } catch (err) {
         // Expired-batch lookup itself failing must never affect the sale —
         // log and continue exactly as if no expired batches existed.
         this.logger.warn(
           `Expired batch check failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${
-            err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err)
+            err && typeof err === 'object' && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : String(err)
           }`,
         );
       }
@@ -442,14 +483,18 @@ export class InvoicesService {
         if (ownedItemNames.length > 0) {
           const names = [...new Set(ownedItemNames)].join(', ');
           const ownershipWarning = `Sold item(s) held under non-company ownership: ${names}`;
-          stockWarning = [stockWarning, ownershipWarning].filter(Boolean).join(' | ');
+          stockWarning = [stockWarning, ownershipWarning]
+            .filter(Boolean)
+            .join(' | ');
         }
       } catch (err) {
         // Ownership consumption itself failing must never affect the sale —
         // log and continue exactly as if no ownership layers existed.
         this.logger.warn(
           `Ownership layer consumption failed for invoice ${invoice.id} (warehouse ${warehouseId}): ${
-            err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err)
+            err && typeof err === 'object' && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : String(err)
           }`,
         );
       }
@@ -506,10 +551,17 @@ export class InvoicesService {
     // same non-blocking pattern as every other advisory/bookkeeping step
     // in this method — a failed transition is logged and appended to
     // stock_warning, never thrown, and never affects invoice completion.
-    for (const item of built.items as (typeof built.items[number] & { serial_id?: string; warranty_months?: number })[]) {
+    for (const item of built.items as ((typeof built.items)[number] & {
+      serial_id?: string;
+      warranty_months?: number;
+    })[]) {
       if (!item.serial_id) continue;
       try {
-        await this.serialsRepo.sell(item.serial_id, invoice.id, item.warranty_months ?? null);
+        await this.serialsRepo.sell(
+          item.serial_id,
+          invoice.id,
+          item.warranty_months ?? null,
+        );
       } catch (err) {
         const message =
           err && typeof err === 'object' && 'message' in err
@@ -518,7 +570,9 @@ export class InvoicesService {
         this.logger.warn(
           `Serial sale transition failed for invoice ${invoice.id} (serial ${item.serial_id}): ${message}`,
         );
-        stockWarning = [stockWarning, `Serial ${item.serial_id}: ${message}`].filter(Boolean).join(' | ');
+        stockWarning = [stockWarning, `Serial ${item.serial_id}: ${message}`]
+          .filter(Boolean)
+          .join(' | ');
       }
     }
 
@@ -698,7 +752,7 @@ export class InvoicesService {
   }
 
   // Held orders — deliberately isolated from create() above: no payment,
-  // no stock deduction, no coupon/loyalty/gift-card processing. A held
+  // no stock deduction, no coupon/loyalty processing. A held
   // order becomes a real sale only when its items are loaded back into an
   // active cart and checked out through the normal create() flow, which
   // this section never touches.
@@ -741,13 +795,21 @@ export class InvoicesService {
       action: 'invoice.hold',
       resource_type: 'invoice',
       resource_id: order.id,
-      after_data: { branch_id: dto.branch_id, items_count: dto.items.length, subtotal },
+      after_data: {
+        branch_id: dto.branch_id,
+        items_count: dto.items.length,
+        subtotal,
+      },
     });
 
     return this.repo.findById(tenant, order.id);
   }
 
-  async listHeldOrders(tenant: TenantContext, branchId: string, actorId: string) {
+  async listHeldOrders(
+    tenant: TenantContext,
+    branchId: string,
+    actorId: string,
+  ) {
     return this.repo.findHeldOrders(tenant, branchId, actorId);
   }
 
@@ -764,7 +826,11 @@ export class InvoicesService {
     id: string,
     visibility: HeldOrderVisibility,
   ) {
-    const updated = await this.repo.updateHeldVisibility(tenant, id, visibility);
+    const updated = await this.repo.updateHeldVisibility(
+      tenant,
+      id,
+      visibility,
+    );
     if (!updated) {
       throw new NotFoundException('Held order not found');
     }

@@ -116,6 +116,8 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
       operationsService,
       scrapService,
       outputsService,
+      {} as any,
+      {} as any,
     );
   }, 30_000);
 

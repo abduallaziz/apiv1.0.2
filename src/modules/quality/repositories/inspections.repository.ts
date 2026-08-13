@@ -56,4 +56,24 @@ export class InspectionsRepository extends ScopedRepository {
     if (error) throw error;
     return data;
   }
+
+  async addResults(tenantId: string, inspectionId: string, results: Record<string, unknown>[]) {
+    if (results.length === 0) return [];
+    const { data, error } = await this.supabase
+      .from('quality_results')
+      .insert(results.map((r) => ({ ...r, tenant_id: tenantId, quality_inspection_id: inspectionId })))
+      .select();
+    if (error) throw error;
+    return data;
+  }
+
+  async getResults(tenantId: string, inspectionId: string) {
+    const { data, error } = await this.supabase
+      .from('quality_results')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('quality_inspection_id', inspectionId);
+    if (error) throw error;
+    return data;
+  }
 }

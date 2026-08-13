@@ -10,7 +10,6 @@ import { CoreAuthModule } from '../../core/auth/auth.module';
 import { NotificationModule } from '../../core/notification/notification.module';
 import { LoyaltyModule } from '../../core/loyalty/loyalty.module';
 import { CouponsModule } from '../coupons/coupons.module';
-import { GiftCardsModule } from '../gift-cards/gift-cards.module';
 import { CustomersModule } from '../customers/customers.module';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { ShiftsModule } from '../shifts/shifts.module';
@@ -19,7 +18,7 @@ import { OwnershipModule } from '../ownership/ownership.module';
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule, GiftCardsModule, CustomersModule, ShiftsModule, QualityModule, OwnershipModule, InventoryModule],
+  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule, CustomersModule, ShiftsModule, QualityModule, OwnershipModule, InventoryModule],
   controllers: [InvoicesController],
   providers: [InvoicesService, InvoicesRepository, TenantsRepository, JwtAuthGuard],
   exports: [InvoicesService],

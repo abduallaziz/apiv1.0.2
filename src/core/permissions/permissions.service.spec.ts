@@ -9,7 +9,10 @@ function buildFakeSupabase(fixtures: {
   overrides: Record<string, { permission_key: string; is_granted: boolean }[]>; // `${tenantId}:${roleId}` -> rows
   allPermissionKeys?: string[]; // fixture for the `permissions` table (owner force-true path)
   userRoles?: Record<string, string[]>; // userId -> role names (fetchUserRoleNames)
-  userOverrides?: Record<string, { permission_key: string; action: 'GRANT' | 'DENY' }[]>; // userId -> active overrides
+  userOverrides?: Record<
+    string,
+    { permission_key: string; action: 'GRANT' | 'DENY' }[]
+  >; // userId -> active overrides
 }) {
   return {
     from(table: string) {
@@ -36,7 +39,9 @@ function buildFakeSupabase(fixtures: {
           if (table === 'roles') {
             const name = builder._eqs['name'] as string;
             const id = fixtures.systemRoleIds[name];
-            return id ? { data: { id }, error: null } : { data: null, error: null };
+            return id
+              ? { data: { id }, error: null }
+              : { data: null, error: null };
           }
           throw new Error(`maybeSingle not fixtured for table ${table}`);
         },
@@ -56,13 +61,18 @@ function buildFakeSupabase(fixtures: {
             return resolve({ data: rows, error: null });
           }
           if (table === 'permissions') {
-            const rows = (fixtures.allPermissionKeys ?? []).map((name) => ({ name }));
+            const rows = (fixtures.allPermissionKeys ?? []).map((name) => ({
+              name,
+            }));
             return resolve({ data: rows, error: null });
           }
           if (table === 'user_roles') {
             const userId = builder._eqs['user_id'] as string;
             const names = fixtures.userRoles?.[userId] ?? [];
-            return resolve({ data: names.map((name) => ({ role: { name } })), error: null });
+            return resolve({
+              data: names.map((name) => ({ role: { name } })),
+              error: null,
+            });
           }
           if (table === 'user_permissions_override') {
             const userId = builder._eqs['user_id'] as string;
@@ -93,7 +103,12 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
   const TENANT_B = 'tenant-b';
   const MANAGER_ROLE_ID = 'role-manager-id';
 
-  function service(overrides: Record<string, { permission_key: string; is_granted: boolean }[]> = {}) {
+  function service(
+    overrides: Record<
+      string,
+      { permission_key: string; is_granted: boolean }[]
+    > = {},
+  ) {
     const supabase = buildFakeSupabase({
       globalGrants: {
         manager: ['expenses.view', 'expenses.approve'],
@@ -112,9 +127,15 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       ],
     });
 
-    await expect(svc.hasPermission('manager', 'expenses.view', TENANT_A)).resolves.toBe(true);
-    await expect(svc.hasPermission('manager', 'expenses.approve', TENANT_A)).resolves.toBe(false);
-    await expect(svc.hasPermission('manager', 'payroll.view', TENANT_A)).resolves.toBe(false);
+    await expect(
+      svc.hasPermission('manager', 'expenses.view', TENANT_A),
+    ).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'expenses.approve', TENANT_A),
+    ).resolves.toBe(false);
+    await expect(
+      svc.hasPermission('manager', 'payroll.view', TENANT_A),
+    ).resolves.toBe(false);
   });
 
   it('tenant override can grant a permission beyond the global default', async () => {
@@ -124,15 +145,23 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       ],
     });
 
-    await expect(svc.hasPermission('manager', 'payroll.view', TENANT_A)).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'payroll.view', TENANT_A),
+    ).resolves.toBe(true);
   });
 
   it('zero override rows resolves identically to the pre-Stage-B global-only behavior', async () => {
     const svc = service({}); // no overrides for any tenant
 
-    await expect(svc.hasPermission('manager', 'expenses.view', TENANT_A)).resolves.toBe(true);
-    await expect(svc.hasPermission('manager', 'expenses.approve', TENANT_A)).resolves.toBe(true);
-    await expect(svc.hasPermission('manager', 'payroll.view', TENANT_A)).resolves.toBe(false);
+    await expect(
+      svc.hasPermission('manager', 'expenses.view', TENANT_A),
+    ).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'expenses.approve', TENANT_A),
+    ).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'payroll.view', TENANT_A),
+    ).resolves.toBe(false);
   });
 
   it('no cross-tenant leakage: tenant A override does not affect tenant B', async () => {
@@ -142,8 +171,12 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       ],
     });
 
-    await expect(svc.hasPermission('manager', 'expenses.approve', TENANT_A)).resolves.toBe(false);
-    await expect(svc.hasPermission('manager', 'expenses.approve', TENANT_B)).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'expenses.approve', TENANT_A),
+    ).resolves.toBe(false);
+    await expect(
+      svc.hasPermission('manager', 'expenses.approve', TENANT_B),
+    ).resolves.toBe(true);
   });
 
   it('multiple overrides in the same role are all applied (add and remove together)', async () => {
@@ -154,13 +187,22 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       ],
     });
 
-    await expect(svc.hasPermission('manager', 'expenses.view', TENANT_A)).resolves.toBe(true);
-    await expect(svc.hasPermission('manager', 'expenses.approve', TENANT_A)).resolves.toBe(false);
-    await expect(svc.hasPermission('manager', 'payroll.view', TENANT_A)).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'expenses.view', TENANT_A),
+    ).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'expenses.approve', TENANT_A),
+    ).resolves.toBe(false);
+    await expect(
+      svc.hasPermission('manager', 'payroll.view', TENANT_A),
+    ).resolves.toBe(true);
   });
 
   it('REQUIRED: missing tenant context (tenantId null/undefined) never queries tenant_role_permissions and matches existing global behavior exactly', async () => {
-    const overrideSpy: Record<string, { permission_key: string; is_granted: boolean }[]> = {
+    const overrideSpy: Record<
+      string,
+      { permission_key: string; is_granted: boolean }[]
+    > = {
       // deliberately populated so the test would FAIL if the service
       // incorrectly queried tenant_role_permissions without a tenantId
       [`undefined:${MANAGER_ROLE_ID}`]: [
@@ -169,9 +211,15 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
     };
     const svc = service(overrideSpy);
 
-    await expect(svc.hasPermission('manager', 'expenses.view', null)).resolves.toBe(true);
-    await expect(svc.hasPermission('manager', 'expenses.approve')).resolves.toBe(true); // tenantId omitted entirely
-    await expect(svc.hasPermission('manager', 'payroll.view', undefined)).resolves.toBe(false);
+    await expect(
+      svc.hasPermission('manager', 'expenses.view', null),
+    ).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'expenses.approve'),
+    ).resolves.toBe(true); // tenantId omitted entirely
+    await expect(
+      svc.hasPermission('manager', 'payroll.view', undefined),
+    ).resolves.toBe(false);
   });
 
   it('cache key format is tenant-scoped when tenantId is present, unscoped when absent', async () => {
@@ -209,18 +257,28 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
     };
 
     const svc = new PermissionsService(supabase as any, cache);
-    await expect(svc.hasPermission('manager', 'expenses.view', TENANT_A)).resolves.toBe(true);
+    await expect(
+      svc.hasPermission('manager', 'expenses.view', TENANT_A),
+    ).resolves.toBe(true);
     expect(supabase.from).not.toHaveBeenCalled();
   });
 
   describe('owner is forced true unconditionally', () => {
     it('hasPermission short-circuits to true for any key, without touching the DB or cache at all', async () => {
-      const supabase = { from: jest.fn(() => { throw new Error('owner must never query the DB'); }) };
+      const supabase = {
+        from: jest.fn(() => {
+          throw new Error('owner must never query the DB');
+        }),
+      };
       const cache = buildNoopCache();
       const svc = new PermissionsService(supabase as any, cache);
 
-      await expect(svc.hasPermission('owner', 'anything.at.all', TENANT_A)).resolves.toBe(true);
-      await expect(svc.hasPermission('owner', 'payroll.view')).resolves.toBe(true); // even with no tenant context
+      await expect(
+        svc.hasPermission('owner', 'anything.at.all', TENANT_A),
+      ).resolves.toBe(true);
+      await expect(svc.hasPermission('owner', 'payroll.view')).resolves.toBe(
+        true,
+      ); // even with no tenant context
       expect(supabase.from).not.toHaveBeenCalled();
       expect(cache.get).not.toHaveBeenCalled();
     });
@@ -230,7 +288,11 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       const supabase = buildFakeSupabase({
         globalGrants: {},
         systemRoleIds: { owner: OWNER_ROLE_ID },
-        allPermissionKeys: ['expenses.view', 'expenses.approve', 'payroll.view'],
+        allPermissionKeys: [
+          'expenses.view',
+          'expenses.approve',
+          'payroll.view',
+        ],
         overrides: {
           // If this were honored, expenses.approve would resolve to denied —
           // proving the force-true path ignores tenant_role_permissions
@@ -244,7 +306,9 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       const svc = new PermissionsService(supabase as any, cache);
 
       const detail = await svc.getResolutionDetail('owner', TENANT_A);
-      expect(detail.grantedKeys).toEqual(new Set(['expenses.view', 'expenses.approve', 'payroll.view']));
+      expect(detail.grantedKeys).toEqual(
+        new Set(['expenses.view', 'expenses.approve', 'payroll.view']),
+      );
       expect(detail.overrides.size).toBe(0);
     });
   });
@@ -258,7 +322,13 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
         from: jest.fn((table: string) => {
           if (table === 'user_roles') {
             return {
-              select: () => ({ eq: () => Promise.resolve({ data: [{ role: { name: 'owner' } }], error: null }) }),
+              select: () => ({
+                eq: () =>
+                  Promise.resolve({
+                    data: [{ role: { name: 'owner' } }],
+                    error: null,
+                  }),
+              }),
             };
           }
           throw new Error(`must not query ${table} for an owner`);
@@ -267,7 +337,9 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
       const cache = buildNoopCache();
       const svc = new PermissionsService(supabase as any, cache);
 
-      await expect(svc.hasPermissionForUser(USER_ID, 'anything.at.all', TENANT_A)).resolves.toBe(true);
+      await expect(
+        svc.hasPermissionForUser(USER_ID, 'anything.at.all', TENANT_A),
+      ).resolves.toBe(true);
     });
 
     it('GRANT override adds a permission the base role does not have', async () => {
@@ -276,13 +348,19 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
         systemRoleIds: { manager: MANAGER_ROLE_ID },
         overrides: {},
         userRoles: { [USER_ID]: ['manager'] },
-        userOverrides: { [USER_ID]: [{ permission_key: 'payroll.view', action: 'GRANT' }] },
+        userOverrides: {
+          [USER_ID]: [{ permission_key: 'payroll.view', action: 'GRANT' }],
+        },
       });
       const cache = buildNoopCache();
       const svc = new PermissionsService(supabase as any, cache);
 
-      await expect(svc.hasPermissionForUser(USER_ID, 'expenses.view', TENANT_A)).resolves.toBe(true);
-      await expect(svc.hasPermissionForUser(USER_ID, 'payroll.view', TENANT_A)).resolves.toBe(true);
+      await expect(
+        svc.hasPermissionForUser(USER_ID, 'expenses.view', TENANT_A),
+      ).resolves.toBe(true);
+      await expect(
+        svc.hasPermissionForUser(USER_ID, 'payroll.view', TENANT_A),
+      ).resolves.toBe(true);
     });
 
     it('DENY override removes a permission the base role otherwise grants', async () => {
@@ -291,13 +369,19 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
         systemRoleIds: { manager: MANAGER_ROLE_ID },
         overrides: {},
         userRoles: { [USER_ID]: ['manager'] },
-        userOverrides: { [USER_ID]: [{ permission_key: 'expenses.approve', action: 'DENY' }] },
+        userOverrides: {
+          [USER_ID]: [{ permission_key: 'expenses.approve', action: 'DENY' }],
+        },
       });
       const cache = buildNoopCache();
       const svc = new PermissionsService(supabase as any, cache);
 
-      await expect(svc.hasPermissionForUser(USER_ID, 'expenses.view', TENANT_A)).resolves.toBe(true);
-      await expect(svc.hasPermissionForUser(USER_ID, 'expenses.approve', TENANT_A)).resolves.toBe(false);
+      await expect(
+        svc.hasPermissionForUser(USER_ID, 'expenses.view', TENANT_A),
+      ).resolves.toBe(true);
+      await expect(
+        svc.hasPermissionForUser(USER_ID, 'expenses.approve', TENANT_A),
+      ).resolves.toBe(false);
     });
   });
 });
