@@ -10,3 +10,8 @@ logs/
 k6-results/
 
 graphify-out/
+
+# TestSprite scratch output (logs, generated reports) — not source, not
+# meant to be versioned; testsprite_tests/ itself (the actual test files)
+# remains tracked.
+testsprite_tests/tmp/
