@@ -6,13 +6,33 @@ import { TenantContext } from '../../../core/tenant/tenant-context';
 import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
-interface PooledInvoiceItem {
+export interface PooledInvoiceItem {
   item_id: string;
   item_name: string;
   variant_id?: string | null;
   variant_name?: string | null;
   quantity: number;
   unit_price: number;
+  // D01-M7 — official catalog price at sale time, for every new order_item
+  // (Normal Sale or Override alike). Never NULL for a new row; the 380
+  // pre-D01 legacy rows remain NULL permanently and are untouched here.
+  official_price_snapshot: number;
+  // D01-M7 — present only for an approved Price Override line. Written to
+  // price_override_audit inside the same transaction as its order_item,
+  // using that row's real (returned) id — never for a Normal Sale line.
+  override?: PooledOverrideAudit;
+}
+
+export interface PooledOverrideAudit {
+  actor_role_id: string;
+  actor_role_name_snapshot: string;
+  official_unit_price: number;
+  approved_unit_price: number;
+  difference_amount: number;
+  difference_percent: number;
+  direction: 'discount' | 'increase';
+  reason: string | null;
+  effective_policy_snapshot: object;
 }
 
 @Injectable()
@@ -73,13 +93,21 @@ export class InvoicesRepository extends ScopedRepository {
       );
       const orderId = orderResult.rows[0].id;
 
+      // D01-M7 — same transaction as the order insert above (no separate
+      // BEGIN/COMMIT): order_item.id is only known after RETURNING, and
+      // price_override_audit.order_item_id is NOT NULL, so the audit insert
+      // for an override line must happen right after its own order_item
+      // insert, still inside this callback, before the outer runInTenantContext
+      // COMMIT. Any failure at any point — order, any order_item, any audit —
+      // rolls back everything via that same outer BEGIN/COMMIT/ROLLBACK.
       for (const item of items) {
-        await client.query(
+        const itemResult = await client.query<{ id: string }>(
           `INSERT INTO order_items (
              order_id, item_id, item_name, qty, price, total_price,
-             variant_id, variant_name
+             variant_id, variant_name, official_price_snapshot
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id`,
           [
             orderId,
             item.item_id,
@@ -89,8 +117,39 @@ export class InvoicesRepository extends ScopedRepository {
             Number(item.quantity) * Number(item.unit_price),
             item.variant_id ?? null,
             item.variant_name ?? null,
+            item.official_price_snapshot,
           ],
         );
+        const orderItemId = itemResult.rows[0].id;
+
+        if (item.override) {
+          await client.query(
+            `INSERT INTO price_override_audit (
+               tenant_id, branch_id, order_id, order_item_id, actor_id,
+               actor_role_id, actor_role_name_snapshot, item_id,
+               official_unit_price, approved_unit_price, difference_amount,
+               difference_percent, direction, reason, effective_policy_snapshot
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            [
+              tenant.tenantId,
+              orderPayload.branch_id,
+              orderId,
+              orderItemId,
+              orderPayload.cashier_id,
+              item.override.actor_role_id,
+              item.override.actor_role_name_snapshot,
+              item.item_id,
+              item.override.official_unit_price,
+              item.override.approved_unit_price,
+              item.override.difference_amount,
+              item.override.difference_percent,
+              item.override.direction,
+              item.override.reason,
+              JSON.stringify(item.override.effective_policy_snapshot),
+            ],
+          );
+        }
       }
 
       return { id: orderId };
@@ -214,6 +273,17 @@ export class InvoicesRepository extends ScopedRepository {
     return data;
   }
 
+  // D01-M7 — official_price_snapshot added (populated for every new row,
+  // Normal Sale included — never NULL going forward, unlike the 380 legacy
+  // pre-D01 rows). .select('id') added so callers can attach
+  // price_override_audit rows to the real order_item.id — Postgres
+  // preserves row order for a single multi-row INSERT...VALUES...RETURNING,
+  // so the returned array lines up 1:1 with the input `items` array order.
+  // This non-pooled path only ever receives Normal Sale lines in practice
+  // (InvoicesService rejects any invoice containing an approved Override
+  // before reaching here unless the pooled path is available — see
+  // createWithItemsPooled for the Override+Audit path), but the snapshot
+  // column is written here regardless, since Normal Sale needs it too.
   async insertItems(items: Record<string, unknown>[]) {
     const mapped = items.map((item) => ({
       order_id: item.order_id,
@@ -224,14 +294,19 @@ export class InvoicesRepository extends ScopedRepository {
       total_price: Number(item.quantity) * Number(item.unit_price),
       variant_id: item.variant_id ?? null,
       variant_name: item.variant_name ?? null,
+      official_price_snapshot: item.official_price_snapshot,
     }));
 
-    const { error } = await this.supabase.from('order_items').insert(mapped);
+    const { data, error } = await this.supabase
+      .from('order_items')
+      .insert(mapped)
+      .select('id');
     if (error) {
       if (error.code === '23503')
         throw new NotFoundException('Unknown item_id or variant_id');
       throw error;
     }
+    return (data ?? []).map((row) => row.id as string);
   }
 
   async getBranchDefaultWarehouse(branchId: string): Promise<string | null> {

@@ -1,4 +1,9 @@
-import { Module, MiddlewareConsumer, NestModule, RequestMethod } from '@nestjs/common';
+import {
+  Module,
+  MiddlewareConsumer,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -11,6 +16,7 @@ import { SupabaseModule } from './shared/supabase/supabase.module';
 import { TenantSessionModule } from './core/tenant/tenant-session.module';
 import { SecurityModule } from './core/security/security.module';
 import { PermissionsModule } from './core/permissions/permissions.module';
+import { PricingModule } from './core/pricing/pricing.module';
 import { FeatureFlagsModule } from './core/feature-flags/feature-flags.module';
 import { CoreAuthModule } from './core/auth/auth.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -49,7 +55,10 @@ import { MetricsModule } from './core/metrics/metrics.module';
 import { BackupModule } from './core/backup/backup.module';
 import { SecretsModule } from './core/secrets/secrets.module';
 import { envValidationSchema } from './core/secrets/config/env.validation';
-import { RedisCacheModule, REDIS_CLIENT } from './core/cache/redis-cache.module';
+import {
+  RedisCacheModule,
+  REDIS_CLIENT,
+} from './core/cache/redis-cache.module';
 import { PerfTrackingModule } from './core/perf/perf-tracking.module';
 import { AiUsageTrackingModule } from './core/ai-usage/ai-usage-tracking.module';
 import Redis from 'ioredis';
@@ -83,6 +92,7 @@ import { RootController } from './root.controller';
     TenantSessionModule,
     SecurityModule,
     PermissionsModule,
+    PricingModule,
     FeatureFlagsModule,
     CoreAuthModule,
     BillingModule,
@@ -129,6 +139,8 @@ import { RootController } from './root.controller';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(IpMiddleware).forRoutes({ path: '*path', method: RequestMethod.ALL });
+    consumer
+      .apply(IpMiddleware)
+      .forRoutes({ path: '*path', method: RequestMethod.ALL });
   }
 }

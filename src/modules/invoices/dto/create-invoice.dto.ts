@@ -44,6 +44,14 @@ export class InvoiceItemDto {
   @IsNumber()
   @Min(0)
   warranty_months?: number;
+
+  // D01-M7 — Price Override justification for this line, when
+  // unit_price differs from the server-resolved official price and the
+  // effective Policy's reason_policy requires one. Ignored entirely for a
+  // Normal Sale line (requested === official).
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }
 
 export class DiscountDto {

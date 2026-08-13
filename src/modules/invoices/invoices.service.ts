@@ -31,6 +31,12 @@ import { HoldsRepository } from '../quality/repositories/holds.repository';
 import { OwnershipRepository } from '../ownership/repositories/ownership.repository';
 import { ExpiredBatchesRepository } from '../inventory/repositories/expired-batches.repository';
 import { SerialsRepository } from '../inventory/repositories/serials.repository';
+import {
+  PriceResolutionService,
+  PriceResolutionResult,
+} from '../../core/pricing/price-resolution.service';
+import { EffectiveRole } from '../../core/pricing/effective-role.resolver';
+import { PooledOverrideAudit } from './repositories/invoices.repository';
 
 const INVOICES_LIST_TTL = 240; // 4 minutes
 const invoicesListCacheKey = (
@@ -66,6 +72,7 @@ export class InvoicesService {
     private readonly ownershipRepo: OwnershipRepository,
     private readonly expiredBatchesRepo: ExpiredBatchesRepository,
     private readonly serialsRepo: SerialsRepository,
+    private readonly priceResolutionService: PriceResolutionService,
   ) {}
 
   async create(
@@ -140,6 +147,104 @@ export class InvoicesService {
         dto.redeem_points,
         loyaltySettings,
       );
+    }
+
+    // D01-M7 — resolve official price + Price Override decision for every
+    // line BEFORE any subtotal/order/write work below. Replaces the
+    // client-supplied dto.items[].unit_price in place with the server-
+    // resolved official/approved price, so PosEngine (and everything after
+    // it) never sees the raw client value again. Any single rejected line
+    // aborts the whole invoice here — zero writes have started yet, which is
+    // what makes "Item 1/2 approved, Item 3 rejected -> zero writes" true
+    // without needing a transaction for this phase.
+    //
+    // Effective Role is resolved at most once per invoice (same userId for
+    // every line) and reused across lines via the cache below — never
+    // re-queried per line. A pure Normal Sale (every line requested ===
+    // official) never triggers it at all, matching PriceResolutionService's
+    // own no_override short-circuit.
+    let cachedEffectiveRole: {
+      resolved: boolean;
+      role: EffectiveRole | null;
+    } | null = null;
+    let anyApprovedOverride = false;
+    const priceResolutions: PriceResolutionResult[] = [];
+    const hasInvoiceLevelDiscount = !!dto.discount;
+
+    for (const item of dto.items) {
+      const result = await this.priceResolutionService.resolvePrice({
+        userId: cashierId,
+        tenantId: tenant.tenantId,
+        branchId,
+        itemId: item.item_id,
+        variantId: item.variant_id,
+        requestedUnitPrice: item.unit_price,
+        reason: item.reason,
+        hasInvoiceLevelDiscount,
+        effectiveRole: cachedEffectiveRole?.resolved
+          ? cachedEffectiveRole.role
+          : undefined,
+      });
+
+      if (result.kind === 'approved') {
+        if (!cachedEffectiveRole) {
+          cachedEffectiveRole = { resolved: true, role: result.effectiveRole };
+        }
+        anyApprovedOverride = true;
+      } else if (result.kind === 'rejected') {
+        if (
+          !cachedEffectiveRole &&
+          result.resolvedEffectiveRole !== undefined
+        ) {
+          cachedEffectiveRole = {
+            resolved: true,
+            role: result.resolvedEffectiveRole,
+          };
+        }
+        if (result.reasonCode === 'item_or_variant_not_found') {
+          throw new NotFoundException({
+            message: 'Item or variant not found',
+            item_id: item.item_id,
+            reasonCode: result.reasonCode,
+          });
+        }
+        throw new BadRequestException({
+          message: 'Price override rejected',
+          item_id: item.item_id,
+          reasonCode: result.reasonCode,
+        });
+      }
+
+      priceResolutions.push(result);
+      // Replace the client-supplied price with the server-resolved one —
+      // official for a Normal Sale, approved for an Override. Every
+      // downstream consumer (PosEngine, order_items insert) reads this
+      // mutated value, never the original client input again.
+      item.unit_price =
+        result.kind === 'no_override'
+          ? result.officialUnitPrice
+          : result.approvedUnitPrice;
+    }
+
+    // Feature-flagged, defaults to false everywhere until DATABASE_URL is
+    // provisioned and migration 075 applied (see STATUS.md §78/§79,
+    // TASKS.md "SAFETY & SCALE INITIATIVE"). Do not remove the PostgREST
+    // branch when enabling this — it's not a temporary shim, it's what every
+    // repository not yet migrated onto TenantSessionService still relies on.
+    const usePooledWrite = this.config.get<boolean>(
+      'POOLED_INVOICE_WRITES_ENABLED',
+    );
+
+    // D01-M7 — an approved Price Override can only be committed atomically
+    // with its price_override_audit row, which only the pooled transaction
+    // path (createWithItemsPooled) provides. Reject before any write rather
+    // than risk an override landing without its audit row.
+    if (anyApprovedOverride && !usePooledWrite) {
+      throw new BadRequestException({
+        message:
+          'Price override requires the atomic (pooled) write path, which is not enabled',
+        reasonCode: 'price_override_requires_atomic_write_path',
+      });
     }
 
     const manualBuilt = this.posEngine.buildInvoice(
@@ -265,18 +370,37 @@ export class InvoicesService {
       }
     }
 
-    // Feature-flagged, defaults to false everywhere until DATABASE_URL is
-    // provisioned and migration 075 applied (see STATUS.md §78/§79,
-    // TASKS.md "SAFETY & SCALE INITIATIVE"). Do not remove the PostgREST
-    // branch when enabling this — it's not a temporary shim, it's what every
-    // repository not yet migrated onto TenantSessionService still relies on.
-    const usePooledWrite = this.config.get<boolean>(
-      'POOLED_INVOICE_WRITES_ENABLED',
-    );
-
     let invoice: { id: string };
     try {
       if (usePooledWrite) {
+        // D01-M7 — official_price_snapshot and, for approved-override
+        // lines, the full audit payload (built entirely from M6's own
+        // returned values — nothing recomputed here) are attached per line
+        // so createWithItemsPooled can write order_items and
+        // price_override_audit inside the same BEGIN/COMMIT.
+        const pooledItems = built.items.map((item, i) => {
+          const resolution = priceResolutions[i];
+          const override: PooledOverrideAudit | undefined =
+            resolution.kind === 'approved'
+              ? {
+                  actor_role_id: resolution.effectiveRole.roleId,
+                  actor_role_name_snapshot: resolution.effectiveRole.roleName,
+                  official_unit_price: resolution.officialUnitPrice,
+                  approved_unit_price: resolution.approvedUnitPrice,
+                  difference_amount: resolution.differenceAmount,
+                  difference_percent: resolution.differencePercent,
+                  direction: resolution.direction,
+                  reason: resolution.reason,
+                  effective_policy_snapshot: resolution.effectivePolicySnapshot,
+                }
+              : undefined;
+          return {
+            ...item,
+            official_price_snapshot: resolution.officialUnitPrice,
+            override,
+          };
+        });
+
         invoice = await this.repo.createWithItemsPooled(
           tenant,
           {
@@ -296,7 +420,7 @@ export class InvoicesService {
             cash_amount: persistedCashAmount,
             card_amount: persistedCardAmount,
           },
-          built.items,
+          pooledItems,
         );
       } else {
         invoice = await this.repo.create(tenant, {
@@ -317,8 +441,10 @@ export class InvoicesService {
           card_amount: persistedCardAmount,
         });
 
+        // D01-M7 — official_price_snapshot per line (Normal Sale only can
+        // reach this branch; anyApprovedOverride forced usePooledWrite above).
         await this.repo.insertItems(
-          built.items.map((item) => ({
+          built.items.map((item, i) => ({
             order_id: invoice.id,
             tenant_id: tenant.tenantId,
             item_id: item.item_id,
@@ -327,6 +453,7 @@ export class InvoicesService {
             variant_name: item.variant_name ?? null,
             quantity: item.quantity,
             unit_price: item.unit_price,
+            official_price_snapshot: priceResolutions[i].officialUnitPrice,
             total_price: parseFloat(
               (item.unit_price * item.quantity).toFixed(2),
             ),
