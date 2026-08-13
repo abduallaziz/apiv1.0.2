@@ -87,7 +87,9 @@ export class GoodsReceiptsService {
         );
       }
       if (line.ownership_type === 'consignment' && !line.owner_supplier_id) {
-        throw new BadRequestException('owner_supplier_id is required when ownership_type is consignment');
+        throw new BadRequestException(
+          'owner_supplier_id is required when ownership_type is consignment',
+        );
       }
 
       // A line entered in an alternate unit (e.g. "2 cartons") is converted
@@ -117,7 +119,10 @@ export class GoodsReceiptsService {
         expiration_date: line.expiration_date ?? null,
         location_id: line.location_id ?? null,
         unit_id: line.unit_id ?? null,
-        ownership_type: line.ownership_type && line.ownership_type !== 'company' ? line.ownership_type : null,
+        ownership_type:
+          line.ownership_type && line.ownership_type !== 'company'
+            ? line.ownership_type
+            : null,
         owner_supplier_id: line.owner_supplier_id ?? null,
       });
     }
@@ -154,12 +159,23 @@ export class GoodsReceiptsService {
   // specified; this task tracks the physical relocation to the suggested
   // storage location. Best-effort, same principle as autoCreateInspections
   // above — never blocks the already-completed receipt.
-  private async autoCreatePutawayTasks(tenantId: string, receipt: any, actorId: string) {
+  private async autoCreatePutawayTasks(
+    tenantId: string,
+    receipt: any,
+    actorId: string,
+  ) {
     for (const item of receipt.items ?? []) {
       try {
         await this.putawayService.createFromReceipt(
-          tenantId, receipt.warehouse_id, item.item_id, item.variant_id ?? null, item.batch_id ?? null,
-          Number(item.quantity_received), item.location_id ?? null, receipt.id, actorId,
+          tenantId,
+          receipt.warehouse_id,
+          item.item_id,
+          item.variant_id ?? null,
+          item.batch_id ?? null,
+          Number(item.quantity_received),
+          item.location_id ?? null,
+          receipt.id,
+          actorId,
         );
       } catch {
         // best-effort — never block the already-completed receipt
@@ -174,23 +190,36 @@ export class GoodsReceiptsService {
   // failure must never block the receipt posting that already succeeded
   // (the physical/financial transaction is the priority — same principle
   // as the existing advisory-only quality hold check on the sales side).
-  private async autoCreateInspections(tenantId: string, receipt: any, actorId: string) {
+  private async autoCreateInspections(
+    tenantId: string,
+    receipt: any,
+    actorId: string,
+  ) {
     const supplierId = receipt.purchase_orders?.supplier_id ?? null;
     for (const item of receipt.items ?? []) {
       try {
         const rule = await this.qualityConfigService.resolvePlan(
-          tenantId, 'goods_receipt', item.item_id, null, supplierId, receipt.warehouse_id,
+          tenantId,
+          'goods_receipt',
+          item.item_id,
+          null,
+          supplierId,
+          receipt.warehouse_id,
         );
         if (rule?.action === 'require_inspection') {
-          await this.inspectionsService.create(tenantId, {
-            reference_type: 'goods_receipt',
-            reference_id: receipt.id,
-            item_id: item.item_id,
-            variant_id: item.variant_id ?? undefined,
-            template_id: rule.template_id ?? undefined,
-            warehouse_id: receipt.warehouse_id,
-            quantity_inspected: item.quantity_received,
-          } as any, actorId);
+          await this.inspectionsService.create(
+            tenantId,
+            {
+              reference_type: 'goods_receipt',
+              reference_id: receipt.id,
+              item_id: item.item_id,
+              variant_id: item.variant_id ?? undefined,
+              template_id: rule.template_id ?? undefined,
+              warehouse_id: receipt.warehouse_id,
+              quantity_inspected: item.quantity_received,
+            } as any,
+            actorId,
+          );
         }
       } catch {
         // best-effort — never block the already-completed receipt

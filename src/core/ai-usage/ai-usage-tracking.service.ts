@@ -141,8 +141,12 @@ export class AiUsageTrackingService {
             count,
             failCount: Number(hash.failCount ?? 0),
             avgDurationMs: count ? Math.round(totalDurationMs / count) : 0,
-            totalEstimatedInputTokens: Number(hash.totalEstimatedInputTokens ?? 0),
-            totalEstimatedOutputTokens: Number(hash.totalEstimatedOutputTokens ?? 0),
+            totalEstimatedInputTokens: Number(
+              hash.totalEstimatedInputTokens ?? 0,
+            ),
+            totalEstimatedOutputTokens: Number(
+              hash.totalEstimatedOutputTokens ?? 0,
+            ),
           });
         }
       }
@@ -174,10 +178,18 @@ export class AiUsageTrackingService {
       pipeline.hincrby(hashKey, 'count', 1);
       pipeline.hincrby(hashKey, 'totalDurationMs', event.durationMs);
       if (event.inputTokens != null) {
-        pipeline.hincrby(hashKey, 'totalEstimatedInputTokens', event.inputTokens);
+        pipeline.hincrby(
+          hashKey,
+          'totalEstimatedInputTokens',
+          event.inputTokens,
+        );
       }
       if (event.outputTokens != null) {
-        pipeline.hincrby(hashKey, 'totalEstimatedOutputTokens', event.outputTokens);
+        pipeline.hincrby(
+          hashKey,
+          'totalEstimatedOutputTokens',
+          event.outputTokens,
+        );
       }
       await pipeline.exec();
     } catch {

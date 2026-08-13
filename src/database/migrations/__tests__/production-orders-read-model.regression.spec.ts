@@ -46,7 +46,14 @@ describe('production orders read model regression (Migration 6.7)', () => {
   const createItem = async (name: string) => {
     const { data, error } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name, type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name,
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -54,7 +61,11 @@ describe('production orders read model regression (Migration 6.7)', () => {
     return data.id;
   };
 
-  const seedStock = async (componentItemId: string, qty: number, unitCost: number) => {
+  const seedStock = async (
+    componentItemId: string,
+    qty: number,
+    unitCost: number,
+  ) => {
     const { data: gr, error: grErr } = await supabase
       .from('goods_receipts')
       .insert({
@@ -68,13 +79,15 @@ describe('production orders read model regression (Migration 6.7)', () => {
     if (grErr) throw grErr;
     grIds.push(gr.id);
 
-    const { error: lineErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID,
-      goods_receipt_id: gr.id,
-      item_id: componentItemId,
-      quantity_received: qty,
-      unit_cost: unitCost,
-    });
+    const { error: lineErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: componentItemId,
+        quantity_received: qty,
+        unit_cost: unitCost,
+      });
     if (lineErr) throw lineErr;
 
     const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
@@ -84,10 +97,18 @@ describe('production orders read model regression (Migration 6.7)', () => {
     if (postErr) throw postErr;
   };
 
-  const createBom = async (finishedItemId: string, componentItemId: string, qtyPerUnit: number) => {
+  const createBom = async (
+    finishedItemId: string,
+    componentItemId: string,
+    qtyPerUnit: number,
+  ) => {
     const { data: bom, error: bomErr } = await supabase
       .from('bill_of_materials')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: finishedItemId, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: finishedItemId,
+        is_active: true,
+      })
       .select()
       .single();
     if (bomErr) throw bomErr;
@@ -123,14 +144,22 @@ describe('production orders read model regression (Migration 6.7)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
-    const { data: wh, error } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
+    const { data: wh, error } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1);
     if (error) throw error;
-    warehouseId = wh![0].id;
+    warehouseId = wh[0].id;
   }, 30_000);
 
   afterAll(async () => {
-    for (const id of orderIds) await supabase.from('production_orders').delete().eq('id', id);
+    for (const id of orderIds)
+      await supabase.from('production_orders').delete().eq('id', id);
     for (const id of bomIds) {
       await supabase.from('bom_lines').delete().eq('bom_id', id);
       await supabase.from('bill_of_materials').delete().eq('id', id);
@@ -140,10 +169,14 @@ describe('production orders read model regression (Migration 6.7)', () => {
       await supabase.from('stock_levels').delete().eq('item_id', itemId);
     }
     for (const id of grIds) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', id);
       await supabase.from('goods_receipts').delete().eq('id', id);
     }
-    for (const itemId of itemIds) await supabase.from('items').delete().eq('id', itemId);
+    for (const itemId of itemIds)
+      await supabase.from('items').delete().eq('id', itemId);
   }, 60_000);
 
   it('LIST_SELECT embed resolves warehouse name and BOM output item name (validates FK constraint names)', async () => {
@@ -161,8 +194,8 @@ describe('production orders read model regression (Migration 6.7)', () => {
       .single();
 
     expect(error).toBeNull();
-    expect((data as any).warehouse?.name).toBeTruthy();
-    expect((data as any).bom?.item?.name).toBe('PO67 Finished (list embed)');
+    expect(data.warehouse?.name).toBeTruthy();
+    expect(data.bom?.item?.name).toBe('PO67 Finished (list embed)');
   }, 30_000);
 
   it('DETAIL_SELECT embed resolves (work_center/created_by are null-safe when unset)', async () => {
@@ -180,9 +213,9 @@ describe('production orders read model regression (Migration 6.7)', () => {
       .single();
 
     expect(error).toBeNull();
-    expect((data as any).warehouse?.name).toBeTruthy();
-    expect((data as any).work_center).toBeNull(); // no work_center_id set on this order
-    expect((data as any).created_by_user).toBeNull(); // no created_by set on this order
+    expect(data.warehouse?.name).toBeTruthy();
+    expect(data.work_center).toBeNull(); // no work_center_id set on this order
+    expect(data.created_by_user).toBeNull(); // no created_by set on this order
   }, 30_000);
 
   it('draft -> completed (direct) works; consumption movements queryable afterward', async () => {
@@ -192,10 +225,13 @@ describe('production orders read model regression (Migration 6.7)', () => {
     const bomId = await createBom(finishedId, componentId, 4);
     const orderId = await createOrder(bomId, 5);
 
-    const { data: completed, error: completeErr } = await supabase.rpc('fn_post_production_order', {
-      p_production_order_id: orderId,
-      p_actor_id: null,
-    });
+    const { data: completed, error: completeErr } = await supabase.rpc(
+      'fn_post_production_order',
+      {
+        p_production_order_id: orderId,
+        p_actor_id: null,
+      },
+    );
     expect(completeErr).toBeNull();
     expect(completed.status).toBe('completed');
 
@@ -208,8 +244,8 @@ describe('production orders read model regression (Migration 6.7)', () => {
       .eq('reference_id', orderId)
       .eq('movement_type', 'production_consumption');
     expect(movErr).toBeNull();
-    expect(movements!.length).toBe(1);
-    expect(Number(movements![0].quantity)).toBe(20); // 4 per unit * 5 produced
+    expect(movements.length).toBe(1);
+    expect(Number(movements[0].quantity)).toBe(20); // 4 per unit * 5 produced
   }, 30_000);
 
   // Migration 6.8 — fn_post_production_order's guard was widened to accept
@@ -217,7 +253,9 @@ describe('production orders read model regression (Migration 6.7)', () => {
   // fixing the bug documented in the Migration 6.7 report where start()
   // then complete() always failed with "is not draft".
   it('draft -> start -> complete succeeds (Migration 6.8 fix)', async () => {
-    const componentId = await createItem('PO68 Component (start-then-complete)');
+    const componentId = await createItem(
+      'PO68 Component (start-then-complete)',
+    );
     const finishedId = await createItem('PO68 Finished (start-then-complete)');
     await seedStock(componentId, 100, 3);
     const bomId = await createBom(finishedId, componentId, 4);
@@ -230,10 +268,13 @@ describe('production orders read model regression (Migration 6.7)', () => {
       .eq('status', 'draft');
     expect(startErr).toBeNull();
 
-    const { data: completed, error: completeErr } = await supabase.rpc('fn_post_production_order', {
-      p_production_order_id: orderId,
-      p_actor_id: null,
-    });
+    const { data: completed, error: completeErr } = await supabase.rpc(
+      'fn_post_production_order',
+      {
+        p_production_order_id: orderId,
+        p_actor_id: null,
+      },
+    );
     expect(completeErr).toBeNull();
     expect(completed.status).toBe('completed');
   }, 30_000);
@@ -250,10 +291,14 @@ describe('production orders read model regression (Migration 6.7)', () => {
       p_actor_id: null,
     });
     expect(error).not.toBeNull();
-    expect(error!.message).toContain('INSUFFICIENT');
+    expect(error.message).toContain('INSUFFICIENT');
 
-    const { data: order } = await supabase.from('production_orders').select('status').eq('id', orderId).single();
-    expect(order!.status).toBe('draft'); // unchanged — the whole RPC call was one failed transaction
+    const { data: order } = await supabase
+      .from('production_orders')
+      .select('status')
+      .eq('id', orderId)
+      .single();
+    expect(order.status).toBe('draft'); // unchanged — the whole RPC call was one failed transaction
   }, 30_000);
 
   it('cancel: draft order can be cancelled', async () => {
@@ -284,7 +329,10 @@ describe('production orders read model regression (Migration 6.7)', () => {
     const bomId = await createBom(finishedId, componentId, 2);
     const orderId = await createOrder(bomId, 5);
 
-    await supabase.from('production_orders').update({ status: 'in_progress' }).eq('id', orderId);
+    await supabase
+      .from('production_orders')
+      .update({ status: 'in_progress' })
+      .eq('id', orderId);
 
     const { data, error } = await supabase
       .from('production_orders')
@@ -298,13 +346,20 @@ describe('production orders read model regression (Migration 6.7)', () => {
   }, 30_000);
 
   it('cancel: a completed order cannot be cancelled (guard still excludes completed/cancelled)', async () => {
-    const componentId = await createItem('PO68 Component (completed cancel guard)');
-    const finishedId = await createItem('PO68 Finished (completed cancel guard)');
+    const componentId = await createItem(
+      'PO68 Component (completed cancel guard)',
+    );
+    const finishedId = await createItem(
+      'PO68 Finished (completed cancel guard)',
+    );
     await seedStock(componentId, 50, 2);
     const bomId = await createBom(finishedId, componentId, 2);
     const orderId = await createOrder(bomId, 5);
 
-    await supabase.rpc('fn_post_production_order', { p_production_order_id: orderId, p_actor_id: null });
+    await supabase.rpc('fn_post_production_order', {
+      p_production_order_id: orderId,
+      p_actor_id: null,
+    });
 
     const { data } = await supabase
       .from('production_orders')
@@ -315,7 +370,11 @@ describe('production orders read model regression (Migration 6.7)', () => {
       .maybeSingle();
     expect(data).toBeNull(); // 0 rows matched — completed is correctly excluded
 
-    const { data: stillCompleted } = await supabase.from('production_orders').select('status').eq('id', orderId).single();
-    expect(stillCompleted!.status).toBe('completed');
+    const { data: stillCompleted } = await supabase
+      .from('production_orders')
+      .select('status')
+      .eq('id', orderId)
+      .single();
+    expect(stillCompleted.status).toBe('completed');
   }, 30_000);
 });

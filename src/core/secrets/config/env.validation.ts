@@ -47,7 +47,9 @@ export const envValidationSchema = Joi.object({
   }),
   STRIPE_WEBHOOK_SECRET: Joi.when('PAYMENT_PROVIDER', {
     is: 'stripe',
-    then: Joi.string().pattern(/^whsec_/).required(),
+    then: Joi.string()
+      .pattern(/^whsec_/)
+      .required(),
     otherwise: Joi.string().optional().allow(''),
   }),
 

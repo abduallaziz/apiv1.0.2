@@ -9,7 +9,11 @@ export class AdjustmentsRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, status?: string, pagination: PaginationDto = new PaginationDto()) {
+  async findAll(
+    tenantId: string,
+    status?: string,
+    pagination: PaginationDto = new PaginationDto(),
+  ) {
     let query = this.supabase
       .from('stock_adjustments')
       .select(
@@ -18,7 +22,9 @@ export class AdjustmentsRepository extends ScopedRepository {
       .eq('tenant_id', tenantId);
     if (status) query = query.eq('status', status);
     const [from, to] = pagination.range;
-    const { data, error } = await query.order('created_at', { ascending: false }).range(from, to);
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .range(from, to);
     if (error) throw error;
     return data;
   }
@@ -49,7 +55,11 @@ export class AdjustmentsRepository extends ScopedRepository {
   async approve(id: string, tenantId: string, approvedBy: string) {
     const { data, error } = await this.supabase
       .from('stock_adjustments')
-      .update({ status: 'approved', approved_by: approvedBy, approved_at: new Date().toISOString() })
+      .update({
+        status: 'approved',
+        approved_by: approvedBy,
+        approved_at: new Date().toISOString(),
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('status', 'pending_approval')
@@ -62,7 +72,11 @@ export class AdjustmentsRepository extends ScopedRepository {
   async reject(id: string, tenantId: string, approvedBy: string) {
     const { data, error } = await this.supabase
       .from('stock_adjustments')
-      .update({ status: 'rejected', approved_by: approvedBy, approved_at: new Date().toISOString() })
+      .update({
+        status: 'rejected',
+        approved_by: approvedBy,
+        approved_at: new Date().toISOString(),
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('status', 'pending_approval')
@@ -73,10 +87,13 @@ export class AdjustmentsRepository extends ScopedRepository {
   }
 
   async post(adjustmentId: string, actorId: string) {
-    const { data, error } = await this.supabase.rpc('fn_post_stock_adjustment', {
-      p_adjustment_id: adjustmentId,
-      p_actor_id: actorId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_post_stock_adjustment',
+      {
+        p_adjustment_id: adjustmentId,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }

@@ -1,4 +1,12 @@
-import { IsUUID, IsOptional, IsNumber, NotEquals, IsString, IsNotEmpty, Min } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsNumber,
+  NotEquals,
+  IsString,
+  IsNotEmpty,
+  Min,
+} from 'class-validator';
 
 export class CreateAdjustmentDto {
   @IsUUID()

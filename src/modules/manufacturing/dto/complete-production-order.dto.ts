@@ -1,4 +1,10 @@
-import { IsArray, IsNumber, Min, IsOptional, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsNumber,
+  Min,
+  IsOptional,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateScrapDto } from './create-scrap.dto';
 

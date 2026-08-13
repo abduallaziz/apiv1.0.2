@@ -42,10 +42,14 @@ export class AccessControlRepository {
   // Excludes resource='superadmin' entries unless the caller is superadmin —
   // platform-only permissions should never even be listed as a tenant-facing
   // option, not just rejected on write (defense in depth).
-  async listPermissionsCatalog(includeSuperadmin: boolean): Promise<PermissionRow[]> {
+  async listPermissionsCatalog(
+    includeSuperadmin: boolean,
+  ): Promise<PermissionRow[]> {
     let query = this.supabase
       .from('permissions')
-      .select('id, name, resource, action, description, group_id, permission_groups(code)')
+      .select(
+        'id, name, resource, action, description, group_id, permission_groups(code)',
+      )
       .order('name', { ascending: true });
 
     if (!includeSuperadmin) {
@@ -57,7 +61,9 @@ export class AccessControlRepository {
 
     const rows = includeSuperadmin
       ? (data ?? [])
-      : (data ?? []).filter((row: any) => !HARDCODED_PLATFORM_ONLY_KEYS.has(row.name));
+      : (data ?? []).filter(
+          (row: any) => !HARDCODED_PLATFORM_ONLY_KEYS.has(row.name),
+        );
 
     return rows.map((row: any) => ({
       id: row.id,
@@ -76,7 +82,9 @@ export class AccessControlRepository {
   async listRolesForTenant(tenantId: string): Promise<RoleRow[]> {
     const { data, error } = await this.supabase
       .from('roles')
-      .select('id, name, description, tenant_id, is_system, created_at, updated_at')
+      .select(
+        'id, name, description, tenant_id, is_system, created_at, updated_at',
+      )
       .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
       .neq('name', 'superadmin')
       .order('name', { ascending: true });
@@ -88,7 +96,9 @@ export class AccessControlRepository {
   async getRoleById(roleId: string): Promise<RoleRow | null> {
     const { data, error } = await this.supabase
       .from('roles')
-      .select('id, name, description, tenant_id, is_system, created_at, updated_at')
+      .select(
+        'id, name, description, tenant_id, is_system, created_at, updated_at',
+      )
       .eq('id', roleId)
       .maybeSingle();
 
@@ -96,11 +106,17 @@ export class AccessControlRepository {
     return data;
   }
 
-  async createRole(tenantId: string, name: string, description: string | null): Promise<RoleRow> {
+  async createRole(
+    tenantId: string,
+    name: string,
+    description: string | null,
+  ): Promise<RoleRow> {
     const { data, error } = await this.supabase
       .from('roles')
       .insert({ tenant_id: tenantId, name, description, is_system: false })
-      .select('id, name, description, tenant_id, is_system, created_at, updated_at')
+      .select(
+        'id, name, description, tenant_id, is_system, created_at, updated_at',
+      )
       .single();
 
     if (error) {
@@ -127,7 +143,9 @@ export class AccessControlRepository {
     if (error) throw error;
   }
 
-  async getPermissionByKey(permissionKey: string): Promise<{ name: string; resource: string } | null> {
+  async getPermissionByKey(
+    permissionKey: string,
+  ): Promise<{ name: string; resource: string } | null> {
     const { data, error } = await this.supabase
       .from('permissions')
       .select('name, resource')
@@ -147,12 +165,23 @@ export class AccessControlRepository {
   // !inner + eq('user.tenant_id', ...) is mandatory, not optional: a system
   // role's id is shared across every tenant, so without this filter every
   // tenant's users holding that system role would leak into the result.
-  async getUsersByRole(roleId: string, tenantId: string): Promise<
-    { id: string; name: string; email: string; is_active: boolean; is_primary: boolean }[]
+  async getUsersByRole(
+    roleId: string,
+    tenantId: string,
+  ): Promise<
+    {
+      id: string;
+      name: string;
+      email: string;
+      is_active: boolean;
+      is_primary: boolean;
+    }[]
   > {
     const { data, error } = await this.supabase
       .from('user_roles')
-      .select('is_primary, user:users!user_roles_user_id_fkey!inner(id, name, email, is_active, tenant_id, deleted_at)')
+      .select(
+        'is_primary, user:users!user_roles_user_id_fkey!inner(id, name, email, is_active, tenant_id, deleted_at)',
+      )
       .eq('role_id', roleId)
       .eq('user.tenant_id', tenantId)
       .is('user.deleted_at', null);
@@ -178,7 +207,10 @@ export class AccessControlRepository {
   async countUsersForRole(roleId: string, tenantId: string): Promise<number> {
     const { count, error } = await this.supabase
       .from('user_roles')
-      .select('id, user:users!user_roles_user_id_fkey!inner(id)', { count: 'exact', head: true })
+      .select('id, user:users!user_roles_user_id_fkey!inner(id)', {
+        count: 'exact',
+        head: true,
+      })
       .eq('role_id', roleId)
       .eq('user.tenant_id', tenantId)
       .is('user.deleted_at', null);
@@ -187,7 +219,10 @@ export class AccessControlRepository {
     return count ?? 0;
   }
 
-  async countCustomizedPermissions(tenantId: string, roleId: string): Promise<number> {
+  async countCustomizedPermissions(
+    tenantId: string,
+    roleId: string,
+  ): Promise<number> {
     const { count, error } = await this.supabase
       .from('tenant_role_permissions')
       .select('id', { count: 'exact', head: true })
@@ -253,7 +288,11 @@ export class AccessControlRepository {
 
   // Reset means DELETE the override row(s) — never write a row that merely
   // matches the current global default (see S5 Stage C approved decision #3).
-  async deleteOverride(tenantId: string, roleId: string, permissionKey: string): Promise<void> {
+  async deleteOverride(
+    tenantId: string,
+    roleId: string,
+    permissionKey: string,
+  ): Promise<void> {
     const { error } = await this.supabase
       .from('tenant_role_permissions')
       .delete()
@@ -264,7 +303,10 @@ export class AccessControlRepository {
     if (error) throw error;
   }
 
-  async deleteAllOverridesForRole(tenantId: string, roleId: string): Promise<void> {
+  async deleteAllOverridesForRole(
+    tenantId: string,
+    roleId: string,
+  ): Promise<void> {
     const { error } = await this.supabase
       .from('tenant_role_permissions')
       .delete()

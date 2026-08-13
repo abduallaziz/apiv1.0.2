@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { OwnershipService } from './ownership.service';
 import { CreateOwnershipLayerDto } from './dto/create-ownership-layer.dto';
 import { TransferOwnershipDto } from './dto/transfer-ownership.dto';
@@ -44,7 +54,11 @@ export class OwnershipController {
   @Post()
   @RequirePermission('ownership.manage')
   @Audit('ownership_layer.created')
-  create(@Body() dto: CreateOwnershipLayerDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  create(
+    @Body() dto: CreateOwnershipLayerDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.ownershipService.create(tenant.tenantId, dto, user.sub);
   }
 
@@ -52,7 +66,11 @@ export class OwnershipController {
   @RequirePermission('ownership.manage')
   @HttpCode(HttpStatus.OK)
   @Audit('ownership_layer.transferred')
-  transfer(@Param('id') id: string, @Body() dto: TransferOwnershipDto, @GetTenant() tenant: TenantContext) {
+  transfer(
+    @Param('id') id: string,
+    @Body() dto: TransferOwnershipDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.ownershipService.transfer(id, tenant.tenantId, dto);
   }
 
@@ -60,7 +78,11 @@ export class OwnershipController {
   @RequirePermission('ownership.manage')
   @HttpCode(HttpStatus.OK)
   @Audit('ownership_layer.released')
-  release(@Param('id') id: string, @Body() dto: ReleaseOwnershipDto, @GetTenant() tenant: TenantContext) {
+  release(
+    @Param('id') id: string,
+    @Body() dto: ReleaseOwnershipDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.ownershipService.release(id, tenant.tenantId, dto);
   }
 }

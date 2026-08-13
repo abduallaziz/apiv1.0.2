@@ -23,10 +23,7 @@ export class AppController {
   @Public()
   @Get('health/db')
   async dbHealth(): Promise<{ status: string; connected: boolean }> {
-    const { error } = await this.supabase
-      .from('tenants')
-      .select('id')
-      .limit(1);
+    const { error } = await this.supabase.from('tenants').select('id').limit(1);
 
     return { status: error ? 'error' : 'ok', connected: !error };
   }

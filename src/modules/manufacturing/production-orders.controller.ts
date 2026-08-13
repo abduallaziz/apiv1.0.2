@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ProductionOrdersService } from './production-orders.service';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
 import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
@@ -17,11 +28,16 @@ import { Audit } from '../../core/audit/audit.decorator';
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('manufacturing/production-orders')
 export class ProductionOrdersController {
-  constructor(private readonly productionOrdersService: ProductionOrdersService) {}
+  constructor(
+    private readonly productionOrdersService: ProductionOrdersService,
+  ) {}
 
   @Get()
   @RequirePermission('manufacturing.view')
-  findAll(@GetTenant() tenant: TenantContext, @Query() query: QueryProductionOrdersDto) {
+  findAll(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: QueryProductionOrdersDto,
+  ) {
     return this.productionOrdersService.findAll(tenant.tenantId, query);
   }
 
@@ -34,7 +50,10 @@ export class ProductionOrdersController {
   @Post()
   @RequirePermission('manufacturing.plan')
   @Audit('production_order.created')
-  create(@Body() dto: CreateProductionOrderDto, @GetTenant() tenant: TenantContext) {
+  create(
+    @Body() dto: CreateProductionOrderDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.productionOrdersService.create(tenant.tenantId, dto);
   }
 
@@ -66,7 +85,12 @@ export class ProductionOrdersController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.productionOrdersService.complete(id, tenant.tenantId, user.sub, dto);
+    return this.productionOrdersService.complete(
+      id,
+      tenant.tenantId,
+      user.sub,
+      dto,
+    );
   }
 
   @Post(':id/cancel')

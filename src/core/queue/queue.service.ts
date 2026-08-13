@@ -2,7 +2,12 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { Queue, JobProgress } from 'bullmq';
 import { QueueRegistry } from './queue.registry';
 
-export type JobStatus = 'waiting' | 'active' | 'completed' | 'failed' | 'delayed';
+export type JobStatus =
+  | 'waiting'
+  | 'active'
+  | 'completed'
+  | 'failed'
+  | 'delayed';
 export type JobStatusFilter = JobStatus | 'all';
 export type NormalizedJobStatus = JobStatus | 'unknown';
 
@@ -50,9 +55,15 @@ export class QueueService {
   async getAllQueuesStats(): Promise<QueueStats[]> {
     return Promise.all(
       this.registry.getNames().map(async (name) => {
-        const queue = this.registry.get(name)!;
+        const queue = this.registry.get(name);
         const [counts, isPaused] = await Promise.all([
-          queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed'),
+          queue.getJobCounts(
+            'waiting',
+            'active',
+            'completed',
+            'failed',
+            'delayed',
+          ),
           queue.isPaused(),
         ]);
         return {
@@ -108,7 +119,9 @@ export class QueueService {
     const queue = this.getQueueOrThrow(queueName);
     const job = await queue.getJob(jobId);
     if (!job) {
-      throw new BadRequestException(`Job "${jobId}" not found in queue "${queueName}"`);
+      throw new BadRequestException(
+        `Job "${jobId}" not found in queue "${queueName}"`,
+      );
     }
     const state = await job.getState();
     return {
@@ -164,10 +177,17 @@ export class QueueService {
     return removed.length;
   }
 
-  private async getTotalCount(queue: Queue, status: JobStatusFilter): Promise<number> {
+  private async getTotalCount(
+    queue: Queue,
+    status: JobStatusFilter,
+  ): Promise<number> {
     if (status === 'all') {
       const counts = await queue.getJobCounts(
-        'waiting', 'active', 'completed', 'failed', 'delayed',
+        'waiting',
+        'active',
+        'completed',
+        'failed',
+        'delayed',
       );
       return Object.values(counts).reduce((a, b) => a + b, 0);
     }

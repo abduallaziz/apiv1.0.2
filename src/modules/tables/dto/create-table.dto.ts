@@ -1,4 +1,11 @@
-import { IsUUID, IsString, IsInt, Min, MaxLength, IsOptional } from 'class-validator';
+import {
+  IsUUID,
+  IsString,
+  IsInt,
+  Min,
+  MaxLength,
+  IsOptional,
+} from 'class-validator';
 
 export class CreateTableDto {
   @IsUUID()

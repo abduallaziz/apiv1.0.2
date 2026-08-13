@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { DeviationsRepository } from './repositories/deviations.repository';
 import { ItemsService } from '../items/items.service';
 import { CreateDeviationDto } from './dto/create-deviation.dto';
@@ -33,13 +37,29 @@ export class DeviationsService {
     });
   }
 
-  async decide(id: string, tenantId: string, dto: DecideDeviationDto, approverId: string) {
+  async decide(
+    id: string,
+    tenantId: string,
+    dto: DecideDeviationDto,
+    approverId: string,
+  ) {
     const existing: any = await this.findById(id, tenantId);
     if (existing.status !== 'pending') {
-      throw new BadRequestException(`Deviation ${id} is not pending (status=${existing.status})`);
+      throw new BadRequestException(
+        `Deviation ${id} is not pending (status=${existing.status})`,
+      );
     }
-    const decided = await this.deviationsRepo.decide(id, tenantId, dto.approved ? 'approved' : 'rejected', approverId, dto.decision_notes);
-    if (!decided) throw new BadRequestException(`Deviation ${id} status changed concurrently`);
+    const decided = await this.deviationsRepo.decide(
+      id,
+      tenantId,
+      dto.approved ? 'approved' : 'rejected',
+      approverId,
+      dto.decision_notes,
+    );
+    if (!decided)
+      throw new BadRequestException(
+        `Deviation ${id} status changed concurrently`,
+      );
     return decided;
   }
 }

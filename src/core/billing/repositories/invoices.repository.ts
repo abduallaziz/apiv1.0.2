@@ -93,7 +93,8 @@ export class InvoicesRepository {
       .select()
       .single();
 
-    if (error || !invoice) throw new Error(`Failed to create invoice: ${error?.message}`);
+    if (error || !invoice)
+      throw new Error(`Failed to create invoice: ${error?.message}`);
 
     if (input.items.length > 0) {
       const { error: itemsError } = await this.supabase
@@ -109,7 +110,10 @@ export class InvoicesRepository {
           })),
         );
 
-      if (itemsError) throw new Error(`Failed to create invoice items: ${itemsError.message}`);
+      if (itemsError)
+        throw new Error(
+          `Failed to create invoice items: ${itemsError.message}`,
+        );
     }
 
     return invoice;
@@ -137,7 +141,8 @@ export class InvoicesRepository {
       })
       .eq('id', invoiceId);
 
-    if (error) throw new Error(`Failed to mark invoice overdue: ${error.message}`);
+    if (error)
+      throw new Error(`Failed to mark invoice overdue: ${error.message}`);
   }
 
   async findByTenant(
@@ -156,7 +161,10 @@ export class InvoicesRepository {
     return { data: data ?? [], count: count ?? 0 };
   }
 
-  async findById(invoiceId: string, tenantId: string): Promise<InvoiceRecord | null> {
+  async findById(
+    invoiceId: string,
+    tenantId: string,
+  ): Promise<InvoiceRecord | null> {
     const { data, error } = await this.supabase
       .from('invoices')
       .select('*')

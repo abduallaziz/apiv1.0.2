@@ -17,7 +17,10 @@ describe('warehouse branch_id required (Migration 13.1B)', () => {
   const warehouseIds: string[] = [];
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
     const { data: branch, error } = await supabase
       .from('branches')
       .select('id')
@@ -34,7 +37,10 @@ describe('warehouse branch_id required (Migration 13.1B)', () => {
       if (error) {
         // Only expected if a test posted stock against it (immutable ledger, FK RESTRICT) —
         // fall back to soft delete so nothing is left active/orphaned.
-        await supabase.from('warehouses').update({ deleted_at: new Date().toISOString(), is_active: false }).eq('id', id);
+        await supabase
+          .from('warehouses')
+          .update({ deleted_at: new Date().toISOString(), is_active: false })
+          .eq('id', id);
       }
     }
   }, 30_000);
@@ -77,8 +83,8 @@ describe('warehouse branch_id required (Migration 13.1B)', () => {
       .is('deleted_at', null)
       .limit(5);
     expect(error).toBeNull();
-    expect(data!.length).toBeGreaterThan(0);
-    for (const w of data!) {
+    expect(data.length).toBeGreaterThan(0);
+    for (const w of data) {
       expect(w.branch_id).not.toBeNull();
     }
   }, 30_000);
@@ -99,14 +105,26 @@ describe('warehouse branch_id required (Migration 13.1B)', () => {
 
     const { data: item, error: itemErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr Branch-Req Item', type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr Branch-Req Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     expect(itemErr).toBeNull();
 
     const { data: gr } = await supabase
       .from('goods_receipts')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: wh.id, receipt_number: `REGR-BR-${Date.now()}`, status: 'draft' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: wh.id,
+        receipt_number: `REGR-BR-${Date.now()}`,
+        status: 'draft',
+      })
       .select()
       .single();
     await supabase.from('goods_receipt_items').insert({
@@ -116,7 +134,10 @@ describe('warehouse branch_id required (Migration 13.1B)', () => {
       quantity_received: 10,
       unit_cost: 2,
     });
-    const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', { p_goods_receipt_id: gr.id, p_actor_id: null });
+    const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
+      p_goods_receipt_id: gr.id,
+      p_actor_id: null,
+    });
     expect(postErr).toBeNull();
 
     const { data: balance } = await supabase
@@ -128,7 +149,10 @@ describe('warehouse branch_id required (Migration 13.1B)', () => {
     expect(Number(balance?.quantity_on_hand)).toBe(10);
 
     // Cleanup specific to this test's own fixtures (goods_receipts/items), independent of afterAll.
-    await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', gr.id);
+    await supabase
+      .from('goods_receipt_items')
+      .delete()
+      .eq('goods_receipt_id', gr.id);
     await supabase.from('goods_receipts').delete().eq('id', gr.id);
     await supabase.from('stock_levels').delete().eq('item_id', item.id);
     await supabase.from('cost_layers').delete().eq('item_id', item.id);
@@ -155,6 +179,6 @@ describe('warehouse branch_id required (Migration 13.1B)', () => {
       .eq('tenant_id', TEST_TENANT_ID)
       .eq('branch_id', crossTenantBranch.id);
     expect(error).toBeNull();
-    expect(data!.length).toBe(0); // no warehouse in this tenant is linked to another tenant's branch
+    expect(data.length).toBe(0); // no warehouse in this tenant is linked to another tenant's branch
   }, 30_000);
 });

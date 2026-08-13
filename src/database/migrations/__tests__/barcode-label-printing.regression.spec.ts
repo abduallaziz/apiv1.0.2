@@ -29,7 +29,10 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
   let variantBarcodeId: string;
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
 
     const barcodesRepo = new ItemBarcodesRepository(supabase);
     const itemsRepo = new ItemsRepository(supabase);
@@ -37,7 +40,15 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
 
     const { data: item, error: itemErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr Label Item', type: 'product', operation_type: 'sell', price: 5, has_variants: true, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr Label Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        has_variants: true,
+        is_active: true,
+      })
       .select()
       .single();
     if (itemErr) throw itemErr;
@@ -45,7 +56,12 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
 
     const { data: variant, error: variantErr } = await supabase
       .from('item_variants')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: itemId, name: 'Regr Label Variant', is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: itemId,
+        name: 'Regr Label Variant',
+        is_active: true,
+      })
       .select()
       .single();
     if (variantErr) throw variantErr;
@@ -53,7 +69,13 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
 
     const { data: itemBarcode, error: ibErr } = await supabase
       .from('item_barcodes')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: itemId, barcode: `13.10FIX-ITEM-${Date.now()}`, barcode_type: 'EAN', is_primary: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: itemId,
+        barcode: `13.10FIX-ITEM-${Date.now()}`,
+        barcode_type: 'EAN',
+        is_primary: true,
+      })
       .select()
       .single();
     if (ibErr) throw ibErr;
@@ -61,7 +83,14 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
 
     const { data: variantBarcode, error: vbErr } = await supabase
       .from('item_barcodes')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: itemId, variant_id: variantId, barcode: `13.10FIX-VAR-${Date.now()}`, barcode_type: 'QR', is_primary: false })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: itemId,
+        variant_id: variantId,
+        barcode: `13.10FIX-VAR-${Date.now()}`,
+        barcode_type: 'QR',
+        is_primary: false,
+      })
       .select()
       .single();
     if (vbErr) throw vbErr;
@@ -76,14 +105,20 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
   }, 30_000);
 
   it('Test 1: generates a label for an item-level barcode', async () => {
-    const svg = await barcodesService.renderLabel(itemBarcodeId, TEST_TENANT_ID);
+    const svg = await barcodesService.renderLabel(
+      itemBarcodeId,
+      TEST_TENANT_ID,
+    );
     expect(svg).toContain('<svg');
     expect(svg).toContain('Regr Label Item');
     expect(svg).toContain('EAN');
   }, 30_000);
 
   it('Test 2: generates a label for a variant-level barcode, including the variant name', async () => {
-    const svg = await barcodesService.renderLabel(variantBarcodeId, TEST_TENANT_ID);
+    const svg = await barcodesService.renderLabel(
+      variantBarcodeId,
+      TEST_TENANT_ID,
+    );
     expect(svg).toContain('<svg');
     expect(svg).toContain('Regr Label Item');
     expect(svg).toContain('Regr Label Variant');
@@ -91,12 +126,17 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
   }, 30_000);
 
   it('Test 3: tenant isolation — a barcode from another tenant is not accessible', async () => {
-    await expect(barcodesService.renderLabel(itemBarcodeId, OTHER_TENANT_ID)).rejects.toThrow('Barcode not found');
+    await expect(
+      barcodesService.renderLabel(itemBarcodeId, OTHER_TENANT_ID),
+    ).rejects.toThrow('Barcode not found');
   }, 30_000);
 
   it('Test 4: invalid/nonexistent barcode id is rejected with 404', async () => {
     await expect(
-      barcodesService.renderLabel('00000000-0000-0000-0000-000000000099', TEST_TENANT_ID),
+      barcodesService.renderLabel(
+        '00000000-0000-0000-0000-000000000099',
+        TEST_TENANT_ID,
+      ),
     ).rejects.toThrow('Barcode not found');
   }, 30_000);
 
@@ -109,7 +149,10 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
 
     // Also reused across guards — @UseGuards on the class covers this handler
     // (JwtAuthGuard, TenantGuard, PermissionGuard), no per-method override exists.
-    const classGuards = Reflect.getMetadata('__guards__', ItemBarcodesController);
+    const classGuards = Reflect.getMetadata(
+      '__guards__',
+      ItemBarcodesController,
+    );
     expect(classGuards).toBeDefined();
     expect(classGuards.length).toBeGreaterThanOrEqual(3);
   }, 10_000);

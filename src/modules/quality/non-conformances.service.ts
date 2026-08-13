@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { NonConformancesRepository } from './repositories/non-conformances.repository';
 import { InspectionsService } from './inspections.service';
 import { ItemsService } from '../items/items.service';
@@ -8,7 +12,14 @@ import { CreateDefectDto } from './dto/create-defect.dto';
 import { AuditService } from '../../core/audit/audit.service';
 
 // open -> investigating -> containment -> corrective_action -> verification -> closed
-const NC_LIFECYCLE = ['open', 'investigating', 'containment', 'corrective_action', 'verification', 'closed'];
+const NC_LIFECYCLE = [
+  'open',
+  'investigating',
+  'containment',
+  'corrective_action',
+  'verification',
+  'closed',
+];
 
 @Injectable()
 export class NonConformancesService {
@@ -40,10 +51,15 @@ export class NonConformancesService {
   async create(tenantId: string, dto: CreateNonConformanceDto) {
     const source = dto.source ?? 'inspection';
     if (source !== 'customer_complaint' && !dto.quality_inspection_id) {
-      throw new BadRequestException('quality_inspection_id is required unless source is customer_complaint');
+      throw new BadRequestException(
+        'quality_inspection_id is required unless source is customer_complaint',
+      );
     }
     if (dto.quality_inspection_id) {
-      await this.inspectionsService.findById(dto.quality_inspection_id, tenantId);
+      await this.inspectionsService.findById(
+        dto.quality_inspection_id,
+        tenantId,
+      );
     }
     await this.itemsService.findById(dto.item_id, tenantId);
 
@@ -75,7 +91,12 @@ export class NonConformancesService {
   // (kept from the original schema) and is only reachable from
   // 'verification', ensuring a corrective action's effectiveness was
   // checked before a non-conformance can be closed.
-  async updateStatus(id: string, tenantId: string, dto: UpdateNonConformanceStatusDto, actorId: string) {
+  async updateStatus(
+    id: string,
+    tenantId: string,
+    dto: UpdateNonConformanceStatusDto,
+    actorId: string,
+  ) {
     const existing: any = await this.findById(id, tenantId);
     const currentIdx = NC_LIFECYCLE.indexOf(existing.status);
     const targetIdx = NC_LIFECYCLE.indexOf(dto.status);
@@ -93,12 +114,26 @@ export class NonConformancesService {
       payload.resolved_at = new Date().toISOString();
     }
 
-    const updated = await this.nonConformancesRepo.updateStatus(id, tenantId, existing.status, payload);
+    const updated = await this.nonConformancesRepo.updateStatus(
+      id,
+      tenantId,
+      existing.status,
+      payload,
+    );
     if (!updated) {
-      throw new BadRequestException(`Non-conformance ${id} status changed concurrently — retry`);
+      throw new BadRequestException(
+        `Non-conformance ${id} status changed concurrently — retry`,
+      );
     }
 
-    await this.nonConformancesRepo.recordStatusHistory(tenantId, id, existing.status, dto.status, actorId, dto.reason);
+    await this.nonConformancesRepo.recordStatusHistory(
+      tenantId,
+      id,
+      existing.status,
+      dto.status,
+      actorId,
+      dto.reason,
+    );
 
     if (dto.status === 'closed') {
       await this.auditService
@@ -108,8 +143,8 @@ export class NonConformancesService {
           action: 'non_conformance.closed',
           resource_type: 'non_conformance',
           resource_id: id,
-          before_data: existing as unknown as Record<string, unknown>,
-          after_data: updated as unknown as Record<string, unknown>,
+          before_data: existing,
+          after_data: updated,
         })
         .catch(() => {});
     }

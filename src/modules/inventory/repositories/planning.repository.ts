@@ -15,13 +15,16 @@ export class PlanningRepository extends ScopedRepository {
     variantId?: string,
     lookbackDays?: number,
   ) {
-    const { data, error } = await this.supabase.rpc('fn_calculate_demand_forecast', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId,
-      p_item_id: itemId,
-      p_variant_id: variantId ?? null,
-      p_lookback_days: lookbackDays ?? 30,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_calculate_demand_forecast',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: warehouseId,
+        p_item_id: itemId,
+        p_variant_id: variantId ?? null,
+        p_lookback_days: lookbackDays ?? 30,
+      },
+    );
     if (error) throw error;
     return data;
   }
@@ -41,13 +44,16 @@ export class PlanningRepository extends ScopedRepository {
     variantId?: string,
     lookbackDays?: number,
   ) {
-    const { data, error } = await this.supabase.rpc('fn_calculate_safety_stock', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId,
-      p_item_id: itemId,
-      p_variant_id: variantId ?? null,
-      p_lookback_days: lookbackDays ?? 90,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_calculate_safety_stock',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: warehouseId,
+        p_item_id: itemId,
+        p_variant_id: variantId ?? null,
+        p_lookback_days: lookbackDays ?? 90,
+      },
+    );
     if (error) throw error;
     return data;
   }

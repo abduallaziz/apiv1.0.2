@@ -29,7 +29,14 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
   const createItem = async (name: string) => {
     const { data, error } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name, type: 'product', operation_type: 'sell', price: 10, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name,
+        type: 'product',
+        operation_type: 'sell',
+        price: 10,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -51,13 +58,15 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
     if (grErr) throw grErr;
     grIds.push(gr.id);
 
-    const { error: lineErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID,
-      goods_receipt_id: gr.id,
-      item_id: itemId,
-      quantity_received: qty,
-      unit_cost: unitCost,
-    });
+    const { error: lineErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: itemId,
+        quantity_received: qty,
+        unit_cost: unitCost,
+      });
     if (lineErr) throw lineErr;
 
     const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
@@ -68,13 +77,16 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
   };
 
   const recordSale = async (itemId: string, qty: number) => {
-    const { data: unitCost, error: consumeErr } = await supabase.rpc('fn_consume_cost_layers', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_warehouse_id: warehouseId,
-      p_item_id: itemId,
-      p_variant_id: null,
-      p_quantity: qty,
-    });
+    const { data: unitCost, error: consumeErr } = await supabase.rpc(
+      'fn_consume_cost_layers',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_warehouse_id: warehouseId,
+        p_item_id: itemId,
+        p_variant_id: null,
+        p_quantity: qty,
+      },
+    );
     if (consumeErr) throw consumeErr;
 
     const { error: moveErr } = await supabase.rpc('fn_apply_stock_movement', {
@@ -100,7 +112,9 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
   // convention fn_finalize_stock_count itself uses) — this migration is
   // testing the analytics read layer, not re-testing the finalize RPC
   // (already regression-tested elsewhere).
-  const createCompletedStockCount = async (lines: { itemId: string; expected: number; counted: number }[]) => {
+  const createCompletedStockCount = async (
+    lines: { itemId: string; expected: number; counted: number }[],
+  ) => {
     const { data: sc, error: scErr } = await supabase
       .from('stock_counts')
       .insert({
@@ -130,15 +144,25 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
-    const { data: wh, error } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
+    const { data: wh, error } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1);
     if (error) throw error;
-    warehouseId = wh![0].id;
+    warehouseId = wh[0].id;
   }, 30_000);
 
   afterAll(async () => {
     for (const id of stockCountIds) {
-      await supabase.from('stock_count_items').delete().eq('stock_count_id', id);
+      await supabase
+        .from('stock_count_items')
+        .delete()
+        .eq('stock_count_id', id);
       await supabase.from('stock_counts').delete().eq('id', id);
     }
     for (const itemId of itemIds) {
@@ -146,13 +170,19 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
       await supabase.from('stock_levels').delete().eq('item_id', itemId);
     }
     for (const id of grIds) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', id);
       await supabase.from('goods_receipts').delete().eq('id', id);
     }
     for (const itemId of itemIds) {
       const { error } = await supabase.from('items').delete().eq('id', itemId);
       if (error) {
-        await supabase.from('items').update({ is_active: false, deleted_at: new Date().toISOString() }).eq('id', itemId);
+        await supabase
+          .from('items')
+          .update({ is_active: false, deleted_at: new Date().toISOString() })
+          .eq('id', itemId);
       }
     }
   }, 60_000);
@@ -166,12 +196,15 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
     ]);
 
     const today = new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase.rpc('fn_inventory_stock_accuracy_report', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_date_from: today,
-      p_date_to: today,
-      p_warehouse_id: warehouseId,
-    });
+    const { data, error } = await supabase.rpc(
+      'fn_inventory_stock_accuracy_report',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_date_from: today,
+        p_date_to: today,
+        p_warehouse_id: warehouseId,
+      },
+    );
     expect(error).toBeNull();
     const row = (data as any[]).find((r) => r.warehouse_id === warehouseId);
     expect(row).toBeTruthy();
@@ -183,7 +216,9 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
     // tenant/warehouse/date from other sessions or tests.
     const { data: rawItems, error: rawErr } = await supabase
       .from('stock_count_items')
-      .select('expected_quantity, variance, stock_counts!inner(warehouse_id, status, completed_at, tenant_id)')
+      .select(
+        'expected_quantity, variance, stock_counts!inner(warehouse_id, status, completed_at, tenant_id)',
+      )
       .eq('stock_counts.tenant_id', TEST_TENANT_ID)
       .eq('stock_counts.warehouse_id', warehouseId)
       .eq('stock_counts.status', 'completed')
@@ -191,14 +226,25 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
       .lt('stock_counts.completed_at', `${today}T23:59:59.999Z`);
     expect(rawErr).toBeNull();
 
-    const totalExpected = rawItems!.reduce((s, r: any) => s + Number(r.expected_quantity), 0);
-    const totalAbsVariance = rawItems!.reduce((s, r: any) => s + Math.abs(Number(r.variance ?? 0)), 0);
-    const expectedAccuracy = totalExpected > 0 ? Math.round(((totalExpected - totalAbsVariance) / totalExpected) * 10000) / 100 : null;
+    const totalExpected = rawItems.reduce(
+      (s, r: any) => s + Number(r.expected_quantity),
+      0,
+    );
+    const totalAbsVariance = rawItems.reduce(
+      (s, r: any) => s + Math.abs(Number(r.variance ?? 0)),
+      0,
+    );
+    const expectedAccuracy =
+      totalExpected > 0
+        ? Math.round(
+            ((totalExpected - totalAbsVariance) / totalExpected) * 10000,
+          ) / 100
+        : null;
 
-    expect(Number(row.total_items_counted)).toBe(rawItems!.length);
+    expect(Number(row.total_items_counted)).toBe(rawItems.length);
     expect(Number(row.total_expected_quantity)).toBe(totalExpected);
     expect(Number(row.total_absolute_variance_quantity)).toBe(totalAbsVariance);
-    expect(Number(row.accuracy_percentage)).toBeCloseTo(expectedAccuracy as number, 1);
+    expect(Number(row.accuracy_percentage)).toBeCloseTo(expectedAccuracy, 1);
 
     // Our own two seeded lines are structurally correct regardless of what
     // else is in the universe: zero_variance_items includes at least our
@@ -209,7 +255,9 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
   }, 30_000);
 
   it('coverage: exact days_of_coverage for a known quantity/demand pair; zero demand returns NULL', async () => {
-    const activeItem = await createItem('AA73 Coverage Item (50 on hand, sold 30 in 30d)');
+    const activeItem = await createItem(
+      'AA73 Coverage Item (50 on hand, sold 30 in 30d)',
+    );
     const zeroItem = await createItem('AA73 Coverage Item (never sold)');
     await seedStock(activeItem, 80, 2); // 80 on hand before sale
     await seedStock(zeroItem, 20, 2);

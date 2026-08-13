@@ -21,8 +21,13 @@ export class SnapshotsService {
     return run;
   }
 
-  async generate(tenantId: string, actorId: string | null, dto: GenerateSnapshotDto) {
-    const snapshotDate = dto.snapshot_date ?? new Date().toISOString().slice(0, 10);
+  async generate(
+    tenantId: string,
+    actorId: string | null,
+    dto: GenerateSnapshotDto,
+  ) {
+    const snapshotDate =
+      dto.snapshot_date ?? new Date().toISOString().slice(0, 10);
     // Fetched only to detect + audit a supersede — never mutated directly;
     // fn_generate_inventory_snapshot (148) is the only writer.
     const previousActive = dto.supersede
@@ -31,7 +36,12 @@ export class SnapshotsService {
 
     let result;
     try {
-      result = await this.snapshotsRepo.generate(tenantId, actorId, dto.snapshot_date, dto.supersede);
+      result = await this.snapshotsRepo.generate(
+        tenantId,
+        actorId,
+        dto.snapshot_date,
+        dto.supersede,
+      );
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
     }

@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ReplenishmentService } from './replenishment.service';
 import { CreateReplenishmentRuleDto } from './dto/create-replenishment-rule.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
@@ -25,7 +34,10 @@ export class ReplenishmentController {
   @Post('rules')
   @RequirePermission('warehouse.manage')
   @Audit('replenishment_rule.created')
-  createRule(@Body() dto: CreateReplenishmentRuleDto, @GetTenant() tenant: TenantContext) {
+  createRule(
+    @Body() dto: CreateReplenishmentRuleDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.replenishmentService.createRule(tenant.tenantId, dto);
   }
 
@@ -37,6 +49,10 @@ export class ReplenishmentController {
     @Query('warehouse_id') warehouseId: string,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.replenishmentService.runCheck(tenant.tenantId, warehouseId, user.sub);
+    return this.replenishmentService.runCheck(
+      tenant.tenantId,
+      warehouseId,
+      user.sub,
+    );
   }
 }

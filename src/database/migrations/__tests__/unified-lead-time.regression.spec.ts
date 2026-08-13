@@ -22,17 +22,35 @@ describe('unified vendor lead time (migration 127)', () => {
   const cleanup = { pos: [] as string[], grs: [] as string[] };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
 
-    const { data: wh } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1);
-    warehouseId = wh![0].id;
+    const { data: wh } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1);
+    warehouseId = wh[0].id;
 
-    const { data: supplier } = await supabase.from('suppliers').insert({ tenant_id: TEST_TENANT_ID, name: 'Regression 9.4 Supplier' }).select().single();
+    const { data: supplier } = await supabase
+      .from('suppliers')
+      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regression 9.4 Supplier' })
+      .select()
+      .single();
     supplierId = supplier.id;
 
     const { data: item } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regression 9.4 Item', type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regression 9.4 Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     itemId = item.id;
@@ -57,7 +75,13 @@ describe('unified vendor lead time (migration 127)', () => {
       cleanup.pos.push(po.id);
       const { data: poi } = await supabase
         .from('purchase_order_items')
-        .insert({ tenant_id: TEST_TENANT_ID, purchase_order_id: po.id, item_id: itemId, quantity_ordered: 10, unit_cost: 5 })
+        .insert({
+          tenant_id: TEST_TENANT_ID,
+          purchase_order_id: po.id,
+          item_id: itemId,
+          quantity_ordered: 10,
+          unit_cost: 5,
+        })
         .select()
         .single();
 
@@ -85,17 +109,26 @@ describe('unified vendor lead time (migration 127)', () => {
       // this suite only exercises the lead-time READ formula, not posting
       // side effects (stock/cost layers), which are already covered by
       // other regression suites.
-      await supabase.from('goods_receipts').update({ status: 'posted', received_at: receivedAt }).eq('id', gr.id);
+      await supabase
+        .from('goods_receipts')
+        .update({ status: 'posted', received_at: receivedAt })
+        .eq('id', gr.id);
     }
   }, 30_000);
 
   afterAll(async () => {
     for (const grId of cleanup.grs) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', grId);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', grId);
       await supabase.from('goods_receipts').delete().eq('id', grId);
     }
     for (const poId of cleanup.pos) {
-      await supabase.from('purchase_order_items').delete().eq('purchase_order_id', poId);
+      await supabase
+        .from('purchase_order_items')
+        .delete()
+        .eq('purchase_order_id', poId);
       await supabase.from('purchase_orders').delete().eq('id', poId);
     }
     await supabase.from('items').delete().eq('id', itemId);
@@ -136,26 +169,42 @@ describe('unified vendor lead time (migration 127)', () => {
       p_supplier_id: supplierId,
     });
     expect(error).toBeNull();
-    expect((data as any)[0].avg_lead_time_days).toBe(5);
+    expect(data[0].avg_lead_time_days).toBe(5);
   });
 
   it('fn_purchase_suggestions falls back to the same unified value when no lead_time_days is configured', async () => {
     const { data: rp } = await supabase
       .from('inventory_reorder_points')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, item_id: itemId, min_quantity: 999999, reorder_quantity: 20, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        item_id: itemId,
+        min_quantity: 999999,
+        reorder_quantity: 20,
+        is_active: true,
+      })
       .select()
       .single();
 
-    const { data: suggestions, error } = await supabase.rpc('fn_purchase_suggestions', { p_tenant_id: TEST_TENANT_ID });
+    const { data: suggestions, error } = await supabase.rpc(
+      'fn_purchase_suggestions',
+      { p_tenant_id: TEST_TENANT_ID },
+    );
     expect(error).toBeNull();
-    const mine = (suggestions as any[]).find((s) => s.reorder_point_id === rp.id);
+    const mine = (suggestions as any[]).find(
+      (s) => s.reorder_point_id === rp.id,
+    );
     expect(mine.lead_time_days).toBe(5);
 
     await supabase.from('inventory_reorder_points').delete().eq('id', rp.id);
   });
 
   it('confirms no lead-time column exists on suppliers itself', async () => {
-    const { data, error } = await supabase.from('suppliers').select('*').eq('id', supplierId).single();
+    const { data, error } = await supabase
+      .from('suppliers')
+      .select('*')
+      .eq('id', supplierId)
+      .single();
     expect(error).toBeNull();
     expect(Object.keys(data as object)).not.toContain('lead_time_days');
     expect(Object.keys(data as object)).not.toContain('avg_lead_time_days');

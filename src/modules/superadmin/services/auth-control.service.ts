@@ -5,7 +5,9 @@ import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
 @Injectable()
 export class AuthControlService {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async getTenantOptions() {
     const { data, error } = await this.supabase
@@ -27,11 +29,17 @@ export class AuthControlService {
     return data ?? [];
   }
 
-  async resetPassword(userId: string, newPassword: string): Promise<{ success: true }> {
+  async resetPassword(
+    userId: string,
+    newPassword: string,
+  ): Promise<{ success: true }> {
     const password_hash = await bcrypt.hash(newPassword, 12);
     const { error, count } = await this.supabase
       .from('users')
-      .update({ password_hash, updated_at: new Date().toISOString() }, { count: 'exact' })
+      .update(
+        { password_hash, updated_at: new Date().toISOString() },
+        { count: 'exact' },
+      )
       .eq('id', userId);
     if (error) throw new Error(error.message);
     if (!count) throw new NotFoundException('User not found');
@@ -41,17 +49,26 @@ export class AuthControlService {
   async changeRole(userId: string, role: string): Promise<{ success: true }> {
     const { error, count } = await this.supabase
       .from('users')
-      .update({ role, updated_at: new Date().toISOString() }, { count: 'exact' })
+      .update(
+        { role, updated_at: new Date().toISOString() },
+        { count: 'exact' },
+      )
       .eq('id', userId);
     if (error) throw new Error(error.message);
     if (!count) throw new NotFoundException('User not found');
     return { success: true };
   }
 
-  async toggleActive(userId: string, isActive: boolean): Promise<{ success: true }> {
+  async toggleActive(
+    userId: string,
+    isActive: boolean,
+  ): Promise<{ success: true }> {
     const { error, count } = await this.supabase
       .from('users')
-      .update({ is_active: isActive, updated_at: new Date().toISOString() }, { count: 'exact' })
+      .update(
+        { is_active: isActive, updated_at: new Date().toISOString() },
+        { count: 'exact' },
+      )
       .eq('id', userId);
     if (error) throw new Error(error.message);
     if (!count) throw new NotFoundException('User not found');

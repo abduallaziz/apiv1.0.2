@@ -46,7 +46,10 @@ export class FeatureService {
     const planId = sub?.plan_id ?? null;
 
     // 3. get plan features
-    const planFeaturesMap = new Map<string, { is_enabled: boolean; limit_value: number | null }>();
+    const planFeaturesMap = new Map<
+      string,
+      { is_enabled: boolean; limit_value: number | null }
+    >();
     if (planId) {
       const { data: pf } = await this.supabase
         .from('plan_features')
@@ -103,11 +106,11 @@ export class FeatureService {
     });
   }
   async getAllFeatures() {
-  const { data, error } = await this.supabase
-    .from('features')
-    .select('id, key, name, name_ar, description, category, is_enabled')
-    .order('category', { ascending: true });
-  if (error) throw error;
-  return data ?? [];
-}
+    const { data, error } = await this.supabase
+      .from('features')
+      .select('id, key, name, name_ar, description, category, is_enabled')
+      .order('category', { ascending: true });
+    if (error) throw error;
+    return data ?? [];
+  }
 }

@@ -2,11 +2,14 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
-const SELECT = 'id, tenant_id, name, days_of_week, shifts, day_overrides, created_at, updated_at';
+const SELECT =
+  'id, tenant_id, name, days_of_week, shifts, day_overrides, created_at, updated_at';
 
 @Injectable()
 export class ShiftPatternsRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async findAll(tenantId: string) {
     const { data, error } = await this.supabase
@@ -60,7 +63,10 @@ export class ShiftPatternsRepository {
     if (error) throw error;
   }
 
-  async findAssignedUserIds(patternId: string, tenantId: string): Promise<string[]> {
+  async findAssignedUserIds(
+    patternId: string,
+    tenantId: string,
+  ): Promise<string[]> {
     const { data, error } = await this.supabase
       .from('users')
       .select('id')
@@ -71,7 +77,11 @@ export class ShiftPatternsRepository {
     return (data ?? []).map((r: any) => r.id);
   }
 
-  async updateUsersSchedule(userIds: string[], tenantId: string, fields: Record<string, any>) {
+  async updateUsersSchedule(
+    userIds: string[],
+    tenantId: string,
+    fields: Record<string, any>,
+  ) {
     const { error } = await this.supabase
       .from('users')
       .update(fields)

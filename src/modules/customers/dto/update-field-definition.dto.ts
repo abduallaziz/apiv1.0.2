@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsBoolean, IsIn, IsArray, IsInt, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  IsInt,
+  MaxLength,
+} from 'class-validator';
 
 export class UpdateFieldDefinitionDto {
   @IsOptional()
@@ -33,5 +41,11 @@ export class UpdateFieldDefinitionDto {
 
   @IsOptional()
   @IsIn(['phone', 'email', 'plate_number', 'visit_date', 'odometer', null])
-  contact_role?: 'phone' | 'email' | 'plate_number' | 'visit_date' | 'odometer' | null;
+  contact_role?:
+    | 'phone'
+    | 'email'
+    | 'plate_number'
+    | 'visit_date'
+    | 'odometer'
+    | null;
 }

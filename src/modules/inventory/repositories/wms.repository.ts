@@ -11,7 +11,9 @@ export class WmsRepository extends ScopedRepository {
   async findShipments(tenantId: string, status?: string) {
     let query = this.supabase
       .from('shipments')
-      .select('*, warehouses(name, code), lines:shipment_lines(*, items(name, sku))')
+      .select(
+        '*, warehouses(name, code), lines:shipment_lines(*, items(name, sku))',
+      )
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -24,7 +26,9 @@ export class WmsRepository extends ScopedRepository {
   async findShipmentById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('shipments')
-      .select('*, warehouses(name, code), lines:shipment_lines(*, items(name, sku))')
+      .select(
+        '*, warehouses(name, code), lines:shipment_lines(*, items(name, sku))',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
@@ -33,7 +37,11 @@ export class WmsRepository extends ScopedRepository {
     return data;
   }
 
-  async createShipment(tenantId: string, payload: Record<string, unknown>, lines: Record<string, unknown>[]) {
+  async createShipment(
+    tenantId: string,
+    payload: Record<string, unknown>,
+    lines: Record<string, unknown>[],
+  ) {
     const { data: shipment, error } = await this.supabase
       .from('shipments')
       .insert({ ...payload, tenant_id: tenantId })
@@ -43,7 +51,13 @@ export class WmsRepository extends ScopedRepository {
 
     const { error: linesError } = await this.supabase
       .from('shipment_lines')
-      .insert(lines.map((l) => ({ ...l, tenant_id: tenantId, shipment_id: shipment.id })));
+      .insert(
+        lines.map((l) => ({
+          ...l,
+          tenant_id: tenantId,
+          shipment_id: shipment.id,
+        })),
+      );
     if (linesError) throw linesError;
 
     return this.findShipmentById(shipment.id, tenantId);
@@ -81,7 +95,9 @@ export class WmsRepository extends ScopedRepository {
   async findPickLists(tenantId: string, status?: string) {
     let query = this.supabase
       .from('pick_lists')
-      .select('*, warehouses(name, code), shipments:pick_list_shipments(shipment_id), lines:pick_list_lines(*, items(name, sku))')
+      .select(
+        '*, warehouses(name, code), shipments:pick_list_shipments(shipment_id), lines:pick_list_lines(*, items(name, sku))',
+      )
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -94,7 +110,9 @@ export class WmsRepository extends ScopedRepository {
   async findPickListById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('pick_lists')
-      .select('*, warehouses(name, code), shipments:pick_list_shipments(shipment_id), lines:pick_list_lines(*, items(name, sku))')
+      .select(
+        '*, warehouses(name, code), shipments:pick_list_shipments(shipment_id), lines:pick_list_lines(*, items(name, sku))',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
@@ -150,16 +168,29 @@ export class WmsRepository extends ScopedRepository {
   // fn_validate_pick_requirements if the item needs a batch/serial that
   // wasn't given, or if FEFO would be violated.
   async validatePickRequirements(
-    tenantId: string, warehouseId: string, itemId: string, variantId: string | null, quantity: number, batchId: string | null,
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    variantId: string | null,
+    quantity: number,
+    batchId: string | null,
   ) {
     const { error } = await this.supabase.rpc('fn_validate_pick_requirements', {
-      p_tenant_id: tenantId, p_warehouse_id: warehouseId, p_item_id: itemId, p_variant_id: variantId,
-      p_quantity: quantity, p_batch_id: batchId,
+      p_tenant_id: tenantId,
+      p_warehouse_id: warehouseId,
+      p_item_id: itemId,
+      p_variant_id: variantId,
+      p_quantity: quantity,
+      p_batch_id: batchId,
     });
     if (error) throw error;
   }
 
-  async setPickListLineBatch(pickListLineId: string, tenantId: string, batchId: string) {
+  async setPickListLineBatch(
+    pickListLineId: string,
+    tenantId: string,
+    batchId: string,
+  ) {
     const { error } = await this.supabase
       .from('pick_list_lines')
       .update({ batch_id: batchId })

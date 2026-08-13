@@ -18,10 +18,14 @@ export class AuditCleanupScheduler {
   @Cron('0 2 * * 0')
   async handleWeeklyCleanup(): Promise<void> {
     this.logger.log('[CRON] Queuing audit log cleanup job');
-    await this.auditCleanupQueue.add(AUDIT_CLEANUP_JOB, {}, {
-      jobId: `audit-cleanup-${Date.now()}`,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-    });
+    await this.auditCleanupQueue.add(
+      AUDIT_CLEANUP_JOB,
+      {},
+      {
+        jobId: `audit-cleanup-${Date.now()}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    );
   }
 }

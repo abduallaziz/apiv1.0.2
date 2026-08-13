@@ -60,7 +60,11 @@ export class NonConformancesRepository extends ScopedRepository {
     return data;
   }
 
-  async addDefect(tenantId: string, ncId: string, payload: Record<string, unknown>) {
+  async addDefect(
+    tenantId: string,
+    ncId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('quality_defects')
       .insert({ ...payload, tenant_id: tenantId, non_conformance_id: ncId })
@@ -80,16 +84,25 @@ export class NonConformancesRepository extends ScopedRepository {
     return data;
   }
 
-  async recordStatusHistory(tenantId: string, ncId: string, oldStatus: string | null, newStatus: string, actorId: string, reason?: string) {
-    const { error } = await this.supabase.from('quality_status_history').insert({
-      tenant_id: tenantId,
-      reference_type: 'non_conformance',
-      reference_id: ncId,
-      old_status: oldStatus,
-      new_status: newStatus,
-      actor_id: actorId,
-      reason: reason ?? null,
-    });
+  async recordStatusHistory(
+    tenantId: string,
+    ncId: string,
+    oldStatus: string | null,
+    newStatus: string,
+    actorId: string,
+    reason?: string,
+  ) {
+    const { error } = await this.supabase
+      .from('quality_status_history')
+      .insert({
+        tenant_id: tenantId,
+        reference_type: 'non_conformance',
+        reference_id: ncId,
+        old_status: oldStatus,
+        new_status: newStatus,
+        actor_id: actorId,
+        reason: reason ?? null,
+      });
     if (error) throw error;
   }
 }

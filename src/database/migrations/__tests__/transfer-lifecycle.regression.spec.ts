@@ -215,9 +215,15 @@ describe('transfer lifecycle regression (migrations 117-119)', () => {
       .eq('stock_transfer_id', transfer.id);
     await supabase.from('stock_transfers').delete().eq('id', transfer.id);
     {
-      const { error } = await supabase.from('warehouses').delete().eq('id', whB.id);
+      const { error } = await supabase
+        .from('warehouses')
+        .delete()
+        .eq('id', whB.id);
       if (error) {
-        await supabase.from('warehouses').update({ deleted_at: new Date().toISOString(), is_active: false }).eq('id', whB.id);
+        await supabase
+          .from('warehouses')
+          .update({ deleted_at: new Date().toISOString(), is_active: false })
+          .eq('id', whB.id);
       }
     }
   }, 30_000);
@@ -450,9 +456,15 @@ describe('transfer lifecycle regression (migrations 117-119)', () => {
 
     await supabase.from('stock_transfers').delete().eq('id', transfer.id);
     {
-      const { error } = await supabase.from('warehouses').delete().eq('id', whB.id);
+      const { error } = await supabase
+        .from('warehouses')
+        .delete()
+        .eq('id', whB.id);
       if (error) {
-        await supabase.from('warehouses').update({ deleted_at: new Date().toISOString(), is_active: false }).eq('id', whB.id);
+        await supabase
+          .from('warehouses')
+          .update({ deleted_at: new Date().toISOString(), is_active: false })
+          .eq('id', whB.id);
       }
     }
   }, 30_000);

@@ -68,8 +68,8 @@ describe('Amendments module (migrations 131, 136-137)', () => {
 
   beforeAll(async () => {
     supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
     );
     service = new AmendmentsService(
       new AmendmentsRepository(supabase),
@@ -83,23 +83,23 @@ describe('Amendments module (migrations 131, 136-137)', () => {
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1)
       .single();
-    supplierId = supplier!.id;
+    supplierId = supplier.id;
 
     const { data: items } = await supabase
       .from('items')
       .select('id')
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(2);
-    itemId = items![0].id;
-    item2Id = items![1]?.id ?? items![0].id;
+    itemId = items[0].id;
+    item2Id = items[1]?.id ?? items[0].id;
 
     const { data: users } = await supabase
       .from('users')
       .select('id')
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(2);
-    userAId = users![0].id;
-    userBId = users![1]?.id ?? users![0].id;
+    userAId = users[0].id;
+    userBId = users[1]?.id ?? users[0].id;
   });
 
   afterAll(async () => {
@@ -228,8 +228,8 @@ describe('Amendments module (migrations 131, 136-137)', () => {
       .select('committed_quantity, committed_value')
       .eq('id', modifyTarget.id)
       .single();
-    expect(Number(modifiedItem!.committed_quantity)).toBe(110);
-    expect(Number(modifiedItem!.committed_value)).toBe(1100);
+    expect(Number(modifiedItem.committed_quantity)).toBe(110);
+    expect(Number(modifiedItem.committed_value)).toBe(1100);
 
     // add applied -- only now does the agreement_item exist
     const { data: addedItems } = await supabase
@@ -237,9 +237,9 @@ describe('Amendments module (migrations 131, 136-137)', () => {
       .select('id, committed_quantity, committed_value, added_via_amendment_id')
       .eq('added_via_amendment_id', amendment.id);
     expect(addedItems).toHaveLength(1);
-    expect(Number(addedItems![0].committed_quantity)).toBe(25);
-    expect(Number(addedItems![0].committed_value)).toBe(250);
-    cleanup.agreementItems.push(addedItems![0].id);
+    expect(Number(addedItems[0].committed_quantity)).toBe(25);
+    expect(Number(addedItems[0].committed_value)).toBe(250);
+    cleanup.agreementItems.push(addedItems[0].id);
 
     // discontinue applied
     const { data: discontinuedItem } = await supabase
@@ -247,13 +247,13 @@ describe('Amendments module (migrations 131, 136-137)', () => {
       .select('discontinued_via_amendment_id, discontinued_at')
       .eq('id', discontinueTarget.id)
       .single();
-    expect(discontinuedItem!.discontinued_via_amendment_id).toBe(amendment.id);
-    expect(discontinuedItem!.discontinued_at).not.toBeNull();
+    expect(discontinuedItem.discontinued_via_amendment_id).toBe(amendment.id);
+    expect(discontinuedItem.discontinued_at).not.toBeNull();
 
     // approval_history recorded exactly once for 'approved' (not double-recorded
     // by both the Service and the RPC), plus once for 'submitted'.
     const history = await service.history(amendment.id, TEST_TENANT_ID);
-    const actions = (history as any[]).map((h) => h.action);
+    const actions = history.map((h) => h.action);
     expect(actions).toEqual(['submitted', 'approved']);
   }, 30000);
 

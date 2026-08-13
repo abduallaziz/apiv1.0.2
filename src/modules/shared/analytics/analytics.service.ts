@@ -75,7 +75,11 @@ export class AnalyticsService {
     return this.repo.getGrowthRate(period, from, to);
   }
 
-  async getConversionFunnel(period: AnalyticsPeriod, from?: string, to?: string) {
+  async getConversionFunnel(
+    period: AnalyticsPeriod,
+    from?: string,
+    to?: string,
+  ) {
     return this.repo.getConversionFunnel(period, from, to);
   }
 
@@ -87,7 +91,11 @@ export class AnalyticsService {
     // cache) — compute directly so the endpoint still responds, and warm the
     // cache so subsequent requests hit it instead of recomputing.
     const cohort = await this.repo.getCohortAnalysis();
-    await this.cache.set(COHORT_ANALYSIS_CACHE_KEY, cohort, FALLBACK_CACHE_TTL_SECONDS);
+    await this.cache.set(
+      COHORT_ANALYSIS_CACHE_KEY,
+      cohort,
+      FALLBACK_CACHE_TTL_SECONDS,
+    );
     return cohort;
   }
 
@@ -105,7 +113,11 @@ export class AnalyticsService {
     return usage;
   }
 
-  async getAdvancedSummary(period: AnalyticsPeriod, from?: string, to?: string) {
+  async getAdvancedSummary(
+    period: AnalyticsPeriod,
+    from?: string,
+    to?: string,
+  ) {
     const [mrr, arr, churn, growth, funnel, revenueByPlan] = await Promise.all([
       this.repo.getMRR(),
       this.repo.getARR(),

@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsBoolean, IsUUID, IsNumber, Min, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsUUID,
+  IsNumber,
+  Min,
+  MaxLength,
+} from 'class-validator';
 
 export class UpdateBranchDto {
   @IsOptional()

@@ -18,9 +18,27 @@ import { OwnershipModule } from '../ownership/ownership.module';
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule, NotificationModule, LoyaltyModule, CouponsModule, CustomersModule, ShiftsModule, QualityModule, OwnershipModule, InventoryModule],
+  imports: [
+    PosEngineModule,
+    PaymentEngineModule,
+    PermissionsModule,
+    CoreAuthModule,
+    NotificationModule,
+    LoyaltyModule,
+    CouponsModule,
+    CustomersModule,
+    ShiftsModule,
+    QualityModule,
+    OwnershipModule,
+    InventoryModule,
+  ],
   controllers: [InvoicesController],
-  providers: [InvoicesService, InvoicesRepository, TenantsRepository, JwtAuthGuard],
+  providers: [
+    InvoicesService,
+    InvoicesRepository,
+    TenantsRepository,
+    JwtAuthGuard,
+  ],
   exports: [InvoicesService],
 })
 export class InvoicesModule {}

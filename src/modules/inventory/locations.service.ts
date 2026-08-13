@@ -28,7 +28,11 @@ export class LocationsService {
   }
 
   async findById(id: string, warehouseId: string, tenantId: string) {
-    const location = await this.locationsRepo.findById(id, warehouseId, tenantId);
+    const location = await this.locationsRepo.findById(
+      id,
+      warehouseId,
+      tenantId,
+    );
     if (!location) throw new NotFoundException('Location not found');
     return location;
   }
@@ -41,22 +45,43 @@ export class LocationsService {
   async create(warehouseId: string, tenantId: string, dto: CreateLocationDto) {
     await this.warehousesService.findById(warehouseId, tenantId);
     const { restricted_to_item_ids, restricted_to_category_ids, ...rest } = dto;
-    const location = await this.locationsRepo.create(warehouseId, tenantId, { ...rest });
+    const location = await this.locationsRepo.create(warehouseId, tenantId, {
+      ...rest,
+    });
     if (restricted_to_item_ids?.length || restricted_to_category_ids?.length) {
       await this.locationsRepo.setRestrictions(
-        tenantId, (location as any).id, restricted_to_item_ids ?? [], restricted_to_category_ids ?? [],
+        tenantId,
+        location.id,
+        restricted_to_item_ids ?? [],
+        restricted_to_category_ids ?? [],
       );
     }
     return location;
   }
 
-  async update(id: string, warehouseId: string, tenantId: string, dto: UpdateLocationDto) {
+  async update(
+    id: string,
+    warehouseId: string,
+    tenantId: string,
+    dto: UpdateLocationDto,
+  ) {
     await this.findById(id, warehouseId, tenantId);
     const { restricted_to_item_ids, restricted_to_category_ids, ...rest } = dto;
-    const location = await this.locationsRepo.update(id, warehouseId, tenantId, { ...rest });
-    if (restricted_to_item_ids !== undefined || restricted_to_category_ids !== undefined) {
+    const location = await this.locationsRepo.update(
+      id,
+      warehouseId,
+      tenantId,
+      { ...rest },
+    );
+    if (
+      restricted_to_item_ids !== undefined ||
+      restricted_to_category_ids !== undefined
+    ) {
       await this.locationsRepo.setRestrictions(
-        tenantId, id, restricted_to_item_ids ?? [], restricted_to_category_ids ?? [],
+        tenantId,
+        id,
+        restricted_to_item_ids ?? [],
+        restricted_to_category_ids ?? [],
       );
     }
     return location;

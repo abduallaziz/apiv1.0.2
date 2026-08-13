@@ -39,7 +39,10 @@ export class SuppliersController {
 
   @Get(':id/profile-stats')
   @RequirePermission('purchasing.view')
-  findProfileStats(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+  findProfileStats(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.suppliersService.findProfileStats(id, tenant.tenantId);
   }
 

@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { CorrectiveActionsService } from './corrective-actions.service';
 import { CreateCorrectiveActionDto } from './dto/create-corrective-action.dto';
 import { CompleteCorrectiveActionDto } from './dto/complete-corrective-action.dto';
@@ -44,14 +54,22 @@ export class CorrectiveActionsController {
   @Post()
   @RequirePermission('quality.manage')
   @Audit('corrective_action.created')
-  create(@Body() dto: CreateCorrectiveActionDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  create(
+    @Body() dto: CreateCorrectiveActionDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.capaService.create(tenant.tenantId, dto, user.sub);
   }
 
   @Post(':id/start')
   @RequirePermission('quality.execute')
   @HttpCode(HttpStatus.OK)
-  start(@Param('id') id: string, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  start(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.capaService.start(id, tenant.tenantId, user.sub);
   }
 

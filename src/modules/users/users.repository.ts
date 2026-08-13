@@ -16,13 +16,17 @@ export class UsersRepository extends ScopedRepository {
 
   async findAll(tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
-      .select(`id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`)
+      .select(
+        `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
+      )
       .order('created_at', { ascending: false });
   }
 
   async findById(id: string, tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
-      .select(`id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`)
+      .select(
+        `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
+      )
       .eq('id', id)
       .single();
   }
@@ -62,7 +66,9 @@ export class UsersRepository extends ScopedRepository {
   // here (see 058_employee_profile_flag.sql).
   async findAllEmployees(tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
-      .select(`id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`)
+      .select(
+        `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
+      )
       .eq('is_employee_profile', true)
       .order('created_at', { ascending: false });
   }
@@ -83,7 +89,9 @@ export class UsersRepository extends ScopedRepository {
       .update({ is_employee_profile: true })
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .select(`id, email, name, role, is_active, commission_rate, ${UsersRepository.PAYROLL_FIELDS}`)
+      .select(
+        `id, email, name, role, is_active, commission_rate, ${UsersRepository.PAYROLL_FIELDS}`,
+      )
       .single();
   }
 
@@ -99,7 +107,9 @@ export class UsersRepository extends ScopedRepository {
     return this.supabase
       .from('users')
       .insert(data)
-      .select(`id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`)
+      .select(
+        `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
+      )
       .single();
   }
 
@@ -109,7 +119,9 @@ export class UsersRepository extends ScopedRepository {
       .update(data)
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .select(`id, email, name, role, is_active, commission_rate, ${UsersRepository.PAYROLL_FIELDS}`)
+      .select(
+        `id, email, name, role, is_active, commission_rate, ${UsersRepository.PAYROLL_FIELDS}`,
+      )
       .single();
   }
 
@@ -142,7 +154,9 @@ export class UsersRepository extends ScopedRepository {
   async findUserRoles(userId: string) {
     const { data, error } = await this.supabase
       .from('user_roles')
-      .select('id, role_id, is_primary, created_at, role:roles!user_roles_role_id_fkey(id, name, description, is_system)')
+      .select(
+        'id, role_id, is_primary, created_at, role:roles!user_roles_role_id_fkey(id, name, description, is_system)',
+      )
       .eq('user_id', userId)
       .order('is_primary', { ascending: false });
     if (error) throw error;
@@ -164,7 +178,10 @@ export class UsersRepository extends ScopedRepository {
   // AccessControlService.getAccessibleRoleOrThrow() applies on the
   // access-control side, kept here rather than cross-importing that
   // module's service into UsersService for one lookup.
-  async findAccessibleRole(roleId: string, tenantId: string): Promise<{ id: string; tenant_id: string | null; name: string } | null> {
+  async findAccessibleRole(
+    roleId: string,
+    tenantId: string,
+  ): Promise<{ id: string; tenant_id: string | null; name: string } | null> {
     const { data, error } = await this.supabase
       .from('roles')
       .select('id, tenant_id, name')
@@ -175,7 +192,11 @@ export class UsersRepository extends ScopedRepository {
     return data;
   }
 
-  async insertUserRole(userId: string, roleId: string, isPrimary: boolean): Promise<void> {
+  async insertUserRole(
+    userId: string,
+    roleId: string,
+    isPrimary: boolean,
+  ): Promise<void> {
     const { error } = await this.supabase
       .from('user_roles')
       .insert({ user_id: userId, role_id: roleId, is_primary: isPrimary });
@@ -213,7 +234,11 @@ export class UsersRepository extends ScopedRepository {
     const token = randomBytes(24).toString('base64url');
     const { data, error } = await this.supabase
       .from('users')
-      .update({ attendance_token: token, attendance_device_fingerprint: null, attendance_enabled: true })
+      .update({
+        attendance_token: token,
+        attendance_device_fingerprint: null,
+        attendance_enabled: true,
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .select('id, attendance_token, attendance_enabled')
@@ -234,7 +259,9 @@ export class UsersRepository extends ScopedRepository {
   async findByAttendanceToken(token: string) {
     const { data, error } = await this.supabase
       .from('users')
-      .select('id, tenant_id, name, job_title, annual_leave_balance, attendance_device_fingerprint, tenants(name, logo_url)')
+      .select(
+        'id, tenant_id, name, job_title, annual_leave_balance, attendance_device_fingerprint, tenants(name, logo_url)',
+      )
       .eq('attendance_token', token)
       .eq('is_active', true)
       .eq('attendance_enabled', true)
@@ -277,7 +304,9 @@ export class UsersRepository extends ScopedRepository {
   async findHistory(id: string, tenantId: string, limit = 50) {
     const { data, error } = await this.supabase
       .from('audit_logs')
-      .select('id, actor_id, actor_role, action, resource_type, before_data, after_data, created_at')
+      .select(
+        'id, actor_id, actor_role, action, resource_type, before_data, after_data, created_at',
+      )
       .eq('tenant_id', tenantId)
       .eq('resource_id', id)
       .order('created_at', { ascending: false })

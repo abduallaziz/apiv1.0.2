@@ -1,9 +1,24 @@
-import { IsOptional, IsUUID, IsIn, IsString, IsDateString, IsInt, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsUUID,
+  IsIn,
+  IsString,
+  IsDateString,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 /** Whitelisted sort columns — raw input must never reach .order(). */
-export const PRODUCTION_ORDER_SORT_COLUMNS = ['order_number', 'status', 'scheduled_date', 'created_at'] as const;
-export type ProductionOrderSortColumn = (typeof PRODUCTION_ORDER_SORT_COLUMNS)[number];
+export const PRODUCTION_ORDER_SORT_COLUMNS = [
+  'order_number',
+  'status',
+  'scheduled_date',
+  'created_at',
+] as const;
+export type ProductionOrderSortColumn =
+  (typeof PRODUCTION_ORDER_SORT_COLUMNS)[number];
 
 export class QueryProductionOrdersDto {
   @IsOptional()
@@ -40,7 +55,7 @@ export class QueryProductionOrdersDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(PRODUCTION_ORDER_SORT_COLUMNS as unknown as string[])
+  @IsIn(PRODUCTION_ORDER_SORT_COLUMNS)
   sort?: ProductionOrderSortColumn = 'created_at';
 
   @IsOptional()

@@ -17,7 +17,9 @@ function isPostgrestError(error: unknown): error is PostgrestError {
 // (tenant, item, variant) at a time.
 function toHttpError(error: unknown): unknown {
   if (isPostgrestError(error) && error.code === '23505') {
-    return new ConflictException('An active BOM already exists for this item — deactivate it first');
+    return new ConflictException(
+      'An active BOM already exists for this item — deactivate it first',
+    );
   }
   return error;
 }
@@ -45,15 +47,21 @@ export class BomRepository extends ScopedRepository {
       .eq('tenant_id', tenantId);
 
     if (filters.item_id) q = q.eq('item_id', filters.item_id);
-    if (filters.is_active !== undefined) q = q.eq('is_active', filters.is_active);
+    if (filters.is_active !== undefined)
+      q = q.eq('is_active', filters.is_active);
 
-    const { data, error, count } = await q.order('created_at', { ascending: false }).range(from, to);
+    const { data, error, count } = await q
+      .order('created_at', { ascending: false })
+      .range(from, to);
     if (error) throw error;
     return { data: data ?? [], total: count ?? 0 };
   }
 
   async findById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery('bill_of_materials', this.ctx(tenantId))
+    const { data, error } = await this.scopedQuery(
+      'bill_of_materials',
+      this.ctx(tenantId),
+    )
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
@@ -92,7 +100,11 @@ export class BomRepository extends ScopedRepository {
     if (error) throw error;
   }
 
-  async create(tenantId: string, header: Record<string, unknown>, lines: Record<string, unknown>[]) {
+  async create(
+    tenantId: string,
+    header: Record<string, unknown>,
+    lines: Record<string, unknown>[],
+  ) {
     const { data: bom, error } = await this.supabase
       .from('bill_of_materials')
       .insert({ ...header, tenant_id: tenantId })
@@ -102,7 +114,9 @@ export class BomRepository extends ScopedRepository {
 
     const { error: linesError } = await this.supabase
       .from('bom_lines')
-      .insert(lines.map((l) => ({ ...l, tenant_id: tenantId, bom_id: bom.id })));
+      .insert(
+        lines.map((l) => ({ ...l, tenant_id: tenantId, bom_id: bom.id })),
+      );
     if (linesError) throw linesError;
 
     return bom;
@@ -132,7 +146,11 @@ export class BomRepository extends ScopedRepository {
     return data;
   }
 
-  async replaceLines(bomId: string, tenantId: string, lines: Record<string, unknown>[]) {
+  async replaceLines(
+    bomId: string,
+    tenantId: string,
+    lines: Record<string, unknown>[],
+  ) {
     const { error: deleteError } = await this.supabase
       .from('bom_lines')
       .delete()

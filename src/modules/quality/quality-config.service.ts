@@ -20,7 +20,12 @@ export class QualityConfigService {
   }
 
   createTemplate(tenantId: string, dto: CreateTemplateDto) {
-    return this.configRepo.createTemplate(tenantId, dto.name, dto.notes ?? null, dto.checks as unknown as Record<string, unknown>[]);
+    return this.configRepo.createTemplate(
+      tenantId,
+      dto.name,
+      dto.notes ?? null,
+      dto.checks as unknown as Record<string, unknown>[],
+    );
   }
 
   async updateTemplate(id: string, tenantId: string, dto: UpdateTemplateDto) {
@@ -72,6 +77,13 @@ export class QualityConfigService {
     supplierId: string | null,
     warehouseId: string | null,
   ) {
-    return this.configRepo.resolvePlan(tenantId, transactionType, itemId, categoryId, supplierId, warehouseId);
+    return this.configRepo.resolvePlan(
+      tenantId,
+      transactionType,
+      itemId,
+      categoryId,
+      supplierId,
+      warehouseId,
+    );
   }
 }

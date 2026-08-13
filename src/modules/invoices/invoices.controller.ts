@@ -37,7 +37,7 @@ export class InvoicesController {
   ) {
     const user = req.user as { sub: string; role: string };
     const ip = (req.headers['x-forwarded-for'] as string) ?? req.ip ?? '';
-    const device = (req.headers['user-agent'] as string) ?? '';
+    const device = req.headers['user-agent'] ?? '';
 
     return this.invoicesService.create(
       tenant,
@@ -62,7 +62,15 @@ export class InvoicesController {
     @Query('per_page') perPage?: string,
     @Query('status') status?: string,
   ) {
-    return this.invoicesService.findAll(tenant, branchId, dateFrom, dateTo, page, perPage, status);
+    return this.invoicesService.findAll(
+      tenant,
+      branchId,
+      dateFrom,
+      dateTo,
+      page,
+      perPage,
+      status,
+    );
   }
 
   // Registered before ':id' — otherwise Nest would route
@@ -107,7 +115,11 @@ export class InvoicesController {
     @Body() dto: UpdateHeldVisibilityDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.invoicesService.updateHeldVisibility(tenant, id, dto.held_visibility);
+    return this.invoicesService.updateHeldVisibility(
+      tenant,
+      id,
+      dto.held_visibility,
+    );
   }
 
   @Delete('held/:id')
@@ -118,15 +130,17 @@ export class InvoicesController {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string; role: string };
-    return this.invoicesService.cancelHeldOrder(tenant, id, user.sub, user.role);
+    return this.invoicesService.cancelHeldOrder(
+      tenant,
+      id,
+      user.sub,
+      user.role,
+    );
   }
 
   @Get(':id')
   @RequirePermission('invoice.view')
-  async findById(
-    @Param('id') id: string,
-    @GetTenant() tenant: TenantContext,
-  ) {
+  async findById(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
     return this.invoicesService.findById(tenant, id);
   }
 
@@ -140,8 +154,16 @@ export class InvoicesController {
   ) {
     const user = req.user as { sub: string; role: string };
     const ip = (req.headers['x-forwarded-for'] as string) ?? req.ip ?? '';
-    const device = (req.headers['user-agent'] as string) ?? '';
+    const device = req.headers['user-agent'] ?? '';
 
-    return this.invoicesService.cancel(tenant, id, dto, user.sub, user.role, ip, device);
+    return this.invoicesService.cancel(
+      tenant,
+      id,
+      dto,
+      user.sub,
+      user.role,
+      ip,
+      device,
+    );
   }
 }

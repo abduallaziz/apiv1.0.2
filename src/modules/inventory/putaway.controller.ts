@@ -23,7 +23,10 @@ export class PutawayController {
   @Post('rules')
   @RequirePermission('warehouse.manage')
   @Audit('putaway_rule.created')
-  createRule(@Body() dto: CreatePutawayRuleDto, @GetTenant() tenant: TenantContext) {
+  createRule(
+    @Body() dto: CreatePutawayRuleDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.putawayService.createRule(tenant.tenantId, dto);
   }
 
@@ -35,6 +38,11 @@ export class PutawayController {
     @Query('item_id') itemId: string,
     @Query('quantity') quantity: string,
   ) {
-    return this.putawayService.suggest(tenant.tenantId, warehouseId, itemId, Number(quantity));
+    return this.putawayService.suggest(
+      tenant.tenantId,
+      warehouseId,
+      itemId,
+      Number(quantity),
+    );
   }
 }

@@ -12,16 +12,24 @@ export class ScrapService {
   ) {}
 
   private async findOrder(productionOrderId: string, tenantId: string) {
-    const order = await this.productionOrdersRepo.findById(productionOrderId, tenantId);
+    const order = await this.productionOrdersRepo.findById(
+      productionOrderId,
+      tenantId,
+    );
     if (!order) throw new NotFoundException('Production order not found');
-    return order as any;
+    return order;
   }
 
   findByProductionOrder(productionOrderId: string, tenantId: string) {
     return this.scrapRepo.findByProductionOrder(productionOrderId, tenantId);
   }
 
-  async record(productionOrderId: string, tenantId: string, actorId: string | null, dto: CreateScrapDto) {
+  async record(
+    productionOrderId: string,
+    tenantId: string,
+    actorId: string | null,
+    dto: CreateScrapDto,
+  ) {
     const order = await this.findOrder(productionOrderId, tenantId);
     try {
       return await this.scrapRepo.record(

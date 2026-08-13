@@ -83,8 +83,8 @@ describe('Releases module (migrations 128-133, 138)', () => {
 
   beforeAll(async () => {
     supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
     );
     service = new ReleasesService(
       new ReleasesRepository(supabase),
@@ -100,22 +100,22 @@ describe('Releases module (migrations 128-133, 138)', () => {
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1)
       .single();
-    supplierId = supplier!.id;
+    supplierId = supplier.id;
 
     const { data: items } = await supabase
       .from('items')
       .select('id')
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1);
-    itemId = items![0].id;
+    itemId = items[0].id;
 
     const { data: users } = await supabase
       .from('users')
       .select('id')
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(2);
-    userAId = users![0].id;
-    userBId = users![1]?.id ?? users![0].id;
+    userAId = users[0].id;
+    userBId = users[1]?.id ?? users[0].id;
   });
 
   afterAll(async () => {
@@ -153,7 +153,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
         agreement_id: agreement.id,
         release_number: `REG-REL-${Date.now()}`,
         items: [{ agreement_item_id: agreementItem.id, released_quantity: 10 }],
-      } as any,
+      },
       userAId,
     );
     cleanup.releases.push(release.id);
@@ -179,7 +179,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
           items: [
             { agreement_item_id: agreementItem.id, released_quantity: 51 },
           ],
-        } as any,
+        },
         userAId,
       );
     } catch (e) {
@@ -201,7 +201,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
         items: [
           { agreement_item_id: agreementItem.id, released_quantity: 99999 },
         ],
-      } as any,
+      },
       userAId,
     );
     cleanup.releases.push(release.id);
@@ -219,7 +219,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
         agreement_id: agreement.id,
         release_number: `REG-REL-${Date.now()}`,
         items: [{ agreement_item_id: agreementItem.id, released_quantity: 5 }],
-      } as any,
+      },
       userAId,
     );
     cleanup.releases.push(release.id);
@@ -255,7 +255,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
             { agreement_item_id: itemA.id, released_quantity: 5 },
             { agreement_item_id: itemB.id, released_quantity: 5 }, // wrong agreement
           ],
-        } as any,
+        },
         userAId,
       );
     } catch (e) {
@@ -281,7 +281,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
         agreement_id: agreement.id,
         release_number: `REG-REL-${Date.now()}`,
         items: [{ agreement_item_id: agreementItem.id, released_quantity: 10 }],
-      } as any,
+      },
       userAId,
     );
     cleanup.releases.push(release.id);
@@ -301,7 +301,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
     expect(approved.status).toBe('approved');
 
     const history = await service.history(release.id, TEST_TENANT_ID);
-    const actions = (history as any[]).map((h) => h.action);
+    const actions = history.map((h) => h.action);
     expect(actions).toEqual(['submitted', 'approved']);
   }, 20000);
 
@@ -316,7 +316,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
         agreement_id: agreement.id,
         release_number: `REG-REL-${Date.now()}`,
         items: [{ agreement_item_id: agreementItem.id, released_quantity: 15 }],
-      } as any,
+      },
       userAId,
     );
     cleanup.releases.push(first.id);
@@ -333,7 +333,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
           items: [
             { agreement_item_id: agreementItem.id, released_quantity: 10 },
           ],
-        } as any,
+        },
         userAId,
       );
     } catch (e) {
@@ -353,7 +353,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
         agreement_id: agreement.id,
         release_number: `REG-REL-${Date.now()}`,
         items: [{ agreement_item_id: agreementItem.id, released_quantity: 5 }],
-      } as any,
+      },
       userAId,
     );
     cleanup.releases.push(release.id);
@@ -409,7 +409,7 @@ describe('Releases module (migrations 128-133, 138)', () => {
     });
 
     expect(rpc.error).not.toBeNull();
-    expect(rpc.error!.message).toContain('does not belong to agreement');
+    expect(rpc.error.message).toContain('does not belong to agreement');
 
     const { data: orphanCheck } = await supabase
       .from('agreement_releases')

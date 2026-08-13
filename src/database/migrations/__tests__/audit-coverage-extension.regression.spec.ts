@@ -27,7 +27,12 @@ describe('audit coverage extension regression (Migration 11.1a)', () => {
   let supabase: SupabaseClient;
   const insertedIds: string[] = [];
 
-  const insertAuditRow = async (action: string, resourceType: string, before: object | null, after: object) => {
+  const insertAuditRow = async (
+    action: string,
+    resourceType: string,
+    before: object | null,
+    after: object,
+  ) => {
     const { data, error } = await supabase
       .from('audit_logs')
       .insert({
@@ -50,11 +55,15 @@ describe('audit coverage extension regression (Migration 11.1a)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
   }, 30_000);
 
   afterAll(async () => {
-    for (const id of insertedIds) await supabase.from('audit_logs').delete().eq('id', id);
+    for (const id of insertedIds)
+      await supabase.from('audit_logs').delete().eq('id', id);
   }, 30_000);
 
   it('production_order.completed shape (before/after) is valid against audit_logs', async () => {
@@ -112,6 +121,6 @@ describe('audit coverage extension regression (Migration 11.1a)', () => {
       .eq('tenant_id', TEST_TENANT_ID)
       .in('id', insertedIds);
     expect(error).toBeNull();
-    expect(data!.length).toBe(4);
+    expect(data.length).toBe(4);
   }, 15_000);
 });

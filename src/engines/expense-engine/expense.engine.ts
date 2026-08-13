@@ -59,7 +59,9 @@ export class ExpenseEngine {
     return new Date() > new Date(expiresAt);
   }
 
-  buildSummary(expenses: Array<{ status: string; amount: number }>): ExpenseSummary {
+  buildSummary(
+    expenses: Array<{ status: string; amount: number }>,
+  ): ExpenseSummary {
     const summary: ExpenseSummary = {
       total: 0,
       approved: 0,

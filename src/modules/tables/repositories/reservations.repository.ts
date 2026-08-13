@@ -2,17 +2,23 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
-const SELECT = 'id, table_id, customer_name, customer_phone, party_size, reservation_time, status, notes, created_at, tables(name)';
+const SELECT =
+  'id, table_id, customer_name, customer_phone, party_size, reservation_time, status, notes, created_at, tables(name)';
 
 @Injectable()
 export class ReservationsRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   private map(row: any) {
     return { ...row, table_name: row.tables?.name ?? null, tables: undefined };
   }
 
-  async findAll(tenantId: string, filters: { tableId?: string; from?: string; to?: string; status?: string }) {
+  async findAll(
+    tenantId: string,
+    filters: { tableId?: string; from?: string; to?: string; status?: string },
+  ) {
     let q = this.supabase
       .from('table_reservations')
       .select(SELECT)
@@ -39,7 +45,10 @@ export class ReservationsRepository {
     return data ? this.map(data) : null;
   }
 
-  async tableBelongsToTenant(tableId: string, tenantId: string): Promise<boolean> {
+  async tableBelongsToTenant(
+    tableId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('tables')
       .select('id')

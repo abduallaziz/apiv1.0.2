@@ -1,5 +1,22 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
-import { IsString, IsBoolean, IsNumber, IsOptional, IsIn, MinLength } from 'class-validator';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import {
+  IsString,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsIn,
+  MinLength,
+} from 'class-validator';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -22,7 +39,10 @@ class UpdateTemplateDto {
   @IsOptional() @IsNumber() expiry_hours?: number;
   @IsOptional() @IsBoolean() is_active?: boolean;
   @IsOptional() @IsBoolean() is_pre_approved?: boolean;
-  @IsOptional() @IsString() @IsIn(['none','daily','weekly','monthly']) recurrence_type?: string;
+  @IsOptional()
+  @IsString()
+  @IsIn(['none', 'daily', 'weekly', 'monthly'])
+  recurrence_type?: string;
   @IsOptional() @IsNumber() recurrence_day?: number | null;
   @IsOptional() @IsString() next_run_at?: string | null;
 }

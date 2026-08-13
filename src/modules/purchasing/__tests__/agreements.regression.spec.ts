@@ -26,8 +26,8 @@ describe('Agreements module (migrations 128-135)', () => {
 
   beforeAll(async () => {
     supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
     );
     service = new AgreementsService(
       new AgreementsRepository(supabase),
@@ -41,7 +41,7 @@ describe('Agreements module (migrations 128-135)', () => {
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1)
       .single();
-    supplierId = supplier!.id;
+    supplierId = supplier.id;
 
     const { data: item } = await supabase
       .from('items')
@@ -49,15 +49,15 @@ describe('Agreements module (migrations 128-135)', () => {
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1)
       .single();
-    itemId = item!.id;
+    itemId = item.id;
 
     const { data: users } = await supabase
       .from('users')
       .select('id')
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(2);
-    userAId = users![0].id;
-    userBId = users![1]?.id ?? users![0].id;
+    userAId = users[0].id;
+    userBId = users[1]?.id ?? users[0].id;
   });
 
   afterAll(async () => {

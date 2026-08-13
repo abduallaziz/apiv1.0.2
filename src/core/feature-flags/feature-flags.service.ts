@@ -50,7 +50,10 @@ export class FeatureFlagsService {
     return feature?.is_enabled ?? false;
   }
 
-  async getFeatureLimitValue(tenantId: string, featureKey: string): Promise<number | null> {
+  async getFeatureLimitValue(
+    tenantId: string,
+    featureKey: string,
+  ): Promise<number | null> {
     const { data: override } = await this.supabase
       .from('tenant_feature_overrides')
       .select('limit_value')

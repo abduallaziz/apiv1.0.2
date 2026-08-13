@@ -25,15 +25,18 @@ async function bootstrap(): Promise<void> {
   // 304 responses to surface as fetch errors, and `Cache-Control: public` without
   // `Vary: Authorization` risked a shared cache serving one tenant's data to another).
   app.getHttpAdapter().getInstance().set('etag', false);
-  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
-    res.setHeader('Cache-Control', 'no-store');
-    next();
-  });
-
   app.use(
-    '/api/v1/webhooks/stripe',
-    express.raw({ type: 'application/json' }),
+    (
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+      res.setHeader('Cache-Control', 'no-store');
+      next();
+    },
   );
+
+  app.use('/api/v1/webhooks/stripe', express.raw({ type: 'application/json' }));
 
   app.enableCors({
     origin: [
@@ -84,7 +87,9 @@ async function bootstrap(): Promise<void> {
     const error =
       reason instanceof Error
         ? reason
-        : new Error(typeof reason === 'string' ? reason : JSON.stringify(reason));
+        : new Error(
+            typeof reason === 'string' ? reason : JSON.stringify(reason),
+          );
     loggerService.error('Unhandled Promise Rejection', error, {
       module: 'process',
       action: 'unhandled_rejection',
@@ -98,7 +103,11 @@ async function bootstrap(): Promise<void> {
 
   // PerfTrackingInterceptor must run after LoggingInterceptor so the
   // AsyncLocalStorage request context (and its dbQueryCount counter) exists.
-  app.useGlobalInterceptors(loggingInterceptor, metricsInterceptor, perfTrackingInterceptor);
+  app.useGlobalInterceptors(
+    loggingInterceptor,
+    metricsInterceptor,
+    perfTrackingInterceptor,
+  );
   app.useGlobalFilters(exceptionFilter);
 
   const port = process.env.PORT ?? 3001;

@@ -33,7 +33,16 @@ export class AuditLogsRepository {
   ) {}
 
   async findMany(query: AuditQueryDto): Promise<PaginatedAuditLogs> {
-    const { page = 1, limit = 50, actor_id, action, resource_type, tenant_id, from, to } = query;
+    const {
+      page = 1,
+      limit = 50,
+      actor_id,
+      action,
+      resource_type,
+      tenant_id,
+      from,
+      to,
+    } = query;
     const offset = (page - 1) * limit;
 
     let builder = this.supabase
@@ -51,7 +60,8 @@ export class AuditLogsRepository {
 
     const { data, error, count } = await builder;
 
-    if (error) throw new Error(`AuditLogsRepository.findMany: ${error.message}`);
+    if (error)
+      throw new Error(`AuditLogsRepository.findMany: ${error.message}`);
 
     const total = count ?? 0;
 
@@ -75,7 +85,9 @@ export class AuditLogsRepository {
     return data as AuditLogEntry;
   }
 
-  async findForExport(query: Omit<AuditQueryDto, 'page' | 'limit'>): Promise<AuditLogEntry[]> {
+  async findForExport(
+    query: Omit<AuditQueryDto, 'page' | 'limit'>,
+  ): Promise<AuditLogEntry[]> {
     let builder = this.supabase
       .from('audit_logs')
       .select('*')
@@ -83,7 +95,8 @@ export class AuditLogsRepository {
 
     if (query.actor_id) builder = builder.eq('actor_id', query.actor_id);
     if (query.action) builder = builder.eq('action', query.action);
-    if (query.resource_type) builder = builder.eq('resource_type', query.resource_type);
+    if (query.resource_type)
+      builder = builder.eq('resource_type', query.resource_type);
     if (query.tenant_id) builder = builder.eq('tenant_id', query.tenant_id);
     if (query.from) builder = builder.gte('created_at', query.from);
     if (query.to) builder = builder.lte('created_at', query.to);
@@ -92,7 +105,8 @@ export class AuditLogsRepository {
     builder = builder.limit(10000);
 
     const { data, error } = await builder;
-    if (error) throw new Error(`AuditLogsRepository.findForExport: ${error.message}`);
+    if (error)
+      throw new Error(`AuditLogsRepository.findForExport: ${error.message}`);
     return (data as AuditLogEntry[]) ?? [];
   }
 }

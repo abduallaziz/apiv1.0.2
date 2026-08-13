@@ -1,4 +1,12 @@
-import { IsUUID, IsString, IsNotEmpty, IsOptional, IsIn, IsArray, ArrayMinSize } from 'class-validator';
+import {
+  IsUUID,
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsIn,
+  IsArray,
+  ArrayMinSize,
+} from 'class-validator';
 
 export const STOCK_COUNT_TYPES = ['full', 'partial', 'cycle'] as const;
 export type StockCountType = (typeof STOCK_COUNT_TYPES)[number];

@@ -44,7 +44,11 @@ export class SerialsController {
     @GetTenant() tenant: TenantContext,
     @Query('status') status?: string,
   ) {
-    return this.serialsService.findByWarehouse(warehouseId, tenant.tenantId, status);
+    return this.serialsService.findByWarehouse(
+      warehouseId,
+      tenant.tenantId,
+      status,
+    );
   }
 
   @Get('customer/:customerId')
@@ -64,7 +68,10 @@ export class SerialsController {
 
   @Get(':id/history')
   @RequirePermission('inventory.view')
-  lifecycleHistory(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+  lifecycleHistory(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.serialsService.getLifecycleHistory(id, tenant.tenantId);
   }
 

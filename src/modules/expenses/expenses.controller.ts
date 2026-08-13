@@ -48,7 +48,11 @@ export class ExpensesController {
     @Request() req?: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.expensesService.findAll(tenantId, query, new PaginationDto(page, perPage));
+    return this.expensesService.findAll(
+      tenantId,
+      query,
+      new PaginationDto(page, perPage),
+    );
   }
 
   @Get(':id')

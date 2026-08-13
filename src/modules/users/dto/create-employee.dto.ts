@@ -1,4 +1,14 @@
-import { IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 // Employee Core creation — deliberately has NO email/password/role requirement.
 // This is what the "create employee without a login account" architecture rule

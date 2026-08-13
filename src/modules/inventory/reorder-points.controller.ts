@@ -28,7 +28,10 @@ export class ReorderPointsController {
 
   @Get()
   @RequirePermission('inventory.view')
-  findAll(@Query('warehouse_id') warehouseId: string, @GetTenant() tenant: TenantContext) {
+  findAll(
+    @Query('warehouse_id') warehouseId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.reorderPointsService.findAll(tenant.tenantId, warehouseId);
   }
 
@@ -46,7 +49,10 @@ export class ReorderPointsController {
 
   @Post()
   @RequirePermission('inventory.manage')
-  create(@Body() dto: CreateReorderPointDto, @GetTenant() tenant: TenantContext) {
+  create(
+    @Body() dto: CreateReorderPointDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.reorderPointsService.create(tenant.tenantId, dto);
   }
 

@@ -8,12 +8,24 @@ export class OwnershipRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, filters: { status?: string; warehouse_id?: string; item_id?: string; ownership_type?: string } = {}) {
-    let q = this.supabase.from('stock_ownership_layers').select('*').eq('tenant_id', tenantId);
+  async findAll(
+    tenantId: string,
+    filters: {
+      status?: string;
+      warehouse_id?: string;
+      item_id?: string;
+      ownership_type?: string;
+    } = {},
+  ) {
+    let q = this.supabase
+      .from('stock_ownership_layers')
+      .select('*')
+      .eq('tenant_id', tenantId);
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.warehouse_id) q = q.eq('warehouse_id', filters.warehouse_id);
     if (filters.item_id) q = q.eq('item_id', filters.item_id);
-    if (filters.ownership_type) q = q.eq('ownership_type', filters.ownership_type);
+    if (filters.ownership_type)
+      q = q.eq('ownership_type', filters.ownership_type);
     const { data, error } = await q.order('created_at', { ascending: false });
     if (error) throw error;
     return data;
@@ -43,7 +55,11 @@ export class OwnershipRepository extends ScopedRepository {
   // Closes the current layer and creates a new one under a different owner
   // — the explicit "ownership transfer" action, distinct from a physical
   // location Transfer (which never touches ownership_type/owner_id).
-  async transfer(id: string, tenantId: string, payload: Record<string, unknown>) {
+  async transfer(
+    id: string,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data: current, error: findErr } = await this.supabase
       .from('stock_ownership_layers')
       .select('*')
@@ -85,7 +101,11 @@ export class OwnershipRepository extends ScopedRepository {
   async release(id: string, tenantId: string, reason?: string) {
     const { data, error } = await this.supabase
       .from('stock_ownership_layers')
-      .update({ status: 'released', closed_at: new Date().toISOString(), reason: reason ?? undefined })
+      .update({
+        status: 'released',
+        closed_at: new Date().toISOString(),
+        reason: reason ?? undefined,
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
@@ -97,7 +117,12 @@ export class OwnershipRepository extends ScopedRepository {
 
   // Any active layer for this item/warehouse/variant — used by the
   // Manufacturing "block owned components" guard (Migration 10.1 scope).
-  async findActiveForItem(tenantId: string, warehouseId: string, itemId: string, variantId: string | null) {
+  async findActiveForItem(
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    variantId: string | null,
+  ) {
     let q = this.supabase
       .from('stock_ownership_layers')
       .select('*')
@@ -114,14 +139,23 @@ export class OwnershipRepository extends ScopedRepository {
   // Advisory-only consumption call for the sale path (Invoices integration)
   // — never throws in a way that should block a sale; the caller wraps this
   // in its own try/catch per the Quality Hold precedent.
-  async consumeForSale(tenantId: string, warehouseId: string, itemId: string, variantId: string | null, quantity: number) {
-    const { data, error } = await this.supabase.rpc('fn_consume_ownership_layers', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId,
-      p_item_id: itemId,
-      p_variant_id: variantId,
-      p_quantity: quantity,
-    });
+  async consumeForSale(
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    variantId: string | null,
+    quantity: number,
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_consume_ownership_layers',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: warehouseId,
+        p_item_id: itemId,
+        p_variant_id: variantId,
+        p_quantity: quantity,
+      },
+    );
     if (error) throw error;
     return data as number; // quantity actually consumed from active layers (0 if none)
   }

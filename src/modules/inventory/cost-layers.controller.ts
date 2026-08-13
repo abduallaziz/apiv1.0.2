@@ -24,6 +24,9 @@ export class CostLayersController {
     @Query('item_id') itemId?: string,
     @Query('warehouse_id') warehouseId?: string,
   ) {
-    return this.stockService.findCostLayers(tenant.tenantId, { itemId, warehouseId });
+    return this.stockService.findCostLayers(tenant.tenantId, {
+      itemId,
+      warehouseId,
+    });
   }
 }

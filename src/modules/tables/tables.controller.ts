@@ -27,13 +27,19 @@ export class TablesController {
 
   @Get()
   @RequirePermission('tables.manage')
-  findAll(@GetTenant() tenant: TenantContext, @Query('branch_id') branchId?: string) {
+  findAll(
+    @GetTenant() tenant: TenantContext,
+    @Query('branch_id') branchId?: string,
+  ) {
     return this.service.findAll(tenant, branchId);
   }
 
   @Get(':id')
   @RequirePermission('tables.manage')
-  findOne(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.findOne(id, tenant);
   }
 
@@ -55,7 +61,10 @@ export class TablesController {
 
   @Delete(':id')
   @RequirePermission('tables.manage')
-  remove(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.remove(id, tenant);
   }
 }

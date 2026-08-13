@@ -29,7 +29,11 @@ export class ExpenseCategoriesService {
     return data;
   }
 
-  async update(id: string, tenantId: string, dto: { name?: string; is_active?: boolean }) {
+  async update(
+    id: string,
+    tenantId: string,
+    dto: { name?: string; is_active?: boolean },
+  ) {
     const { data, error } = await this.supabase
       .from('expense_categories')
       .update(dto)

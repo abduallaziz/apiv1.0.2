@@ -17,14 +17,28 @@ describe('Safety Stock + Reorder Planning completion (migration 158)', () => {
   let reorderPointId: string;
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
 
-    const { data: wh } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1);
-    warehouseId = wh![0].id;
+    const { data: wh } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1);
+    warehouseId = wh[0].id;
 
     const { data: item } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regression 13.17 Item', type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regression 13.17 Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     itemId = item.id;
@@ -58,9 +72,15 @@ describe('Safety Stock + Reorder Planning completion (migration 158)', () => {
 
   afterAll(async () => {
     if (reorderPointId) {
-      await supabase.from('inventory_reorder_points').delete().eq('id', reorderPointId);
+      await supabase
+        .from('inventory_reorder_points')
+        .delete()
+        .eq('id', reorderPointId);
     }
-    await supabase.from('items').update({ is_active: false, deleted_at: new Date().toISOString() }).eq('id', itemId);
+    await supabase
+      .from('items')
+      .update({ is_active: false, deleted_at: new Date().toISOString() })
+      .eq('id', itemId);
   }, 30_000);
 
   it('1. fn_calculate_safety_stock returns a real calculated recommendation (> 0) from demand variability', async () => {
@@ -103,28 +123,43 @@ describe('Safety Stock + Reorder Planning completion (migration 158)', () => {
       .select('min_quantity')
       .eq('id', reorderPointId)
       .single();
-    expect(Number(reread!.min_quantity)).toBe(42);
+    expect(Number(reread.min_quantity)).toBe(42);
   });
 
   it('3. existing reorder-point behavior (fn_purchase_suggestions) is unchanged for rows with no service_level_z set', async () => {
-    const { data: suggestions, error } = await supabase.rpc('fn_purchase_suggestions', { p_tenant_id: TEST_TENANT_ID });
+    const { data: suggestions, error } = await supabase.rpc(
+      'fn_purchase_suggestions',
+      { p_tenant_id: TEST_TENANT_ID },
+    );
     expect(error).toBeNull();
-    const mine = (suggestions as any[]).find((s) => s.reorder_point_id === reorderPointId);
+    const mine = (suggestions as any[]).find(
+      (s) => s.reorder_point_id === reorderPointId,
+    );
     // Same fields/shape as before migration 158 - no new required columns broke the function.
     expect(mine).toBeDefined();
     expect(mine).toHaveProperty('suggested_order_quantity');
   });
 
   it('4. shortage is detected: item is available_quantity 0 <= min_quantity 42', async () => {
-    const { data: below, error } = await supabase.rpc('fn_purchase_suggestions', { p_tenant_id: TEST_TENANT_ID });
+    const { data: below, error } = await supabase.rpc(
+      'fn_purchase_suggestions',
+      { p_tenant_id: TEST_TENANT_ID },
+    );
     expect(error).toBeNull();
-    const mine = (below as any[]).find((s) => s.reorder_point_id === reorderPointId);
+    const mine = (below as any[]).find(
+      (s) => s.reorder_point_id === reorderPointId,
+    );
     expect(Number(mine.quantity_available)).toBeLessThanOrEqual(42);
   });
 
   it('5. purchase suggestion is generated with a positive suggested_order_quantity for the shortage', async () => {
-    const { data: suggestions } = await supabase.rpc('fn_purchase_suggestions', { p_tenant_id: TEST_TENANT_ID });
-    const mine = (suggestions as any[]).find((s) => s.reorder_point_id === reorderPointId);
+    const { data: suggestions } = await supabase.rpc(
+      'fn_purchase_suggestions',
+      { p_tenant_id: TEST_TENANT_ID },
+    );
+    const mine = (suggestions as any[]).find(
+      (s) => s.reorder_point_id === reorderPointId,
+    );
     expect(Number(mine.suggested_order_quantity)).toBeGreaterThan(0);
   });
 

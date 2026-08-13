@@ -23,7 +23,11 @@ export class OutboxProcessor extends WorkerHost {
       this.logger.error(
         `Failed to relay domain event ${event.id} (${event.event_type}): ${message}`,
       );
-      await this.outboxRepository.markFailed(event.id, event.retry_count, message);
+      await this.outboxRepository.markFailed(
+        event.id,
+        event.retry_count,
+        message,
+      );
       throw error;
     }
   }

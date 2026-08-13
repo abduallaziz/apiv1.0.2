@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { TablesRepository } from './repositories/tables.repository';
 import { CreateTableDto } from './dto/create-table.dto';
 import { UpdateTableDto } from './dto/update-table.dto';
@@ -19,7 +23,10 @@ export class TablesService {
   }
 
   async create(tenant: TenantContext, dto: CreateTableDto) {
-    const branchOk = await this.repo.branchBelongsToTenant(dto.branch_id, tenant.tenantId);
+    const branchOk = await this.repo.branchBelongsToTenant(
+      dto.branch_id,
+      tenant.tenantId,
+    );
     if (!branchOk) throw new BadRequestException('Branch not found');
     return this.repo.create(tenant.tenantId, dto);
   }

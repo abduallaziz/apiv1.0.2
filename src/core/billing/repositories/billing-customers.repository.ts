@@ -18,7 +18,10 @@ export class BillingCustomersRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  async findByTenant(tenantId: string, provider: string): Promise<BillingCustomerRecord | null> {
+  async findByTenant(
+    tenantId: string,
+    provider: string,
+  ): Promise<BillingCustomerRecord | null> {
     const { data, error } = await this.supabase
       .from('billing_customers')
       .select('*')
@@ -47,7 +50,8 @@ export class BillingCustomersRepository {
       .select()
       .single();
 
-    if (error || !data) throw new Error(`Failed to create billing customer: ${error?.message}`);
+    if (error || !data)
+      throw new Error(`Failed to create billing customer: ${error?.message}`);
     return data;
   }
 }

@@ -36,7 +36,12 @@ export class QualityConfigRepository extends ScopedRepository {
     return data;
   }
 
-  async createTemplate(tenantId: string, name: string, notes: string | null, checks: Record<string, unknown>[]) {
+  async createTemplate(
+    tenantId: string,
+    name: string,
+    notes: string | null,
+    checks: Record<string, unknown>[],
+  ) {
     const { data: template, error } = await this.supabase
       .from('quality_templates')
       .insert({ tenant_id: tenantId, name, notes })
@@ -44,15 +49,26 @@ export class QualityConfigRepository extends ScopedRepository {
       .single();
     if (error) throw error;
 
-    const { error: checksError } = await this.supabase.from('quality_template_checks').insert(
-      checks.map((c, idx) => ({ ...c, tenant_id: tenantId, template_id: template.id, sequence: c.sequence ?? idx + 1 })),
-    );
+    const { error: checksError } = await this.supabase
+      .from('quality_template_checks')
+      .insert(
+        checks.map((c, idx) => ({
+          ...c,
+          tenant_id: tenantId,
+          template_id: template.id,
+          sequence: c.sequence ?? idx + 1,
+        })),
+      );
     if (checksError) throw checksError;
 
     return this.findTemplateById(template.id, tenantId);
   }
 
-  async updateTemplate(id: string, tenantId: string, payload: Record<string, unknown>) {
+  async updateTemplate(
+    id: string,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('quality_templates')
       .update({ ...payload, updated_at: new Date().toISOString() })

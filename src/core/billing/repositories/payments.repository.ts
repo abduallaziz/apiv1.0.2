@@ -44,7 +44,8 @@ export class PaymentsRepository {
       .select()
       .single();
 
-    if (error || !data) throw new Error(`Failed to create payment: ${error?.message}`);
+    if (error || !data)
+      throw new Error(`Failed to create payment: ${error?.message}`);
     return data;
   }
 

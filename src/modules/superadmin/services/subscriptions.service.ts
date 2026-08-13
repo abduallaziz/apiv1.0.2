@@ -52,7 +52,10 @@ export class SuperAdminSubscriptionsService {
 
   async manualPayment(dto: ManualPaymentDto): Promise<{ success: true }> {
     const { email, name } = await this.getTenantOwnerData(dto.tenant_id);
-    const cycle = dto.billing_cycle === 'yearly' ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
+    const cycle =
+      dto.billing_cycle === 'yearly'
+        ? BillingCycle.YEARLY
+        : BillingCycle.MONTHLY;
 
     await this.billingService.activateSubscription(
       dto.tenant_id,
@@ -66,7 +69,9 @@ export class SuperAdminSubscriptionsService {
     return { success: true };
   }
 
-  private async getTenantOwnerData(tenantId: string): Promise<{ email: string; name: string }> {
+  private async getTenantOwnerData(
+    tenantId: string,
+  ): Promise<{ email: string; name: string }> {
     const { data: tenant, error: tenantError } = await this.supabase
       .from('tenants')
       .select('name')
@@ -82,7 +87,8 @@ export class SuperAdminSubscriptionsService {
       .is('deleted_at', null)
       .limit(1)
       .single();
-    if (ownerError || !owner) throw new NotFoundException('Tenant owner not found');
+    if (ownerError || !owner)
+      throw new NotFoundException('Tenant owner not found');
 
     return { email: owner.email, name: tenant.name };
   }

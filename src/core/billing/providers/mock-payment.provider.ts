@@ -14,22 +14,25 @@ export class MockPaymentProvider implements PaymentProvider {
   readonly providerName = 'mock';
   private readonly logger = new Logger(MockPaymentProvider.name);
 
-  async createCustomer(input: CreateCustomerInput): Promise<CreateCustomerResult> {
+  async createCustomer(
+    input: CreateCustomerInput,
+  ): Promise<CreateCustomerResult> {
     const providerCustomerId = `mock_cus_${input.tenantId.replace(/-/g, '').slice(0, 16)}`;
-    this.logger.log(`[Mock] Created customer: ${providerCustomerId} for tenant: ${input.tenantId}`);
+    this.logger.log(
+      `[Mock] Created customer: ${providerCustomerId} for tenant: ${input.tenantId}`,
+    );
     return { providerCustomerId };
   }
 
-
   async charge(params: {
-  customerId: string;
-  amount: number;
-  currency: string;
-  description: string;
-}): Promise<{ success: boolean; error?: string }> {
-  // Mock: دائماً يفشل في الـ dunning للاختبار
-  return { success: false, error: 'Mock: insufficient funds' };
-}
+    customerId: string;
+    amount: number;
+    currency: string;
+    description: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    // Mock: دائماً يفشل في الـ dunning للاختبار
+    return { success: false, error: 'Mock: insufficient funds' };
+  }
 
   async createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
     const providerPaymentId = `mock_pay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -43,7 +46,9 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentResult> {
-    this.logger.log(`[Mock] Refund for payment: ${input.providerPaymentId} — amount: ${input.amount}`);
+    this.logger.log(
+      `[Mock] Refund for payment: ${input.providerPaymentId} — amount: ${input.amount}`,
+    );
     return { success: true };
   }
 }

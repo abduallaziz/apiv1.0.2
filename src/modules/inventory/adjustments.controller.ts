@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Param, Body, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { AdjustmentsService } from './adjustments.service';
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
@@ -23,7 +33,12 @@ export class AdjustmentsController {
     @Query('page') page?: string,
     @Query('per_page') perPage?: string,
   ) {
-    return this.adjustmentsService.findAll(tenant.tenantId, status, page, perPage);
+    return this.adjustmentsService.findAll(
+      tenant.tenantId,
+      status,
+      page,
+      perPage,
+    );
   }
 
   @Get(':id')

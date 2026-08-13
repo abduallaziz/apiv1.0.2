@@ -1,4 +1,10 @@
-import { IsUUID, IsDateString, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsUUID,
+  IsDateString,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class CreateAttendanceExceptionDto {
   @IsUUID()

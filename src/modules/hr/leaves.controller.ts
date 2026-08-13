@@ -1,4 +1,12 @@
-import { Controller, Get, Patch, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Query,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { LeavesService } from './leaves.service';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
@@ -26,14 +34,20 @@ export class LeavesController {
   @Patch(':id/approve')
   @Audit('leave.request.approved')
   @RequirePermission('hr.manage')
-  approve(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.updateStatus(id, tenant, 'approved');
   }
 
   @Patch(':id/reject')
   @Audit('leave.request.rejected')
   @RequirePermission('hr.manage')
-  reject(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  reject(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.updateStatus(id, tenant, 'rejected');
   }
 }

@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Param, Body, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { WmsService } from './wms.service';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
 import { CreatePickListDto } from './dto/create-pick-list.dto';
@@ -21,7 +31,10 @@ export class WmsController {
 
   @Get('shipments')
   @RequirePermission('inventory.view')
-  findShipments(@Query('status') status: string, @GetTenant() tenant: TenantContext) {
+  findShipments(
+    @Query('status') status: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.wmsService.findShipments(tenant.tenantId, status);
   }
 
@@ -33,7 +46,10 @@ export class WmsController {
 
   @Post('shipments')
   @RequirePermission('inventory.fulfill')
-  createShipment(@Body() dto: CreateShipmentDto, @GetTenant() tenant: TenantContext) {
+  createShipment(
+    @Body() dto: CreateShipmentDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.wmsService.createShipment(tenant.tenantId, dto);
   }
 
@@ -53,7 +69,12 @@ export class WmsController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.wmsService.shipShipment(id, tenant.tenantId, user.sub, dto.tracking_number);
+    return this.wmsService.shipShipment(
+      id,
+      tenant.tenantId,
+      user.sub,
+      dto.tracking_number,
+    );
   }
 
   @Post('shipment-lines/:id/pack')
@@ -65,12 +86,20 @@ export class WmsController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.wmsService.confirmPack(id, tenant.tenantId, dto.quantity, user.sub);
+    return this.wmsService.confirmPack(
+      id,
+      tenant.tenantId,
+      dto.quantity,
+      user.sub,
+    );
   }
 
   @Get('pick-lists')
   @RequirePermission('inventory.view')
-  findPickLists(@Query('status') status: string, @GetTenant() tenant: TenantContext) {
+  findPickLists(
+    @Query('status') status: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.wmsService.findPickLists(tenant.tenantId, status);
   }
 
@@ -99,6 +128,12 @@ export class WmsController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.wmsService.confirmPick(id, tenant.tenantId, dto.quantity, user.sub, dto.batch_id);
+    return this.wmsService.confirmPick(
+      id,
+      tenant.tenantId,
+      dto.quantity,
+      user.sub,
+      dto.batch_id,
+    );
   }
 }

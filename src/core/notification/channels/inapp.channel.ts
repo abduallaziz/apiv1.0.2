@@ -34,7 +34,10 @@ export class InAppChannel implements INotificationChannel, OnModuleInit {
     });
 
     if (error) {
-      this.logger.error(`Failed to save in-app notification for user ${payload.to}`, error);
+      this.logger.error(
+        `Failed to save in-app notification for user ${payload.to}`,
+        error,
+      );
       throw error;
     }
 

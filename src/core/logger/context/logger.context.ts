@@ -1,7 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { RequestLogContext } from '../logger.interface';
 
-export function createRequestContext(partial?: Partial<RequestLogContext>): RequestLogContext {
+export function createRequestContext(
+  partial?: Partial<RequestLogContext>,
+): RequestLogContext {
   return {
     requestId: partial?.requestId ?? uuidv4(),
     correlationId: partial?.correlationId ?? uuidv4(),

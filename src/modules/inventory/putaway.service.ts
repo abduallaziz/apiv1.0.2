@@ -26,9 +26,20 @@ export class PutawayService {
     });
   }
 
-  async suggest(tenantId: string, warehouseId: string, itemId: string, quantity: number) {
+  async suggest(
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    quantity: number,
+  ) {
     const item: any = await this.itemsService.findById(itemId, tenantId);
-    return this.putawayRepo.suggestLocation(tenantId, warehouseId, itemId, item?.category_id ?? null, quantity);
+    return this.putawayRepo.suggestLocation(
+      tenantId,
+      warehouseId,
+      itemId,
+      item?.category_id ?? null,
+      quantity,
+    );
   }
 
   // Goods Receipt -> Putaway integration point. Called from
@@ -36,14 +47,33 @@ export class PutawayService {
   // already-completed receipt), mirroring the Quality Management
   // integration pattern (migration 13.19).
   async createFromReceipt(
-    tenantId: string, warehouseId: string, itemId: string, variantId: string | null, batchId: string | null,
-    quantity: number, sourceLocationId: string | null, receiptId: string, actorId: string | null,
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    variantId: string | null,
+    batchId: string | null,
+    quantity: number,
+    sourceLocationId: string | null,
+    receiptId: string,
+    actorId: string | null,
   ) {
-    const suggestion = await this.suggest(tenantId, warehouseId, itemId, quantity);
+    const suggestion = await this.suggest(
+      tenantId,
+      warehouseId,
+      itemId,
+      quantity,
+    );
     return this.putawayRepo.createTask(tenantId, {
-      warehouse_id: warehouseId, item_id: itemId, variant_id: variantId, batch_id: batchId,
-      quantity, source_location_id: sourceLocationId, suggested_location_id: suggestion?.location_id ?? null,
-      source_document_type: 'goods_receipt', source_document_id: receiptId, created_by: actorId,
+      warehouse_id: warehouseId,
+      item_id: itemId,
+      variant_id: variantId,
+      batch_id: batchId,
+      quantity,
+      source_location_id: sourceLocationId,
+      suggested_location_id: suggestion?.location_id ?? null,
+      source_document_type: 'goods_receipt',
+      source_document_id: receiptId,
+      created_by: actorId,
     });
   }
 }

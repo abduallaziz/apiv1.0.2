@@ -62,9 +62,7 @@ export class ItemsRepository extends ScopedRepository {
     // Whitelist enforced at the DTO layer (@IsIn(ITEM_SORT_COLUMNS)) — this
     // check is a second, defense-in-depth gate so a raw column string can
     // never reach .order() even if the DTO validation were ever bypassed.
-    const sort = ITEM_SORT_COLUMNS.includes(query.sort as (typeof ITEM_SORT_COLUMNS)[number])
-      ? query.sort!
-      : 'name';
+    const sort = ITEM_SORT_COLUMNS.includes(query.sort) ? query.sort : 'name';
     const ascending = query.dir !== 'desc';
 
     const { data, error, count } = await q
@@ -88,12 +86,15 @@ export class ItemsRepository extends ScopedRepository {
         .is('deleted_at', null)
         .eq('tenant_id', tenantId);
 
-    const [{ count: total, error: totalErr }, { count: active, error: activeErr }, { count: withVariants, error: variantsErr }] =
-      await Promise.all([
-        base(),
-        base().eq('is_active', true),
-        base().eq('has_variants', true),
-      ]);
+    const [
+      { count: total, error: totalErr },
+      { count: active, error: activeErr },
+      { count: withVariants, error: variantsErr },
+    ] = await Promise.all([
+      base(),
+      base().eq('is_active', true),
+      base().eq('has_variants', true),
+    ]);
     if (totalErr) throw totalErr;
     if (activeErr) throw activeErr;
     if (variantsErr) throw variantsErr;
@@ -124,7 +125,10 @@ export class ItemsRepository extends ScopedRepository {
   // is a frozen legacy column no longer written to by Goods Receipts/
   // Adjustments/Counts. variant_id IS NULL isolates the parent item's own
   // rows from any per-variant stock_levels rows for the same item.
-  async sumStockAcrossWarehouses(tenantId: string, itemId: string): Promise<number> {
+  async sumStockAcrossWarehouses(
+    tenantId: string,
+    itemId: string,
+  ): Promise<number> {
     const { data, error } = await this.supabase
       .from('stock_levels')
       .select('quantity_on_hand')
@@ -132,7 +136,10 @@ export class ItemsRepository extends ScopedRepository {
       .eq('item_id', itemId)
       .is('variant_id', null);
     if (error) throw error;
-    return (data ?? []).reduce((sum, row) => sum + Number(row.quantity_on_hand), 0);
+    return (data ?? []).reduce(
+      (sum, row) => sum + Number(row.quantity_on_hand),
+      0,
+    );
   }
 
   // Atomic per-tenant sequence backing auto-generated product SKUs — see
@@ -150,7 +157,10 @@ export class ItemsRepository extends ScopedRepository {
 
   // Per-(tenant, item) sequence backing auto-generated variant SKU suffixes
   // (parent-01, parent-02, ...) — migration 139.
-  async nextVariantSkuSequence(tenantId: string, itemId: string): Promise<number> {
+  async nextVariantSkuSequence(
+    tenantId: string,
+    itemId: string,
+  ): Promise<number> {
     const { data, error } = await this.supabase.rpc('fn_next_variant_sku_seq', {
       p_tenant_id: tenantId,
       p_item_id: itemId,

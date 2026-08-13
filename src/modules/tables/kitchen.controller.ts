@@ -1,4 +1,13 @@
-import { Controller, Get, Patch, Param, Body, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { KitchenService } from './kitchen.service';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
@@ -14,7 +23,10 @@ export class KitchenController {
 
   @Get('orders')
   @RequirePermission('kitchen.manage')
-  getActiveOrders(@GetTenant() tenant: TenantContext, @Query('branch_id') branchId?: string) {
+  getActiveOrders(
+    @GetTenant() tenant: TenantContext,
+    @Query('branch_id') branchId?: string,
+  ) {
     return this.service.getActiveOrders(tenant, branchId);
   }
 

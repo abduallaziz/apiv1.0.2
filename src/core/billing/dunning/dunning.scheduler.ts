@@ -21,30 +21,42 @@ export class DunningScheduler {
   @Cron(CronExpression.EVERY_HOUR)
   async handleFailedPayments(): Promise<void> {
     this.logger.log('[CRON] Queuing processFailedPayments job');
-    await this.dunningQueue.add(DUNNING_JOB_PROCESS_FAILED, {}, {
-      jobId: `process-failed-${Date.now()}`,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-    });
+    await this.dunningQueue.add(
+      DUNNING_JOB_PROCESS_FAILED,
+      {},
+      {
+        jobId: `process-failed-${Date.now()}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    );
   }
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   async handleRetries(): Promise<void> {
     this.logger.log('[CRON] Queuing retryPendingAttempts job');
-    await this.dunningQueue.add(DUNNING_JOB_RETRY_PENDING, {}, {
-      jobId: `retry-pending-${Date.now()}`,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-    });
+    await this.dunningQueue.add(
+      DUNNING_JOB_RETRY_PENDING,
+      {},
+      {
+        jobId: `retry-pending-${Date.now()}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    );
   }
 
   @Cron('0 9 * * *')
   async handleGracePeriodExpiry(): Promise<void> {
     this.logger.log('[CRON] Queuing suspendExpiredGracePeriods job');
-    await this.dunningQueue.add(DUNNING_JOB_SUSPEND_EXPIRED, {}, {
-      jobId: `suspend-expired-${Date.now()}`,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-    });
+    await this.dunningQueue.add(
+      DUNNING_JOB_SUSPEND_EXPIRED,
+      {},
+      {
+        jobId: `suspend-expired-${Date.now()}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    );
   }
 }

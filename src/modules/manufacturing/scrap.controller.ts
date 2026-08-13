@@ -22,8 +22,14 @@ export class ScrapController {
 
   @Get()
   @RequirePermission('manufacturing.view')
-  findAll(@Param('id') productionOrderId: string, @GetTenant() tenant: TenantContext) {
-    return this.scrapService.findByProductionOrder(productionOrderId, tenant.tenantId);
+  findAll(
+    @Param('id') productionOrderId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.scrapService.findByProductionOrder(
+      productionOrderId,
+      tenant.tenantId,
+    );
   }
 
   @Post()
@@ -35,6 +41,11 @@ export class ScrapController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.scrapService.record(productionOrderId, tenant.tenantId, user.sub, dto);
+    return this.scrapService.record(
+      productionOrderId,
+      tenant.tenantId,
+      user.sub,
+      dto,
+    );
   }
 }

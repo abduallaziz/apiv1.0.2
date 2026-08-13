@@ -1,4 +1,10 @@
-import { Injectable, ForbiddenException, NotFoundException, Inject, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  Inject,
+  Logger,
+} from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import {
@@ -20,7 +26,10 @@ export class BillingService {
     private readonly billingInvoiceService: BillingInvoiceService,
   ) {}
 
-  async initTrialSubscription(tenantId: string, planId: string): Promise<SubscriptionRecord> {
+  async initTrialSubscription(
+    tenantId: string,
+    planId: string,
+  ): Promise<SubscriptionRecord> {
     const plan = await this.getPlanById(planId);
     const now = new Date();
     const trialEndsAt = new Date(now);
@@ -43,7 +52,9 @@ export class BillingService {
     return data;
   }
 
-  async getActiveSubscription(tenantId: string): Promise<SubscriptionRecord | null> {
+  async getActiveSubscription(
+    tenantId: string,
+  ): Promise<SubscriptionRecord | null> {
     const { data, error } = await this.supabase
       .from('subscriptions')
       .select('*')
@@ -159,7 +170,9 @@ export class BillingService {
     const sub = await this.getActiveSubscription(tenantId);
     if (!sub) throw new Error('No active subscription found');
 
-    const currentEnd = sub.trial_ends_at ? new Date(sub.trial_ends_at) : new Date();
+    const currentEnd = sub.trial_ends_at
+      ? new Date(sub.trial_ends_at)
+      : new Date();
     currentEnd.setDate(currentEnd.getDate() + days);
 
     const { error } = await this.supabase
@@ -225,12 +238,15 @@ export class BillingService {
         .select()
         .single();
 
-      if (error || !data) throw new Error(error?.message ?? 'Failed to create subscription');
+      if (error || !data)
+        throw new Error(error?.message ?? 'Failed to create subscription');
       subscriptionId = data.id;
     }
 
     // Generate invoice
-    const planPrice = customAmount ?? (cycle === BillingCycle.YEARLY ? plan.price_yearly : plan.price_monthly);
+    const planPrice =
+      customAmount ??
+      (cycle === BillingCycle.YEARLY ? plan.price_yearly : plan.price_monthly);
     const { invoiceId } = await this.billingInvoiceService.generateInvoice({
       tenantId,
       subscriptionId,
@@ -315,7 +331,9 @@ export class BillingService {
       .lt('grace_period_ends_at', now);
 
     if (graceError) {
-      this.logger.error(`Grace period expiry cron error: ${graceError.message}`);
+      this.logger.error(
+        `Grace period expiry cron error: ${graceError.message}`,
+      );
     }
 
     this.logger.log('Subscription expiry check completed');

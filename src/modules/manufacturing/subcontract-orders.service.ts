@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { SubcontractOrdersRepository } from './repositories/subcontract-orders.repository';
 import { SuppliersService } from '../purchasing/suppliers.service';
 import { WarehousesService } from '../inventory/warehouses.service';
@@ -26,12 +30,21 @@ export class SubcontractOrdersService {
     return order;
   }
 
-  async create(tenantId: string, createdBy: string | null, dto: CreateSubcontractOrderDto) {
+  async create(
+    tenantId: string,
+    createdBy: string | null,
+    dto: CreateSubcontractOrderDto,
+  ) {
     await this.warehousesService.findById(dto.warehouse_id, tenantId); // 404 if missing/wrong tenant
 
-    const supplier: any = await this.suppliersService.findById(dto.supplier_id, tenantId); // 404 if missing
+    const supplier: any = await this.suppliersService.findById(
+      dto.supplier_id,
+      tenantId,
+    ); // 404 if missing
     if (!supplier.is_subcontractor) {
-      throw new BadRequestException('The selected supplier is not marked as a subcontractor');
+      throw new BadRequestException(
+        'The selected supplier is not marked as a subcontractor',
+      );
     }
 
     if (!dto.lines?.length) {
@@ -91,7 +104,12 @@ export class SubcontractOrdersService {
   // exactly once) — enforced here at the application layer, matching the
   // identical "draft-only" rule LandedCostsService already applies for
   // Goods Receipts (Migration 13.15-fix).
-  async addCost(id: string, tenantId: string, createdBy: string | null, dto: CreateSubcontractCostDto) {
+  async addCost(
+    id: string,
+    tenantId: string,
+    createdBy: string | null,
+    dto: CreateSubcontractCostDto,
+  ) {
     const order: any = await this.findById(id, tenantId);
     if (order.status === 'received' || order.status === 'cancelled') {
       throw new BadRequestException(

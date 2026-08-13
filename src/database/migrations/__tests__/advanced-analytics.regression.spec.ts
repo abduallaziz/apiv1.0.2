@@ -25,7 +25,14 @@ describe('advanced analytics regression (Migration 7.1)', () => {
   const createItem = async (name: string) => {
     const { data, error } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name, type: 'product', operation_type: 'sell', price: 10, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name,
+        type: 'product',
+        operation_type: 'sell',
+        price: 10,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -47,13 +54,15 @@ describe('advanced analytics regression (Migration 7.1)', () => {
     if (grErr) throw grErr;
     grIds.push(gr.id);
 
-    const { error: lineErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID,
-      goods_receipt_id: gr.id,
-      item_id: itemId,
-      quantity_received: qty,
-      unit_cost: unitCost,
-    });
+    const { error: lineErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: itemId,
+        quantity_received: qty,
+        unit_cost: unitCost,
+      });
     if (lineErr) throw lineErr;
 
     const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
@@ -64,7 +73,9 @@ describe('advanced analytics regression (Migration 7.1)', () => {
   };
 
   const backdateCostLayer = async (itemId: string, daysAgo: number) => {
-    const receivedAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+    const receivedAt = new Date(
+      Date.now() - daysAgo * 24 * 60 * 60 * 1000,
+    ).toISOString();
     const { error } = await supabase
       .from('cost_layers')
       .update({ received_at: receivedAt })
@@ -75,13 +86,16 @@ describe('advanced analytics regression (Migration 7.1)', () => {
   };
 
   const recordSale = async (itemId: string, qty: number) => {
-    const { data: unitCost, error: consumeErr } = await supabase.rpc('fn_consume_cost_layers', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_warehouse_id: warehouseId,
-      p_item_id: itemId,
-      p_variant_id: null,
-      p_quantity: qty,
-    });
+    const { data: unitCost, error: consumeErr } = await supabase.rpc(
+      'fn_consume_cost_layers',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_warehouse_id: warehouseId,
+        p_item_id: itemId,
+        p_variant_id: null,
+        p_quantity: qty,
+      },
+    );
     if (consumeErr) throw consumeErr;
 
     const { error: moveErr } = await supabase.rpc('fn_apply_stock_movement', {
@@ -103,10 +117,17 @@ describe('advanced analytics regression (Migration 7.1)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
-    const { data: wh, error } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
+    const { data: wh, error } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1);
     if (error) throw error;
-    warehouseId = wh![0].id;
+    warehouseId = wh[0].id;
   }, 30_000);
 
   afterAll(async () => {
@@ -115,10 +136,14 @@ describe('advanced analytics regression (Migration 7.1)', () => {
       await supabase.from('stock_levels').delete().eq('item_id', itemId);
     }
     for (const id of grIds) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', id);
       await supabase.from('goods_receipts').delete().eq('id', id);
     }
-    for (const itemId of itemIds) await supabase.from('items').delete().eq('id', itemId);
+    for (const itemId of itemIds)
+      await supabase.from('items').delete().eq('id', itemId);
   }, 60_000);
 
   it('valuation report: matches exact weighted quantity/cost/total from two cost layers', async () => {
@@ -126,10 +151,13 @@ describe('advanced analytics regression (Migration 7.1)', () => {
     await seedStock(itemId, 10, 4); // 10 @ 4 = 40
     await seedStock(itemId, 20, 7); // 20 @ 7 = 140  -> total 30 units, 180 value, avg 6
 
-    const { data, error } = await supabase.rpc('fn_inventory_valuation_report', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_warehouse_id: warehouseId,
-    });
+    const { data, error } = await supabase.rpc(
+      'fn_inventory_valuation_report',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_warehouse_id: warehouseId,
+      },
+    );
     expect(error).toBeNull();
     const row = (data as any[]).find((r) => r.item_id === itemId);
     expect(row).toBeTruthy();

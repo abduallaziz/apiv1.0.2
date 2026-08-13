@@ -14,7 +14,10 @@ export class AnalyticsService {
   async dashboard(tenantId: string) {
     const cacheKey = `dashboard:tenant:${tenantId}`;
 
-    const cached = await this.cache.get<Awaited<ReturnType<typeof this.fetchDashboard>>>(cacheKey);
+    const cached =
+      await this.cache.get<Awaited<ReturnType<typeof this.fetchDashboard>>>(
+        cacheKey,
+      );
     if (cached) return cached;
 
     const data = await this.fetchDashboard(tenantId);
@@ -23,13 +26,14 @@ export class AnalyticsService {
   }
 
   private async fetchDashboard(tenantId: string) {
-    const [summary, warehouses, recentMovements, lowStock, purchaseOrders] = await Promise.all([
-      this.analyticsRepo.dashboardSummary(tenantId),
-      this.analyticsRepo.warehouseSummary(tenantId),
-      this.analyticsRepo.recentMovements(tenantId, 10),
-      this.analyticsRepo.lowStockList(tenantId, 10),
-      this.analyticsRepo.purchaseOrdersWaitingReceipt(tenantId, 10),
-    ]);
+    const [summary, warehouses, recentMovements, lowStock, purchaseOrders] =
+      await Promise.all([
+        this.analyticsRepo.dashboardSummary(tenantId),
+        this.analyticsRepo.warehouseSummary(tenantId),
+        this.analyticsRepo.recentMovements(tenantId, 10),
+        this.analyticsRepo.lowStockList(tenantId, 10),
+        this.analyticsRepo.purchaseOrdersWaitingReceipt(tenantId, 10),
+      ]);
 
     return {
       summary,

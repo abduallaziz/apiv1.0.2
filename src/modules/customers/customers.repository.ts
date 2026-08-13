@@ -20,7 +20,9 @@ export class CustomersRepository extends ScopedRepository {
     customFieldKeys: string[] = [],
   ) {
     let query = this.scopedQuery('customers', tenant)
-      .select('id, full_name, phone, email, plate_number, visit_date, odometer, loyalty_points, is_active, custom_fields, created_at')
+      .select(
+        'id, full_name, phone, email, plate_number, visit_date, odometer, loyalty_points, is_active, custom_fields, created_at',
+      )
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .range((page - 1) * limit, page * limit - 1);
@@ -30,7 +32,9 @@ export class CustomersRepository extends ScopedRepository {
       const conditions = [
         `full_name.ilike.%${escaped}%`,
         `phone.ilike.%${escaped}%`,
-        ...customFieldKeys.map((key) => `custom_fields->>${key}.ilike.%${escaped}%`),
+        ...customFieldKeys.map(
+          (key) => `custom_fields->>${key}.ilike.%${escaped}%`,
+        ),
       ];
       query = query.or(conditions.join(','));
     }
@@ -50,9 +54,15 @@ export class CustomersRepository extends ScopedRepository {
       .in('customer_id', ids);
     if (ordersError) throw ordersError;
 
-    const statsByCustomer = new Map<string, { orders_count: number; total_spent: number }>();
+    const statsByCustomer = new Map<
+      string,
+      { orders_count: number; total_spent: number }
+    >();
     for (const order of orders ?? []) {
-      const entry = statsByCustomer.get(order.customer_id) ?? { orders_count: 0, total_spent: 0 };
+      const entry = statsByCustomer.get(order.customer_id) ?? {
+        orders_count: 0,
+        total_spent: 0,
+      };
       entry.orders_count += 1;
       entry.total_spent += order.total ?? 0;
       statsByCustomer.set(order.customer_id, entry);
@@ -135,7 +145,11 @@ export class CustomersRepository extends ScopedRepository {
 
   async getGlobalStats(tenant: TenantContext) {
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const startOfMonth = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
+    ).toISOString();
 
     let totalQuery = this.supabase
       .from('customers')
@@ -154,10 +168,8 @@ export class CustomersRepository extends ScopedRepository {
       monthQuery = monthQuery.eq('tenant_id', tenant.tenantId);
     }
 
-    const [{ count: total, error: e1 }, { count: newThisMonth, error: e2 }] = await Promise.all([
-      totalQuery,
-      monthQuery,
-    ]);
+    const [{ count: total, error: e1 }, { count: newThisMonth, error: e2 }] =
+      await Promise.all([totalQuery, monthQuery]);
 
     if (e1) throw e1;
     if (e2) throw e2;
@@ -208,7 +220,8 @@ export class CustomersRepository extends ScopedRepository {
 
     const orders_count = countRes.count ?? 0;
     const total_spent = Number(aggRes.data?.total_spent ?? 0);
-    const avg_order = orders_count > 0 ? Math.round(total_spent / orders_count) : 0;
+    const avg_order =
+      orders_count > 0 ? Math.round(total_spent / orders_count) : 0;
     const last_order_at = (lastRes.data as any)?.created_at ?? null;
 
     return { orders_count, total_spent, avg_order, last_order_at };

@@ -14,7 +14,9 @@ export class ReservationsRepository extends ScopedRepository {
       .select('*, items(name, sku), warehouses(name, code)')
       .eq('tenant_id', tenantId);
     if (status) query = query.eq('status', status);
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await query.order('created_at', {
+      ascending: false,
+    });
     if (error) throw error;
     return data;
   }
@@ -42,12 +44,18 @@ export class ReservationsRepository extends ScopedRepository {
     p_created_by: string | null;
     p_expires_at: string | null;
   }) {
-    const { data, error } = await this.supabase.rpc('fn_create_reservation', params);
+    const { data, error } = await this.supabase.rpc(
+      'fn_create_reservation',
+      params,
+    );
     if (error) throw error;
     return data;
   }
 
-  async release(reservationId: string, resultingStatus: 'released' | 'consumed' | 'expired' = 'released') {
+  async release(
+    reservationId: string,
+    resultingStatus: 'released' | 'consumed' | 'expired' = 'released',
+  ) {
     const { data, error } = await this.supabase.rpc('fn_release_reservation', {
       p_reservation_id: reservationId,
       p_resulting_status: resultingStatus,

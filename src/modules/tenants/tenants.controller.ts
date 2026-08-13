@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Patch,
-  Body,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
 import { TenantsService } from './tenants.service';
 import { UpdateTenantProfileDto } from './dto/update-tenant-profile.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';

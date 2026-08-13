@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { SupplierItemsService } from './supplier-items.service';
 import { CreateSupplierItemDto } from './dto/create-supplier-item.dto';
 import { UpdateSupplierItemDto } from './dto/update-supplier-item.dto';
@@ -17,7 +28,10 @@ export class SupplierItemsController {
 
   @Get()
   @RequirePermission('purchasing.view')
-  findAll(@Param('supplierId') supplierId: string, @GetTenant() tenant: TenantContext) {
+  findAll(
+    @Param('supplierId') supplierId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.supplierItemsService.findAll(tenant.tenantId, supplierId);
   }
 
@@ -51,7 +65,12 @@ export class SupplierItemsController {
     @Body() dto: UpdateSupplierItemDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.supplierItemsService.update(id, tenant.tenantId, supplierId, dto);
+    return this.supplierItemsService.update(
+      id,
+      tenant.tenantId,
+      supplierId,
+      dto,
+    );
   }
 
   @Delete(':id')

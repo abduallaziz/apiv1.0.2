@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Put, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Put,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { BomService } from './bom.service';
 import { CreateBomDto } from './dto/create-bom.dto';
 import { UpdateBomDto } from './dto/update-bom.dto';
@@ -25,7 +35,13 @@ export class BomController {
     @Query('item_id') itemId?: string,
     @Query('is_active') isActive?: string,
   ) {
-    return this.bomService.findAll(tenant.tenantId, page, perPage, itemId, isActive);
+    return this.bomService.findAll(
+      tenant.tenantId,
+      page,
+      perPage,
+      itemId,
+      isActive,
+    );
   }
 
   @Get(':id')
@@ -44,7 +60,11 @@ export class BomController {
   @Patch(':id')
   @RequirePermission('manufacturing.manage')
   @Audit('bom.updated')
-  update(@Param('id') id: string, @Body() dto: UpdateBomDto, @GetTenant() tenant: TenantContext) {
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateBomDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.bomService.update(id, tenant.tenantId, dto);
   }
 

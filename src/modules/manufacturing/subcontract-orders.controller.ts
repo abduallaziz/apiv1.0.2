@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Param, Body, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { SubcontractOrdersService } from './subcontract-orders.service';
 import { CreateSubcontractOrderDto } from './dto/create-subcontract-order.dto';
 import { CreateSubcontractCostDto } from './dto/create-subcontract-cost.dto';
@@ -19,11 +29,16 @@ import { Audit } from '../../core/audit/audit.decorator';
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('manufacturing/subcontract-orders')
 export class SubcontractOrdersController {
-  constructor(private readonly subcontractOrdersService: SubcontractOrdersService) {}
+  constructor(
+    private readonly subcontractOrdersService: SubcontractOrdersService,
+  ) {}
 
   @Get()
   @RequirePermission('manufacturing.view')
-  findAll(@GetTenant() tenant: TenantContext, @Query('status') status?: string) {
+  findAll(
+    @GetTenant() tenant: TenantContext,
+    @Query('status') status?: string,
+  ) {
     return this.subcontractOrdersService.findAll(tenant.tenantId, status);
   }
 
@@ -83,6 +98,11 @@ export class SubcontractOrdersController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.subcontractOrdersService.addCost(id, tenant.tenantId, user.sub, dto);
+    return this.subcontractOrdersService.addCost(
+      id,
+      tenant.tenantId,
+      user.sub,
+      dto,
+    );
   }
 }

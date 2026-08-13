@@ -1,4 +1,12 @@
-import { IsUUID, IsOptional, IsNumber, Min, IsString, IsNotEmpty, IsDateString } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsNumber,
+  Min,
+  IsString,
+  IsNotEmpty,
+  IsDateString,
+} from 'class-validator';
 
 export class CreateProductionOrderDto {
   @IsUUID()

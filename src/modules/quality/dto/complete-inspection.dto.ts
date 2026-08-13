@@ -1,4 +1,14 @@
-import { IsIn, IsOptional, IsString, IsArray, ValidateNested, IsBoolean, IsNumber, IsUUID, IsNotEmpty } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
+  IsNumber,
+  IsUUID,
+  IsNotEmpty,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class InspectionResultDto {

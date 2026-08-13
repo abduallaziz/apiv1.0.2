@@ -15,7 +15,9 @@ function isPostgrestError(error: unknown): error is PostgrestError {
 
 function toHttpError(error: unknown): unknown {
   if (isPostgrestError(error) && error.code === '23505') {
-    return new ConflictException('A production order with this number already exists');
+    return new ConflictException(
+      'A production order with this number already exists',
+    );
   }
   return error;
 }
@@ -73,7 +75,9 @@ export class ProductionOrdersRepository extends ScopedRepository {
     const sort = filters.sort ?? 'created_at';
     const ascending = filters.dir !== 'desc';
 
-    const { data, error, count } = await q.order(sort, { ascending }).range(from, to);
+    const { data, error, count } = await q
+      .order(sort, { ascending })
+      .range(from, to);
     if (error) throw error;
     return { data: data ?? [], total: count ?? 0 };
   }
@@ -96,7 +100,9 @@ export class ProductionOrdersRepository extends ScopedRepository {
   async findConsumptionMovements(tenantId: string, productionOrderId: string) {
     const { data, error } = await this.supabase
       .from('stock_movements')
-      .select('item_id, variant_id, quantity, unit_cost, total_cost, movement_type')
+      .select(
+        'item_id, variant_id, quantity, unit_cost, total_cost, movement_type',
+      )
       .eq('tenant_id', tenantId)
       .eq('reference_type', 'production_order')
       .eq('reference_id', productionOrderId)
@@ -131,8 +137,13 @@ export class ProductionOrdersRepository extends ScopedRepository {
       .eq('reference_id', productionOrderId)
       .eq('movement_type', 'production_receipt')
       .eq('item_id', itemId);
-    query = variantId ? query.eq('variant_id', variantId) : query.is('variant_id', null);
-    const { data, error } = await query.order('created_at', { ascending: true }).limit(1).maybeSingle();
+    query = variantId
+      ? query.eq('variant_id', variantId)
+      : query.is('variant_id', null);
+    const { data, error } = await query
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
     if (error) throw error;
     return data;
   }
@@ -163,7 +174,11 @@ export class ProductionOrdersRepository extends ScopedRepository {
   async start(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('production_orders')
-      .update({ status: 'in_progress', started_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({
+        status: 'in_progress',
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('status', 'draft')
@@ -192,12 +207,19 @@ export class ProductionOrdersRepository extends ScopedRepository {
   // The only stock-mutating call in this repository — delegates entirely to
   // fn_post_production_order (migrations 112/140). No direct stock_levels/
   // stock_movements/cost_layers writes anywhere in this file.
-  async complete(id: string, actorId: string | null, quantityProduced?: number) {
-    const { data, error } = await this.supabase.rpc('fn_post_production_order', {
-      p_production_order_id: id,
-      p_actor_id: actorId,
-      p_quantity_produced: quantityProduced ?? null,
-    });
+  async complete(
+    id: string,
+    actorId: string | null,
+    quantityProduced?: number,
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_post_production_order',
+      {
+        p_production_order_id: id,
+        p_actor_id: actorId,
+        p_quantity_produced: quantityProduced ?? null,
+      },
+    );
     if (error) throw error;
     return data;
   }

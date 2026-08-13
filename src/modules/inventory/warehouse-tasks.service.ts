@@ -6,7 +6,12 @@ import { CreateWarehouseTaskDto } from './dto/create-warehouse-task.dto';
 export class WarehouseTasksService {
   constructor(private readonly tasksRepo: WarehouseTasksRepository) {}
 
-  findAll(tenantId: string, taskType?: string, status?: string, assignedTo?: string) {
+  findAll(
+    tenantId: string,
+    taskType?: string,
+    status?: string,
+    assignedTo?: string,
+  ) {
     return this.tasksRepo.findAll(tenantId, taskType, status, assignedTo);
   }
 
@@ -41,8 +46,20 @@ export class WarehouseTasksService {
     return this.tasksRepo.assign(id, tenantId, assignedTo, actorId);
   }
 
-  confirm(id: string, tenantId: string, quantity: number, confirmedLocationId: string, actorId: string) {
-    return this.tasksRepo.confirm(id, tenantId, quantity, confirmedLocationId, actorId);
+  confirm(
+    id: string,
+    tenantId: string,
+    quantity: number,
+    confirmedLocationId: string,
+    actorId: string,
+  ) {
+    return this.tasksRepo.confirm(
+      id,
+      tenantId,
+      quantity,
+      confirmedLocationId,
+      actorId,
+    );
   }
 
   cancel(id: string, tenantId: string, actorId: string) {

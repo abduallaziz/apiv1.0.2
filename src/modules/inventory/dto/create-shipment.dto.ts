@@ -1,4 +1,14 @@
-import { IsUUID, IsOptional, IsNumber, Min, IsString, IsNotEmpty, IsArray, ValidateNested, ArrayMinSize } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsNumber,
+  Min,
+  IsString,
+  IsNotEmpty,
+  IsArray,
+  ValidateNested,
+  ArrayMinSize,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ShipmentLineDto {

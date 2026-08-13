@@ -1,4 +1,10 @@
-import { IsUUID, IsOptional, IsArray, ArrayMinSize, IsIn } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsArray,
+  ArrayMinSize,
+  IsIn,
+} from 'class-validator';
 
 export class CreatePickListDto {
   @IsUUID()

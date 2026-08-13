@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -39,7 +49,11 @@ export class EmployeesController {
     @Query('employee_number') employee_number?: string,
     @Query('exclude_id') excludeId?: string,
   ) {
-    return this.usersService.checkDuplicates(tenant, { email, phone, employee_number }, excludeId);
+    return this.usersService.checkDuplicates(
+      tenant,
+      { email, phone, employee_number },
+      excludeId,
+    );
   }
 
   @Get(':id/history')

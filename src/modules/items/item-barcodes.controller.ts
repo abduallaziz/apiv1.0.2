@@ -71,7 +71,10 @@ export class ItemBarcodesController {
   ) {
     const svg = await this.barcodesService.renderLabel(id, tenant.tenantId);
     res.setHeader('Content-Type', 'image/svg+xml');
-    res.setHeader('Content-Disposition', `inline; filename="barcode-label-${id}.svg"`);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="barcode-label-${id}.svg"`,
+    );
     res.send(svg);
   }
 

@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { WarehouseTasksService } from './warehouse-tasks.service';
 import { CreateWarehouseTaskDto } from './dto/create-warehouse-task.dto';
 import { AssignWarehouseTaskDto } from './dto/assign-warehouse-task.dto';
@@ -26,7 +36,12 @@ export class WarehouseTasksController {
     @Query('status') status?: string,
     @Query('assigned_to') assignedTo?: string,
   ) {
-    return this.tasksService.findAll(tenant.tenantId, taskType, status, assignedTo);
+    return this.tasksService.findAll(
+      tenant.tenantId,
+      taskType,
+      status,
+      assignedTo,
+    );
   }
 
   @Get(':id')
@@ -44,7 +59,11 @@ export class WarehouseTasksController {
   @Post()
   @RequirePermission('warehouse.manage')
   @Audit('warehouse_task.created')
-  create(@Body() dto: CreateWarehouseTaskDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  create(
+    @Body() dto: CreateWarehouseTaskDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.tasksService.create(tenant.tenantId, dto, user.sub);
   }
 
@@ -58,7 +77,12 @@ export class WarehouseTasksController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.tasksService.assign(id, tenant.tenantId, dto.assigned_to, user.sub);
+    return this.tasksService.assign(
+      id,
+      tenant.tenantId,
+      dto.assigned_to,
+      user.sub,
+    );
   }
 
   @Post(':id/confirm')
@@ -71,13 +95,23 @@ export class WarehouseTasksController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.tasksService.confirm(id, tenant.tenantId, dto.quantity, dto.confirmed_location_id, user.sub);
+    return this.tasksService.confirm(
+      id,
+      tenant.tenantId,
+      dto.quantity,
+      dto.confirmed_location_id,
+      user.sub,
+    );
   }
 
   @Post(':id/cancel')
   @RequirePermission('warehouse.manage')
   @HttpCode(HttpStatus.OK)
-  cancel(@Param('id') id: string, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  cancel(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.tasksService.cancel(id, tenant.tenantId, user.sub);
   }
 }

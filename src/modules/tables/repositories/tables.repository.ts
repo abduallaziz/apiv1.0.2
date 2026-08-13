@@ -16,14 +16,18 @@ function isPostgrestError(error: unknown): error is PostgrestError {
 function toHttpError(error: unknown): unknown {
   if (!isPostgrestError(error)) return error;
   if (error.code === '23505') {
-    return new ConflictException('A table with this name already exists at this branch');
+    return new ConflictException(
+      'A table with this name already exists at this branch',
+    );
   }
   return error;
 }
 
 @Injectable()
 export class TablesRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async findAll(tenantId: string, branchId?: string) {
     let q = this.supabase
@@ -50,7 +54,10 @@ export class TablesRepository {
     return data;
   }
 
-  async branchBelongsToTenant(branchId: string, tenantId: string): Promise<boolean> {
+  async branchBelongsToTenant(
+    branchId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('branches')
       .select('id')
@@ -62,7 +69,10 @@ export class TablesRepository {
     return !!data;
   }
 
-  async create(tenantId: string, dto: { branch_id: string; name: string; capacity?: number }) {
+  async create(
+    tenantId: string,
+    dto: { branch_id: string; name: string; capacity?: number },
+  ) {
     const { data, error } = await this.supabase
       .from('tables')
       .insert({ tenant_id: tenantId, ...dto })

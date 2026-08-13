@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Query,
-  UseGuards,
-  Req,
-} from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { PaymentsService } from './payments.service';
 import { QueryPaymentsDto } from './dto/query-payments.dto';
@@ -19,7 +12,10 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
-  private resolveTenant(tenant: TenantContext | undefined, req: Request): TenantContext {
+  private resolveTenant(
+    tenant: TenantContext | undefined,
+    req: Request,
+  ): TenantContext {
     if (tenant) return tenant;
     const user = req.user as { tenant_id: string };
     return { tenantId: user.tenant_id } as TenantContext;
@@ -31,7 +27,10 @@ export class PaymentsController {
     @Query() dto: QueryPaymentsDto,
     @Req() req: Request,
   ) {
-    return this.paymentsService.getPaymentHistory(this.resolveTenant(tenant, req), dto);
+    return this.paymentsService.getPaymentHistory(
+      this.resolveTenant(tenant, req),
+      dto,
+    );
   }
 
   @Get('invoices')
@@ -40,7 +39,10 @@ export class PaymentsController {
     @Query() dto: QueryPaymentsDto,
     @Req() req: Request,
   ) {
-    return this.paymentsService.getInvoices(this.resolveTenant(tenant, req), dto);
+    return this.paymentsService.getInvoices(
+      this.resolveTenant(tenant, req),
+      dto,
+    );
   }
 
   @Get('invoices/:id')
@@ -49,7 +51,10 @@ export class PaymentsController {
     @Param('id') invoiceId: string,
     @Req() req: Request,
   ) {
-    return this.paymentsService.getInvoiceDetail(this.resolveTenant(tenant, req), invoiceId);
+    return this.paymentsService.getInvoiceDetail(
+      this.resolveTenant(tenant, req),
+      invoiceId,
+    );
   }
 
   @Get('invoices/:id/payments')
@@ -58,6 +63,9 @@ export class PaymentsController {
     @Param('id') invoiceId: string,
     @Req() req: Request,
   ) {
-    return this.paymentsService.getInvoicePayments(this.resolveTenant(tenant, req), invoiceId);
+    return this.paymentsService.getInvoicePayments(
+      this.resolveTenant(tenant, req),
+      invoiceId,
+    );
   }
 }

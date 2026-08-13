@@ -40,13 +40,19 @@ export class ReservationsController {
 
   @Get(':id')
   @RequirePermission('tables.manage')
-  findOne(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.findOne(id, tenant);
   }
 
   @Post()
   @RequirePermission('tables.manage')
-  create(@GetTenant() tenant: TenantContext, @Body() dto: CreateReservationDto) {
+  create(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: CreateReservationDto,
+  ) {
     return this.service.create(tenant, dto);
   }
 

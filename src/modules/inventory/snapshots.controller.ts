@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { SnapshotsService } from './snapshots.service';
 import { GenerateSnapshotDto } from './dto/generate-snapshot.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';

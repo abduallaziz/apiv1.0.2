@@ -12,7 +12,9 @@ function isPostgrestError(error: unknown): error is PostgrestError {
 
 function toHttpError(error: unknown): unknown {
   if (isPostgrestError(error) && error.code === '23505') {
-    return new ConflictException('A subcontract order with this number already exists');
+    return new ConflictException(
+      'A subcontract order with this number already exists',
+    );
   }
   return error;
 }
@@ -67,9 +69,15 @@ export class SubcontractOrdersRepository {
     if (error) throw toHttpError(error);
 
     if (lines.length > 0) {
-      const { error: linesError } = await this.supabase.from('subcontract_order_lines').insert(
-        lines.map((line) => ({ ...line, subcontract_order_id: order.id, tenant_id: tenantId })),
-      );
+      const { error: linesError } = await this.supabase
+        .from('subcontract_order_lines')
+        .insert(
+          lines.map((line) => ({
+            ...line,
+            subcontract_order_id: order.id,
+            tenant_id: tenantId,
+          })),
+        );
       if (linesError) throw linesError;
     }
 
@@ -77,21 +85,27 @@ export class SubcontractOrdersRepository {
   }
 
   async send(tenantId: string, id: string, actorId: string | null) {
-    const { data, error } = await this.supabase.rpc('fn_send_subcontract_materials', {
-      p_tenant_id: tenantId,
-      p_subcontract_order_id: id,
-      p_actor_id: actorId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_send_subcontract_materials',
+      {
+        p_tenant_id: tenantId,
+        p_subcontract_order_id: id,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }
 
   async receive(tenantId: string, id: string, actorId: string | null) {
-    const { data, error } = await this.supabase.rpc('fn_receive_subcontract_output', {
-      p_tenant_id: tenantId,
-      p_subcontract_order_id: id,
-      p_actor_id: actorId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_receive_subcontract_output',
+      {
+        p_tenant_id: tenantId,
+        p_subcontract_order_id: id,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }
@@ -99,7 +113,9 @@ export class SubcontractOrdersRepository {
   async findCosts(subcontractOrderId: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('subcontract_costs')
-      .select('id, subcontract_order_id, cost_type, amount, notes, created_by, created_at')
+      .select(
+        'id, subcontract_order_id, cost_type, amount, notes, created_by, created_at',
+      )
       .eq('subcontract_order_id', subcontractOrderId)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: true });
@@ -107,10 +123,20 @@ export class SubcontractOrdersRepository {
     return data ?? [];
   }
 
-  async addCost(subcontractOrderId: string, tenantId: string, createdBy: string | null, payload: Record<string, unknown>) {
+  async addCost(
+    subcontractOrderId: string,
+    tenantId: string,
+    createdBy: string | null,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('subcontract_costs')
-      .insert({ ...payload, subcontract_order_id: subcontractOrderId, tenant_id: tenantId, created_by: createdBy })
+      .insert({
+        ...payload,
+        subcontract_order_id: subcontractOrderId,
+        tenant_id: tenantId,
+        created_by: createdBy,
+      })
       .select()
       .single();
     if (error) throw error;

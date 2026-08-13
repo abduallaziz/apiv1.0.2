@@ -1,5 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { SECRETS_PROVIDER, SecretsProvider } from './secrets.provider.interface';
+import {
+  SECRETS_PROVIDER,
+  SecretsProvider,
+} from './secrets.provider.interface';
 
 @Injectable()
 export class SecretsService {

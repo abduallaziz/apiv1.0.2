@@ -2,11 +2,14 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
-const SELECT = 'id, branch_id, customer_name, customer_phone, party_size, quoted_wait_minutes, status, table_id, created_at, seated_at';
+const SELECT =
+  'id, branch_id, customer_name, customer_phone, party_size, quoted_wait_minutes, status, table_id, created_at, seated_at';
 
 @Injectable()
 export class WaitlistRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async findAll(tenantId: string, branchId?: string, status?: string) {
     let q = this.supabase
@@ -32,7 +35,10 @@ export class WaitlistRepository {
     return data;
   }
 
-  async branchBelongsToTenant(branchId: string, tenantId: string): Promise<boolean> {
+  async branchBelongsToTenant(
+    branchId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('branches')
       .select('id')
@@ -57,7 +63,11 @@ export class WaitlistRepository {
   async seat(id: string, tenantId: string, tableId: string) {
     const { data, error } = await this.supabase
       .from('waitlist_entries')
-      .update({ status: 'seated', table_id: tableId, seated_at: new Date().toISOString() })
+      .update({
+        status: 'seated',
+        table_id: tableId,
+        seated_at: new Date().toISOString(),
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .select(SELECT)

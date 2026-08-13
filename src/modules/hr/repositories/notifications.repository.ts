@@ -10,7 +10,9 @@ const SELECT = 'id, title, body, created_at, is_read, read_at';
 
 @Injectable()
 export class NotificationsRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async findRecentForUser(tenantId: string, userId: string, limit = 3) {
     const { data, error } = await this.supabase

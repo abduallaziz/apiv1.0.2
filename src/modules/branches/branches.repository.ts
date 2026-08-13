@@ -14,7 +14,9 @@ export class BranchesRepository {
   async findAll(tenant: TenantContext) {
     const { data, error } = await this.supabase
       .from('branches')
-      .select('id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at')
+      .select(
+        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+      )
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -26,7 +28,9 @@ export class BranchesRepository {
   async findById(id: string, tenant: TenantContext) {
     const { data, error } = await this.supabase
       .from('branches')
-      .select('id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at')
+      .select(
+        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+      )
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
@@ -47,7 +51,10 @@ export class BranchesRepository {
     return count ?? 0;
   }
 
-  async create(tenant: TenantContext, data: { name: string; address?: string }) {
+  async create(
+    tenant: TenantContext,
+    data: { name: string; address?: string },
+  ) {
     const { data: branch, error } = await this.supabase
       .from('branches')
       .insert({
@@ -56,31 +63,52 @@ export class BranchesRepository {
         address: data.address ?? null,
         is_active: true,
       })
-      .select('id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at')
+      .select(
+        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+      )
       .single();
 
     if (error) {
-      this.logger.error(`Supabase error creating branch: ${JSON.stringify(error)}`);
+      this.logger.error(
+        `Supabase error creating branch: ${JSON.stringify(error)}`,
+      );
       throw error;
     }
     return branch;
   }
 
-  async update(id: string, tenant: TenantContext, data: Partial<{ name: string; address: string; is_active: boolean; default_warehouse_id: string | null; geofence_lat: number | null; geofence_lng: number | null; geofence_radius_m: number | null }>) {
+  async update(
+    id: string,
+    tenant: TenantContext,
+    data: Partial<{
+      name: string;
+      address: string;
+      is_active: boolean;
+      default_warehouse_id: string | null;
+      geofence_lat: number | null;
+      geofence_lng: number | null;
+      geofence_radius_m: number | null;
+    }>,
+  ) {
     const { data: branch, error } = await this.supabase
       .from('branches')
       .update(data)
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
-      .select('id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at')
+      .select(
+        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+      )
       .single();
 
     if (error) throw error;
     return branch;
   }
 
-  async warehouseBelongsToTenant(warehouseId: string, tenantId: string): Promise<boolean> {
+  async warehouseBelongsToTenant(
+    warehouseId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('warehouses')
       .select('id')

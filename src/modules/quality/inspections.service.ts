@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InspectionsRepository } from './repositories/inspections.repository';
 import { HoldsRepository } from './repositories/holds.repository';
 import { ItemsService } from '../items/items.service';
@@ -19,7 +23,8 @@ export class InspectionsService {
 
   async findById(id: string, tenantId: string) {
     const inspection = await this.inspectionsRepo.findById(id, tenantId);
-    if (!inspection) throw new NotFoundException('Quality inspection not found');
+    if (!inspection)
+      throw new NotFoundException('Quality inspection not found');
     return inspection;
   }
 
@@ -52,10 +57,17 @@ export class InspectionsService {
   // immediately) — "Failed Inspection -> Quality Hold" from the approved
   // design. Requires warehouse_id to have been set on the inspection
   // (via create() or defaulted by the caller's integration point).
-  async complete(id: string, tenantId: string, dto: CompleteInspectionDto, actorId: string) {
+  async complete(
+    id: string,
+    tenantId: string,
+    dto: CompleteInspectionDto,
+    actorId: string,
+  ) {
     const existing: any = await this.findById(id, tenantId);
     if (existing.status !== 'pending') {
-      throw new BadRequestException(`Inspection ${id} is not pending (status=${existing.status})`);
+      throw new BadRequestException(
+        `Inspection ${id} is not pending (status=${existing.status})`,
+      );
     }
 
     const completed = await this.inspectionsRepo.complete(id, tenantId, {
@@ -68,7 +80,11 @@ export class InspectionsService {
     }
 
     if (dto.results?.length) {
-      await this.inspectionsRepo.addResults(tenantId, id, dto.results as unknown as Record<string, unknown>[]);
+      await this.inspectionsRepo.addResults(
+        tenantId,
+        id,
+        dto.results as unknown as Record<string, unknown>[],
+      );
     }
 
     let hold = null;

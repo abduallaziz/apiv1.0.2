@@ -31,7 +31,11 @@ export class WmsService {
 
     for (const line of items) {
       if (line.location_id) {
-        await this.locationsService.findById(line.location_id, header.warehouse_id, tenantId);
+        await this.locationsService.findById(
+          line.location_id,
+          header.warehouse_id,
+          tenantId,
+        );
       }
     }
 
@@ -60,10 +64,19 @@ export class WmsService {
     }
   }
 
-  async shipShipment(id: string, tenantId: string, actorId: string, trackingNumber?: string) {
+  async shipShipment(
+    id: string,
+    tenantId: string,
+    actorId: string,
+    trackingNumber?: string,
+  ) {
     await this.findShipmentById(id, tenantId);
     try {
-      const result = await this.wmsRepo.shipShipment(id, actorId, trackingNumber);
+      const result = await this.wmsRepo.shipShipment(
+        id,
+        actorId,
+        trackingNumber,
+      );
       await this.stockService.invalidateStockCache(tenantId);
       return result;
     } catch (error) {
@@ -71,7 +84,12 @@ export class WmsService {
     }
   }
 
-  async confirmPack(shipmentLineId: string, tenantId: string, quantity: number, actorId: string) {
+  async confirmPack(
+    shipmentLineId: string,
+    tenantId: string,
+    quantity: number,
+    actorId: string,
+  ) {
     try {
       return await this.wmsRepo.confirmPack(shipmentLineId, quantity, actorId);
     } catch (error) {
@@ -91,7 +109,11 @@ export class WmsService {
     return pickList;
   }
 
-  async createPickList(tenantId: string, dto: CreatePickListDto, actorId: string) {
+  async createPickList(
+    tenantId: string,
+    dto: CreatePickListDto,
+    actorId: string,
+  ) {
     try {
       const result = await this.wmsRepo.createPickList(
         tenantId,
@@ -112,20 +134,42 @@ export class WmsService {
   // item requires a batch/serial and none was given, or if FEFO would be
   // violated — called BEFORE fn_confirm_pick, never inside it, so the
   // existing tested picking engine is untouched.
-  async confirmPick(pickListLineId: string, tenantId: string, quantity: number, actorId: string, batchId?: string) {
+  async confirmPick(
+    pickListLineId: string,
+    tenantId: string,
+    quantity: number,
+    actorId: string,
+    batchId?: string,
+  ) {
     try {
-      const line: any = await this.wmsRepo.findPickListLineWithContext(pickListLineId, tenantId);
+      const line: any = await this.wmsRepo.findPickListLineWithContext(
+        pickListLineId,
+        tenantId,
+      );
       if (!line) throw new NotFoundException('Pick list line not found');
       const warehouseId = line.pick_lists?.warehouse_id;
 
       await this.wmsRepo.validatePickRequirements(
-        tenantId, warehouseId, line.item_id, line.variant_id ?? null, quantity, batchId ?? line.batch_id ?? null,
+        tenantId,
+        warehouseId,
+        line.item_id,
+        line.variant_id ?? null,
+        quantity,
+        batchId ?? line.batch_id ?? null,
       );
       if (batchId) {
-        await this.wmsRepo.setPickListLineBatch(pickListLineId, tenantId, batchId);
+        await this.wmsRepo.setPickListLineBatch(
+          pickListLineId,
+          tenantId,
+          batchId,
+        );
       }
 
-      const result = await this.wmsRepo.confirmPick(pickListLineId, quantity, actorId);
+      const result = await this.wmsRepo.confirmPick(
+        pickListLineId,
+        quantity,
+        actorId,
+      );
       await this.stockService.invalidateStockCache(tenantId);
       return result;
     } catch (error) {

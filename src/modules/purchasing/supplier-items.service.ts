@@ -20,11 +20,16 @@ export class SupplierItemsService {
 
   async findById(id: string, tenantId: string, supplierId: string) {
     const row = await this.supplierItemsRepo.findById(id, tenantId, supplierId);
-    if (!row) throw new NotFoundException('Supplier item configuration not found');
+    if (!row)
+      throw new NotFoundException('Supplier item configuration not found');
     return row;
   }
 
-  async create(tenantId: string, supplierId: string, dto: CreateSupplierItemDto) {
+  async create(
+    tenantId: string,
+    supplierId: string,
+    dto: CreateSupplierItemDto,
+  ) {
     await this.suppliersService.findById(supplierId, tenantId); // throws NotFoundException if missing
     await this.itemsService.findById(dto.item_id, tenantId); // throws NotFoundException if missing
 
@@ -37,10 +42,21 @@ export class SupplierItemsService {
     });
   }
 
-  async update(id: string, tenantId: string, supplierId: string, dto: UpdateSupplierItemDto) {
+  async update(
+    id: string,
+    tenantId: string,
+    supplierId: string,
+    dto: UpdateSupplierItemDto,
+  ) {
     await this.findById(id, tenantId, supplierId); // 404 if missing
-    const updated = await this.supplierItemsRepo.update(id, tenantId, supplierId, { ...dto });
-    if (!updated) throw new NotFoundException('Supplier item configuration not found');
+    const updated = await this.supplierItemsRepo.update(
+      id,
+      tenantId,
+      supplierId,
+      { ...dto },
+    );
+    if (!updated)
+      throw new NotFoundException('Supplier item configuration not found');
     return updated;
   }
 

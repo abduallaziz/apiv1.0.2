@@ -89,6 +89,6 @@ export class SuperAdminService {
     });
   }
   getAllFeatures() {
-  return this.featureSvc.getAllFeatures();
-}
+    return this.featureSvc.getAllFeatures();
+  }
 }

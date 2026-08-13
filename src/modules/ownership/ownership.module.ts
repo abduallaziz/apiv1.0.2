@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import {
+  SupabaseModule,
+  SUPABASE_CLIENT,
+} from '../../shared/supabase/supabase.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ItemsModule } from '../items/items.module';
@@ -23,7 +26,8 @@ import { OwnershipRepository } from './repositories/ownership.repository';
     OwnershipService,
     {
       provide: OwnershipRepository,
-      useFactory: (supabase: SupabaseClient) => new OwnershipRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new OwnershipRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],

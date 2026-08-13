@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CustomersRepository } from './customers.repository';
 import { CustomerFieldDefinitionsRepository } from './customer-field-definitions.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -32,22 +36,36 @@ export class CustomersService {
     for (const def of definitions) {
       const value = customFields?.[def.field_key];
 
-      if (isCreate && def.required && (value === undefined || value === null || value === '')) {
-        throw new BadRequestException(`Custom field "${def.field_key}" is required`);
+      if (
+        isCreate &&
+        def.required &&
+        (value === undefined || value === null || value === '')
+      ) {
+        throw new BadRequestException(
+          `Custom field "${def.field_key}" is required`,
+        );
       }
 
       if (value === undefined || value === null) continue;
 
       if (def.field_type === 'number' && typeof value !== 'number') {
-        throw new BadRequestException(`Custom field "${def.field_key}" must be a number`);
+        throw new BadRequestException(
+          `Custom field "${def.field_key}" must be a number`,
+        );
       }
       if (def.field_type === 'boolean' && typeof value !== 'boolean') {
-        throw new BadRequestException(`Custom field "${def.field_key}" must be a boolean`);
+        throw new BadRequestException(
+          `Custom field "${def.field_key}" must be a boolean`,
+        );
       }
       if (def.field_type === 'select') {
-        const allowed = (def.options ?? []).map((o: { value: string }) => o.value);
-        if (!allowed.includes(value as string)) {
-          throw new BadRequestException(`Custom field "${def.field_key}" has an invalid option`);
+        const allowed = (def.options ?? []).map(
+          (o: { value: string }) => o.value,
+        );
+        if (!allowed.includes(value)) {
+          throw new BadRequestException(
+            `Custom field "${def.field_key}" has an invalid option`,
+          );
         }
       }
     }
@@ -64,14 +82,22 @@ export class CustomersService {
     const customFields = dto.custom_fields ?? {};
     const definitions = await this.fieldDefinitionsRepo.findAll(tenant, true);
 
-    const fieldForRole = (role: string) => definitions.find((d) => d.contact_role === role);
+    const fieldForRole = (role: string) =>
+      definitions.find((d) => d.contact_role === role);
 
     const toStringValue = (value: unknown) =>
-      typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
+      typeof value === 'string' || typeof value === 'number'
+        ? String(value)
+        : undefined;
 
     const toIntValue = (value: unknown) => {
       if (typeof value === 'number') return Math.trunc(value);
-      if (typeof value === 'string' && value.trim() !== '' && !isNaN(Number(value))) return Math.trunc(Number(value));
+      if (
+        typeof value === 'string' &&
+        value.trim() !== '' &&
+        !isNaN(Number(value))
+      )
+        return Math.trunc(Number(value));
       return undefined;
     };
 
@@ -81,11 +107,25 @@ export class CustomersService {
     const visitDateField = fieldForRole('visit_date');
     const odometerField = fieldForRole('odometer');
 
-    const phone = dto.phone ?? toStringValue(phoneField ? customFields[phoneField.field_key] : undefined);
-    const email = dto.email ?? toStringValue(emailField ? customFields[emailField.field_key] : undefined);
-    const plate_number = toStringValue(plateField ? customFields[plateField.field_key] : undefined);
-    const visit_date = toStringValue(visitDateField ? customFields[visitDateField.field_key] : undefined);
-    const odometer = toIntValue(odometerField ? customFields[odometerField.field_key] : undefined);
+    const phone =
+      dto.phone ??
+      toStringValue(
+        phoneField ? customFields[phoneField.field_key] : undefined,
+      );
+    const email =
+      dto.email ??
+      toStringValue(
+        emailField ? customFields[emailField.field_key] : undefined,
+      );
+    const plate_number = toStringValue(
+      plateField ? customFields[plateField.field_key] : undefined,
+    );
+    const visit_date = toStringValue(
+      visitDateField ? customFields[visitDateField.field_key] : undefined,
+    );
+    const odometer = toIntValue(
+      odometerField ? customFields[odometerField.field_key] : undefined,
+    );
 
     return { phone, email, plate_number, visit_date, odometer };
   }
@@ -102,7 +142,13 @@ export class CustomersService {
       // so every field type (including number) is searchable via ilike.
       customFieldKeys = definitions.map((d) => d.field_key);
     }
-    return this.repo.findAll(tenant, query.search, query.page, query.limit, customFieldKeys);
+    return this.repo.findAll(
+      tenant,
+      query.search,
+      query.page,
+      query.limit,
+      customFieldKeys,
+    );
   }
 
   async findById(tenant: TenantContext, id: string) {
@@ -112,11 +158,15 @@ export class CustomersService {
   }
 
   async create(tenant: TenantContext, dto: CreateCustomerDto) {
-    const { phone, email, plate_number, visit_date, odometer } = await this.syncContactColumns(tenant, dto);
+    const { phone, email, plate_number, visit_date, odometer } =
+      await this.syncContactColumns(tenant, dto);
 
     if (phone) {
       const existing = await this.repo.findByPhone(tenant, phone);
-      if (existing) throw new BadRequestException('Phone already registered for this tenant');
+      if (existing)
+        throw new BadRequestException(
+          'Phone already registered for this tenant',
+        );
     }
     await this.validateCustomFields(tenant, dto.custom_fields, true);
 
@@ -132,18 +182,29 @@ export class CustomersService {
       full_name = `عميل ${count + 1}`;
     }
 
-    return this.repo.create(tenant, { ...dto, full_name, phone, email, plate_number, visit_date, odometer });
+    return this.repo.create(tenant, {
+      ...dto,
+      full_name,
+      phone,
+      email,
+      plate_number,
+      visit_date,
+      odometer,
+    });
   }
 
   async update(tenant: TenantContext, id: string, dto: UpdateCustomerDto) {
     await this.findById(tenant, id);
 
-    const { phone, email, plate_number, visit_date, odometer } = await this.syncContactColumns(tenant, dto);
+    const { phone, email, plate_number, visit_date, odometer } =
+      await this.syncContactColumns(tenant, dto);
 
     if (phone) {
       const existing = await this.repo.findByPhone(tenant, phone);
       if (existing && existing.id !== id) {
-        throw new BadRequestException('Phone already registered for this tenant');
+        throw new BadRequestException(
+          'Phone already registered for this tenant',
+        );
       }
     }
 
@@ -151,7 +212,14 @@ export class CustomersService {
       await this.validateCustomFields(tenant, dto.custom_fields, false);
     }
 
-    return this.repo.update(tenant, id, { ...dto, phone, email, plate_number, visit_date, odometer });
+    return this.repo.update(tenant, id, {
+      ...dto,
+      phone,
+      email,
+      plate_number,
+      visit_date,
+      odometer,
+    });
   }
 
   async remove(tenant: TenantContext, id: string) {

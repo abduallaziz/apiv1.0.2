@@ -1,4 +1,11 @@
-import { IsUUID, IsIn, IsOptional, IsNumber, Min, IsString } from 'class-validator';
+import {
+  IsUUID,
+  IsIn,
+  IsOptional,
+  IsNumber,
+  Min,
+  IsString,
+} from 'class-validator';
 
 export class CreateOwnershipLayerDto {
   @IsUUID()

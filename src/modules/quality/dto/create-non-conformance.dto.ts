@@ -1,4 +1,10 @@
-import { IsUUID, IsString, IsNotEmpty, IsIn, IsOptional } from 'class-validator';
+import {
+  IsUUID,
+  IsString,
+  IsNotEmpty,
+  IsIn,
+  IsOptional,
+} from 'class-validator';
 
 export class CreateNonConformanceDto {
   // Required unless source='customer_complaint' (validated in the service —
@@ -18,7 +24,14 @@ export class CreateNonConformanceDto {
   @IsOptional()
   severity?: 'minor' | 'major' | 'critical';
 
-  @IsIn(['manufacturing_defect', 'supplier_defect', 'packaging_defect', 'specification_failure', 'customer_complaint', 'other'])
+  @IsIn([
+    'manufacturing_defect',
+    'supplier_defect',
+    'packaging_defect',
+    'specification_failure',
+    'customer_complaint',
+    'other',
+  ])
   @IsOptional()
   category?: string;
 

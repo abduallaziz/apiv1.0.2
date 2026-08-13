@@ -17,7 +17,11 @@ export class MrpRepository extends ScopedRepository {
     return data as string;
   }
 
-  async findPlannedOrders(tenantId: string, status?: string, orderType?: string) {
+  async findPlannedOrders(
+    tenantId: string,
+    status?: string,
+    orderType?: string,
+  ) {
     let query = this.supabase
       .from('planned_orders')
       .select('*, items(name), bill_of_materials(id, item_id)')
@@ -53,7 +57,10 @@ export class MrpRepository extends ScopedRepository {
         status,
         updated_at: new Date().toISOString(),
         ...(converted
-          ? { converted_reference_type: converted.referenceType, converted_reference_id: converted.referenceId }
+          ? {
+              converted_reference_type: converted.referenceType,
+              converted_reference_id: converted.referenceId,
+            }
           : {}),
       })
       .eq('id', id)

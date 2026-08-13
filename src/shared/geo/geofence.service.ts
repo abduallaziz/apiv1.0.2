@@ -11,10 +11,17 @@ export interface GeofenceCheckResult {
 
 @Injectable()
 export class GeofenceService {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   // Haversine formula — great-circle distance between two lat/lng points, in meters.
-  private distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  private distanceMeters(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
     const R = 6371000;
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const dLat = toRad(lat2 - lat1);
@@ -41,12 +48,16 @@ export class GeofenceService {
     if (zonesErr) throw zonesErr;
 
     const activeZones = (zones ?? []).filter(
-      (z) => (!z.valid_from || z.valid_from <= today) && (!z.valid_to || z.valid_to >= today),
+      (z) =>
+        (!z.valid_from || z.valid_from <= today) &&
+        (!z.valid_to || z.valid_to >= today),
     );
 
     if (activeZones.length > 0) {
       const withinAny = activeZones.some(
-        (z) => this.distanceMeters(lat, lng, z.center_lat, z.center_lng) <= z.radius_m,
+        (z) =>
+          this.distanceMeters(lat, lng, z.center_lat, z.center_lng) <=
+          z.radius_m,
       );
       return { allowed: withinAny, matchedZone: 'employee_override' };
     }
@@ -71,12 +82,17 @@ export class GeofenceService {
       .maybeSingle();
     if (branchErr) throw branchErr;
 
-    if (!branch?.geofence_lat || !branch?.geofence_lng || !branch?.geofence_radius_m) {
+    if (
+      !branch?.geofence_lat ||
+      !branch?.geofence_lng ||
+      !branch?.geofence_radius_m
+    ) {
       return { allowed: true, matchedZone: null };
     }
 
     const within =
-      this.distanceMeters(lat, lng, branch.geofence_lat, branch.geofence_lng) <= branch.geofence_radius_m;
+      this.distanceMeters(lat, lng, branch.geofence_lat, branch.geofence_lng) <=
+      branch.geofence_radius_m;
     return { allowed: within, matchedZone: 'branch_default' };
   }
 }

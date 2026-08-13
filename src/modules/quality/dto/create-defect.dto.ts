@@ -1,11 +1,23 @@
-import { IsString, IsNotEmpty, IsIn, IsOptional, IsNumber, Min } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsIn,
+  IsOptional,
+  IsNumber,
+  Min,
+} from 'class-validator';
 
 export class CreateDefectDto {
   @IsString()
   @IsNotEmpty()
   defect_code: string;
 
-  @IsIn(['manufacturing_defect', 'supplier_defect', 'packaging_defect', 'specification_failure'])
+  @IsIn([
+    'manufacturing_defect',
+    'supplier_defect',
+    'packaging_defect',
+    'specification_failure',
+  ])
   category: string;
 
   @IsIn(['minor', 'major', 'critical'])

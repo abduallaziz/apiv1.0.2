@@ -16,7 +16,11 @@ export class TenantsService {
     return tenant;
   }
 
-  async updateProfile(tenantId: string, dto: UpdateTenantProfileDto, actorId?: string) {
+  async updateProfile(
+    tenantId: string,
+    dto: UpdateTenantProfileDto,
+    actorId?: string,
+  ) {
     const tenant = await this.tenantsRepository.findById(tenantId);
     if (!tenant) throw new NotFoundException('Tenant not found');
     const updated = await this.tenantsRepository.updateProfile(tenantId, dto);
@@ -30,8 +34,8 @@ export class TenantsService {
           action: 'tenant_settings.updated',
           resource_type: 'tenant_settings',
           resource_id: tenantId,
-          before_data: tenant as unknown as Record<string, unknown>,
-          after_data: updated as unknown as Record<string, unknown>,
+          before_data: tenant,
+          after_data: updated,
         })
         .catch(() => {});
     }

@@ -36,10 +36,15 @@ export class FeatureGuard implements CanActivate {
       throw new ForbiddenException('Tenant context missing');
     }
 
-    const isEnabled = await this.featureFlagsService.resolveFeature(tenantId, featureKey);
+    const isEnabled = await this.featureFlagsService.resolveFeature(
+      tenantId,
+      featureKey,
+    );
 
     if (!isEnabled) {
-      throw new ForbiddenException(`Feature '${featureKey}' is not available for your plan`);
+      throw new ForbiddenException(
+        `Feature '${featureKey}' is not available for your plan`,
+      );
     }
 
     return true;

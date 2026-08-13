@@ -26,7 +26,11 @@ export class AnalyticsController {
   @Get('summary')
   getSummary(@Query() query: AnalyticsQueryDto) {
     const period = query.period ?? AnalyticsPeriod.LAST_12_MONTHS;
-    return this.analyticsService.getAdvancedSummary(period, query.from, query.to);
+    return this.analyticsService.getAdvancedSummary(
+      period,
+      query.from,
+      query.to,
+    );
   }
 
   @Get('mrr')
@@ -60,7 +64,11 @@ export class AnalyticsController {
   @Get('funnel')
   getConversionFunnel(@Query() query: AnalyticsQueryDto) {
     const period = query.period ?? AnalyticsPeriod.LAST_12_MONTHS;
-    return this.analyticsService.getConversionFunnel(period, query.from, query.to);
+    return this.analyticsService.getConversionFunnel(
+      period,
+      query.from,
+      query.to,
+    );
   }
 
   @Get('cohort')
@@ -76,6 +84,10 @@ export class AnalyticsController {
   @Get('usage')
   getUsageAnalytics(@Query() query: AnalyticsQueryDto) {
     const period = query.period ?? AnalyticsPeriod.LAST_30_DAYS;
-    return this.analyticsService.getUsageAnalytics(period, query.from, query.to);
+    return this.analyticsService.getUsageAnalytics(
+      period,
+      query.from,
+      query.to,
+    );
   }
 }

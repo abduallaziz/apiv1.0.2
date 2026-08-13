@@ -21,7 +21,11 @@ export class LoggingInterceptor implements NestInterceptor {
     const req = context.switchToHttp().getRequest<Request>();
     const res = context.switchToHttp().getResponse<Response>();
 
-    const user = (req as Request & { user?: { sub?: string; role?: string; tenant_id?: string } }).user;
+    const user = (
+      req as Request & {
+        user?: { sub?: string; role?: string; tenant_id?: string };
+      }
+    ).user;
 
     const requestContext = createRequestContext({
       correlationId: req.headers['x-correlation-id'] as string | undefined,
@@ -69,7 +73,8 @@ export class LoggingInterceptor implements NestInterceptor {
             }),
             catchError((error: unknown) => {
               const durationMs = Date.now() - startTime;
-              const err = error instanceof Error ? error : new Error(String(error));
+              const err =
+                error instanceof Error ? error : new Error(String(error));
               this.logger.error('HTTP Request Failed', err, {
                 module: 'http',
                 action: 'request_error',

@@ -1,4 +1,16 @@
-import { IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, Max, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  Max,
+  MinLength,
+} from 'class-validator';
 import { UserRole } from '../../../shared/types/enums';
 
 export class UpdateUserDto {
@@ -55,7 +67,11 @@ export class UpdateUserDto {
 
   @IsIn(['fixed', 'per_minute', 'percentage_of_daily_rate'])
   @IsOptional()
-  late_deduction_mode?: 'fixed' | 'per_minute' | 'percentage_of_daily_rate' | null;
+  late_deduction_mode?:
+    | 'fixed'
+    | 'per_minute'
+    | 'percentage_of_daily_rate'
+    | null;
 
   @IsNumber()
   @Min(0)

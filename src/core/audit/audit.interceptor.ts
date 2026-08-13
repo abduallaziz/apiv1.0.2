@@ -39,8 +39,7 @@ export class AuditInterceptor implements NestInterceptor {
       request.ip ??
       'unknown';
 
-    const device =
-      (request.headers['user-agent'] as string) ?? 'unknown';
+    const device = (request.headers['user-agent'] as string) ?? 'unknown';
 
     const [resource_type] = action.split('.');
 

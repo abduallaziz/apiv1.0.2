@@ -63,10 +63,7 @@ export class NotificationsController {
 
   @Patch('read-all')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async markAllAsRead(
-    @Req() req: Request,
-    @GetTenant() tenant: TenantContext,
-  ) {
+  async markAllAsRead(@Req() req: Request, @GetTenant() tenant: TenantContext) {
     const user = (req as any).user;
     await this.notificationsRepository.markAllAsRead(user.sub, tenant.tenantId);
   }

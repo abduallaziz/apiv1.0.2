@@ -16,13 +16,13 @@ async function runSQL(sql: string): Promise<void> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ query: sql }),
     },
   );
 
-  const data = await response.json() as { error?: string; message?: string };
+  const data = (await response.json()) as { error?: string; message?: string };
 
   if (!response.ok) {
     throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -39,13 +39,15 @@ async function querySQL<T>(sql: string): Promise<T[]> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ query: sql }),
     },
   );
 
-  const data = await response.json() as T[] | { error?: string; message?: string };
+  const data = (await response.json()) as
+    | T[]
+    | { error?: string; message?: string };
 
   if (!response.ok) {
     const err = data as { error?: string; message?: string };
@@ -116,7 +118,9 @@ async function runMigrations(): Promise<void> {
     await applyMigration(filename);
   }
 
-  console.log(`\n✅ Done. ${pending.length} migration(s) applied successfully.\n`);
+  console.log(
+    `\n✅ Done. ${pending.length} migration(s) applied successfully.\n`,
+  );
 }
 
 async function main(): Promise<void> {

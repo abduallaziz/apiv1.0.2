@@ -1,4 +1,12 @@
-import { IsUUID, IsString, IsInt, Min, MaxLength, IsOptional, IsDateString } from 'class-validator';
+import {
+  IsUUID,
+  IsString,
+  IsInt,
+  Min,
+  MaxLength,
+  IsOptional,
+  IsDateString,
+} from 'class-validator';
 
 export class CreateReservationDto {
   @IsUUID()

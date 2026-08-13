@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { DeviationsService } from './deviations.service';
 import { CreateDeviationDto } from './dto/create-deviation.dto';
 import { DecideDeviationDto } from './dto/decide-deviation.dto';
@@ -32,7 +41,11 @@ export class DeviationsController {
   @Post()
   @RequirePermission('quality.execute')
   @Audit('quality_deviation.created')
-  create(@Body() dto: CreateDeviationDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  create(
+    @Body() dto: CreateDeviationDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.deviationsService.create(tenant.tenantId, dto, user.sub);
   }
 

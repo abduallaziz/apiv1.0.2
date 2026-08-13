@@ -19,7 +19,12 @@ function renderBarcodeSvg(barcode: string, barcodeType: string): string {
   try {
     return bwipjs.toSVG({ bcid, text: barcode, includetext: false, scale: 2 });
   } catch {
-    return bwipjs.toSVG({ bcid: 'code128', text: barcode, includetext: false, scale: 2 });
+    return bwipjs.toSVG({
+      bcid: 'code128',
+      text: barcode,
+      includetext: false,
+      scale: 2,
+    });
   }
 }
 

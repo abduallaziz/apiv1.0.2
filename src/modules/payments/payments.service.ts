@@ -38,11 +38,12 @@ export class PaymentsService {
     const limit = dto.limit ?? 20;
     const offset = ((dto.page ?? 1) - 1) * limit;
 
-    const { data, count } = await this.billingInvoiceService.getInvoicesWithPayments(
-      tenant.tenantId,
-      limit,
-      offset,
-    );
+    const { data, count } =
+      await this.billingInvoiceService.getInvoicesWithPayments(
+        tenant.tenantId,
+        limit,
+        offset,
+      );
 
     return {
       data,
@@ -66,7 +67,10 @@ export class PaymentsService {
   }
 
   async getInvoicePayments(tenant: TenantContext, invoiceId: string) {
-    const invoice = await this.invoicesRepo.findById(invoiceId, tenant.tenantId);
+    const invoice = await this.invoicesRepo.findById(
+      invoiceId,
+      tenant.tenantId,
+    );
     if (!invoice) throw new NotFoundException('Invoice not found');
 
     const payments = await this.paymentsRepo.findByInvoice(invoiceId);

@@ -5,15 +5,16 @@ export const devFormatter = winston.format.combine(
   winston.format.errors({ stack: true }),
   winston.format.colorize({ all: true }),
   winston.format.printf((info) => {
-    const { timestamp, level, message, module, action, tenantId, meta } = info as {
-      timestamp: string;
-      level: string;
-      message: string;
-      module?: string;
-      action?: string;
-      tenantId?: string;
-      meta?: Record<string, unknown>;
-    };
+    const { timestamp, level, message, module, action, tenantId, meta } =
+      info as {
+        timestamp: string;
+        level: string;
+        message: string;
+        module?: string;
+        action?: string;
+        tenantId?: string;
+        meta?: Record<string, unknown>;
+      };
 
     const parts: string[] = [`[${timestamp}] ${level}`];
     if (module) parts.push(`[${module}]`);

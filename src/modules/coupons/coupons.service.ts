@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { CouponsRepository } from './coupons.repository';
 import { DiscountEngine } from '../../engines/discount-engine/discount.engine';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -34,8 +39,12 @@ export class CouponsService {
 
   async create(tenant: TenantContext, dto: CreateCouponDto) {
     const existing = await this.repo.findByCode(tenant, dto.code);
-    if (existing) throw new BadRequestException('A coupon with this code already exists');
-    return this.repo.create(tenant, { ...dto, code: dto.code.toUpperCase() } as CreateCouponDto);
+    if (existing)
+      throw new BadRequestException('A coupon with this code already exists');
+    return this.repo.create(tenant, {
+      ...dto,
+      code: dto.code.toUpperCase(),
+    });
   }
 
   async update(tenant: TenantContext, id: string, dto: UpdateCouponDto) {
@@ -52,10 +61,15 @@ export class CouponsService {
   }
 
   /** Validates a coupon code against checkout-time conditions. Throws on any failure — a rejected coupon must block checkout, not silently apply nothing. */
-  async validate(tenant: TenantContext, code: string, subtotal: number): Promise<Coupon> {
+  async validate(
+    tenant: TenantContext,
+    code: string,
+    subtotal: number,
+  ): Promise<Coupon> {
     const coupon = await this.repo.findByCode(tenant, code);
     if (!coupon) throw new BadRequestException('Invalid coupon code');
-    if (!coupon.is_active) throw new BadRequestException('This coupon is no longer active');
+    if (!coupon.is_active)
+      throw new BadRequestException('This coupon is no longer active');
 
     const now = new Date();
     if (coupon.valid_from && new Date(coupon.valid_from) > now) {
@@ -79,8 +93,14 @@ export class CouponsService {
   calculateDiscount(coupon: Coupon, subtotal: number): number {
     const raw =
       coupon.discount_type === 'percentage'
-        ? this.discountEngine.applyPercentageDiscount(subtotal, coupon.discount_value)
-        : this.discountEngine.applyFixedDiscount(subtotal, coupon.discount_value);
+        ? this.discountEngine.applyPercentageDiscount(
+            subtotal,
+            coupon.discount_value,
+          )
+        : this.discountEngine.applyFixedDiscount(
+            subtotal,
+            coupon.discount_value,
+          );
 
     const capped = coupon.max_discount_amount
       ? this.discountEngine.checkMaxDiscount(raw, coupon.max_discount_amount)
@@ -99,10 +119,14 @@ export class CouponsService {
     try {
       const result = await this.repo.redeem(couponId);
       if (result === null) {
-        this.logger.warn(`Coupon ${couponId} redemption lost a race or was deactivated (order ${orderId})`);
+        this.logger.warn(
+          `Coupon ${couponId} redemption lost a race or was deactivated (order ${orderId})`,
+        );
       }
     } catch (err) {
-      this.logger.warn(`Coupon redemption failed for order ${orderId}: ${(err as Error)?.message ?? err}`);
+      this.logger.warn(
+        `Coupon redemption failed for order ${orderId}: ${(err as Error)?.message ?? err}`,
+      );
     }
   }
 }

@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AdjustmentsRepository } from './repositories/adjustments.repository';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
@@ -17,11 +21,17 @@ export class AdjustmentsService {
     private readonly locationsService: LocationsService,
     private readonly stockService: StockService,
   ) {
-    this.approvalThreshold = Number(this.config.get<string>('INVENTORY_ADJUSTMENT_APPROVAL_THRESHOLD') ?? '0');
+    this.approvalThreshold = Number(
+      this.config.get<string>('INVENTORY_ADJUSTMENT_APPROVAL_THRESHOLD') ?? '0',
+    );
   }
 
   findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
-    return this.adjustmentsRepo.findAll(tenantId, status, new PaginationDto(page, perPage));
+    return this.adjustmentsRepo.findAll(
+      tenantId,
+      status,
+      new PaginationDto(page, perPage),
+    );
   }
 
   async findById(id: string, tenantId: string) {
@@ -32,13 +42,18 @@ export class AdjustmentsService {
 
   async create(tenantId: string, dto: CreateAdjustmentDto, actorId: string) {
     if (dto.location_id) {
-      await this.locationsService.findById(dto.location_id, dto.warehouse_id, tenantId);
+      await this.locationsService.findById(
+        dto.location_id,
+        dto.warehouse_id,
+        tenantId,
+      );
     }
 
     const movementValue = dto.unit_cost
       ? Math.abs(dto.quantity_delta) * dto.unit_cost
       : Math.abs(dto.quantity_delta);
-    const requiresApproval = this.approvalThreshold > 0 && movementValue >= this.approvalThreshold;
+    const requiresApproval =
+      this.approvalThreshold > 0 && movementValue >= this.approvalThreshold;
 
     return this.adjustmentsRepo.create(tenantId, {
       warehouse_id: dto.warehouse_id,
@@ -68,7 +83,9 @@ export class AdjustmentsService {
   async post(id: string, tenantId: string, actorId: string) {
     const adjustment = await this.findById(id, tenantId);
     if (adjustment.status !== 'approved') {
-      throw new ForbiddenException('Adjustment must be approved before it can be posted');
+      throw new ForbiddenException(
+        'Adjustment must be approved before it can be posted',
+      );
     }
     try {
       const result = await this.adjustmentsRepo.post(id, actorId);

@@ -19,7 +19,7 @@ export class RailwaySecretsProvider implements SecretsProvider {
     if (!value) {
       throw new Error(
         `[SecretsProvider] Missing required secret: "${key}". ` +
-        `Check .env or Railway Variables.`,
+          `Check .env or Railway Variables.`,
       );
     }
     return value;

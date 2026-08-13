@@ -27,7 +27,10 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
   const batchIds: string[] = [];
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
     repo = new ExpiredBatchesRepository(supabase);
 
     const { data: wh, error: whErr } = await supabase
@@ -41,7 +44,15 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
 
     const { data: iExp, error: iExpErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr 13.13-fix Expired Item', type: 'product', operation_type: 'sell', price: 10, track_batches: true, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr 13.13-fix Expired Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 10,
+        track_batches: true,
+        is_active: true,
+      })
       .select()
       .single();
     if (iExpErr) throw iExpErr;
@@ -50,19 +61,36 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
 
     const { data: iFresh, error: iFreshErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr 13.13-fix Fresh Item', type: 'product', operation_type: 'sell', price: 10, track_batches: true, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr 13.13-fix Fresh Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 10,
+        track_batches: true,
+        is_active: true,
+      })
       .select()
       .single();
     if (iFreshErr) throw iFreshErr;
     itemFresh = iFresh.id;
     itemIds.push(itemFresh);
 
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const nextYear = new Date(Date.now() + 365 * 86400000)
+      .toISOString()
+      .slice(0, 10);
 
     const { data: expiredBatch, error: ebErr } = await supabase
       .from('item_batches')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: itemExpired, batch_number: `R1313-EXP-${Date.now()}`, expiration_date: yesterday })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: itemExpired,
+        batch_number: `R1313-EXP-${Date.now()}`,
+        expiration_date: yesterday,
+      })
       .select()
       .single();
     if (ebErr) throw ebErr;
@@ -70,7 +98,12 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
 
     const { data: freshBatch, error: fbErr } = await supabase
       .from('item_batches')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: itemFresh, batch_number: `R1313-FRESH-${Date.now()}`, expiration_date: nextYear })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: itemFresh,
+        batch_number: `R1313-FRESH-${Date.now()}`,
+        expiration_date: nextYear,
+      })
       .select()
       .single();
     if (fbErr) throw fbErr;
@@ -80,8 +113,24 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
     // scans (mirrors real stock — a batch with zero remaining stock should
     // never surface as a warning, same reasoning fn_consume_cost_layers uses).
     await supabase.from('cost_layers').insert([
-      { tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, item_id: itemExpired, batch_id: expiredBatch.id, unit_cost: 5, quantity_received: 10, quantity_remaining: 10 },
-      { tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, item_id: itemFresh, batch_id: freshBatch.id, unit_cost: 5, quantity_received: 10, quantity_remaining: 10 },
+      {
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        item_id: itemExpired,
+        batch_id: expiredBatch.id,
+        unit_cost: 5,
+        quantity_received: 10,
+        quantity_remaining: 10,
+      },
+      {
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        item_id: itemFresh,
+        batch_id: freshBatch.id,
+        unit_cost: 5,
+        quantity_received: 10,
+        quantity_remaining: 10,
+      },
     ]);
   }, 30_000);
 
@@ -120,10 +169,12 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
     expect(result[0].item_id).toBe(itemExpired);
   }, 15_000);
 
-  it('Test 4: tenant isolation — another tenant cannot detect this tenant\'s expired batch', async () => {
-    const result = await repo.checkExpiredBatches(OTHER_TENANT_ID, warehouseId, [
-      { item_id: itemExpired, variant_id: null },
-    ]);
+  it("Test 4: tenant isolation — another tenant cannot detect this tenant's expired batch", async () => {
+    const result = await repo.checkExpiredBatches(
+      OTHER_TENANT_ID,
+      warehouseId,
+      [{ item_id: itemExpired, variant_id: null }],
+    );
     expect(result).toEqual([]);
   }, 15_000);
 
@@ -138,24 +189,46 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
   }, 15_000);
 
   it('Test 6: FEFO consumption ordering is unchanged — soonest-expiring layer still consumed first', async () => {
-    const soon = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
-    const later = new Date(Date.now() + 100 * 86400000).toISOString().slice(0, 10);
+    const soon = new Date(Date.now() + 10 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const later = new Date(Date.now() + 100 * 86400000)
+      .toISOString()
+      .slice(0, 10);
 
     const { data: item, error: itemErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr 13.13-fix FEFO Item', type: 'product', operation_type: 'sell', price: 10, track_batches: true, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr 13.13-fix FEFO Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 10,
+        track_batches: true,
+        is_active: true,
+      })
       .select()
       .single();
     if (itemErr) throw itemErr;
 
     const { data: batchSoon } = await supabase
       .from('item_batches')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: item.id, batch_number: `R1313-FEFO-SOON-${Date.now()}`, expiration_date: soon })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: item.id,
+        batch_number: `R1313-FEFO-SOON-${Date.now()}`,
+        expiration_date: soon,
+      })
       .select()
       .single();
     const { data: batchLater } = await supabase
       .from('item_batches')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: item.id, batch_number: `R1313-FEFO-LATER-${Date.now()}`, expiration_date: later })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: item.id,
+        batch_number: `R1313-FEFO-LATER-${Date.now()}`,
+        expiration_date: later,
+      })
       .select()
       .single();
 
@@ -164,32 +237,67 @@ describe('expired batch advisory warning regression (Migration 13.13-fix)', () =
     // (received second) must be consumed first instead.
     const { data: layerLater } = await supabase
       .from('cost_layers')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, item_id: item.id, batch_id: batchLater.id, unit_cost: 5, quantity_received: 10, quantity_remaining: 10, received_at: new Date(Date.now() - 100000).toISOString() })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        item_id: item.id,
+        batch_id: batchLater.id,
+        unit_cost: 5,
+        quantity_received: 10,
+        quantity_remaining: 10,
+        received_at: new Date(Date.now() - 100000).toISOString(),
+      })
       .select()
       .single();
     const { data: layerSoon } = await supabase
       .from('cost_layers')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, item_id: item.id, batch_id: batchSoon.id, unit_cost: 5, quantity_received: 10, quantity_remaining: 10, received_at: new Date().toISOString() })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        item_id: item.id,
+        batch_id: batchSoon.id,
+        unit_cost: 5,
+        quantity_received: 10,
+        quantity_remaining: 10,
+        received_at: new Date().toISOString(),
+      })
       .select()
       .single();
 
-    const { data: consumedUnitCost, error: consumeErr } = await supabase.rpc('fn_consume_cost_layers', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_warehouse_id: warehouseId,
-      p_item_id: item.id,
-      p_variant_id: null,
-      p_quantity: 5,
-    });
+    const { data: consumedUnitCost, error: consumeErr } = await supabase.rpc(
+      'fn_consume_cost_layers',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_warehouse_id: warehouseId,
+        p_item_id: item.id,
+        p_variant_id: null,
+        p_quantity: 5,
+      },
+    );
     expect(consumeErr).toBeNull();
     expect(Number(consumedUnitCost)).toBe(5);
 
-    const { data: afterSoon } = await supabase.from('cost_layers').select('quantity_remaining').eq('id', layerSoon.id).single();
-    const { data: afterLater } = await supabase.from('cost_layers').select('quantity_remaining').eq('id', layerLater.id).single();
-    expect(Number(afterSoon!.quantity_remaining)).toBe(5); // the soon-expiring layer was drawn from first
-    expect(Number(afterLater!.quantity_remaining)).toBe(10); // the later-expiring layer was untouched
+    const { data: afterSoon } = await supabase
+      .from('cost_layers')
+      .select('quantity_remaining')
+      .eq('id', layerSoon.id)
+      .single();
+    const { data: afterLater } = await supabase
+      .from('cost_layers')
+      .select('quantity_remaining')
+      .eq('id', layerLater.id)
+      .single();
+    expect(Number(afterSoon.quantity_remaining)).toBe(5); // the soon-expiring layer was drawn from first
+    expect(Number(afterLater.quantity_remaining)).toBe(10); // the later-expiring layer was untouched
 
-    await supabase.from('cost_layers').delete().in('id', [layerSoon.id, layerLater.id]);
-    await supabase.from('item_batches').delete().in('id', [batchSoon.id, batchLater.id]);
+    await supabase
+      .from('cost_layers')
+      .delete()
+      .in('id', [layerSoon.id, layerLater.id]);
+    await supabase
+      .from('item_batches')
+      .delete()
+      .in('id', [batchSoon.id, batchLater.id]);
     await supabase.from('items').delete().eq('id', item.id);
   }, 30_000);
 });

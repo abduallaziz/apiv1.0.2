@@ -29,7 +29,9 @@ export class StripeWebhookController {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {
     const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');
-    const webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET');
+    const webhookSecret = this.configService.get<string>(
+      'STRIPE_WEBHOOK_SECRET',
+    );
 
     if (secretKey && webhookSecret) {
       this.webhookSecret = webhookSecret;
@@ -37,7 +39,9 @@ export class StripeWebhookController {
         apiVersion: '2026-05-27.dahlia',
       });
     } else {
-      this.logger.warn('[Stripe Webhook] Stripe not configured — webhook endpoint disabled');
+      this.logger.warn(
+        '[Stripe Webhook] Stripe not configured — webhook endpoint disabled',
+      );
     }
   }
 
@@ -57,9 +61,16 @@ export class StripeWebhookController {
 
     let event: ReturnType<StripeInstance['webhooks']['constructEvent']>;
     try {
-      event = this.stripe.webhooks.constructEvent(req.rawBody, signature, this.webhookSecret);
+      event = this.stripe.webhooks.constructEvent(
+        req.rawBody,
+        signature,
+        this.webhookSecret,
+      );
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Webhook signature verification failed';
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Webhook signature verification failed';
       this.logger.error(`[Stripe Webhook] Signature error: ${message}`);
       throw new BadRequestException(`Webhook Error: ${message}`);
     }
@@ -68,13 +79,19 @@ export class StripeWebhookController {
 
     switch (event.type) {
       case 'payment_intent.payment_failed':
-        await this.handlePaymentFailed(event.data.object as unknown as Record<string, unknown>);
+        await this.handlePaymentFailed(
+          event.data.object as unknown as Record<string, unknown>,
+        );
         break;
       case 'payment_intent.succeeded':
-        await this.handlePaymentSucceeded(event.data.object as unknown as Record<string, unknown>);
+        await this.handlePaymentSucceeded(
+          event.data.object as unknown as Record<string, unknown>,
+        );
         break;
       case 'customer.subscription.deleted':
-        await this.handleSubscriptionDeleted(event.data.object as unknown as Record<string, unknown>);
+        await this.handleSubscriptionDeleted(
+          event.data.object as unknown as Record<string, unknown>,
+        );
         break;
       default:
         this.logger.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
@@ -83,13 +100,20 @@ export class StripeWebhookController {
     return { received: true };
   }
 
-  private async handlePaymentFailed(obj: Record<string, unknown>): Promise<void> {
-    const invoiceId = (obj.metadata as Record<string, string> | undefined)?.invoiceId;
+  private async handlePaymentFailed(
+    obj: Record<string, unknown>,
+  ): Promise<void> {
+    const invoiceId = (obj.metadata as Record<string, string> | undefined)
+      ?.invoiceId;
     const providerPaymentId = obj.id as string | undefined;
-    const lastError = obj.last_payment_error as Record<string, string> | undefined;
+    const lastError = obj.last_payment_error as
+      | Record<string, string>
+      | undefined;
 
     if (!invoiceId) {
-      this.logger.warn(`[Stripe Webhook] payment_intent.payment_failed — no invoiceId in metadata`);
+      this.logger.warn(
+        `[Stripe Webhook] payment_intent.payment_failed — no invoiceId in metadata`,
+      );
       return;
     }
 
@@ -109,12 +133,17 @@ export class StripeWebhookController {
     this.logger.log(`[Stripe Webhook] Marked invoice ${invoiceId} as void`);
   }
 
-  private async handlePaymentSucceeded(obj: Record<string, unknown>): Promise<void> {
-    const invoiceId = (obj.metadata as Record<string, string> | undefined)?.invoiceId;
+  private async handlePaymentSucceeded(
+    obj: Record<string, unknown>,
+  ): Promise<void> {
+    const invoiceId = (obj.metadata as Record<string, string> | undefined)
+      ?.invoiceId;
     const providerPaymentId = obj.id as string | undefined;
 
     if (!invoiceId) {
-      this.logger.warn(`[Stripe Webhook] payment_intent.succeeded — no invoiceId in metadata`);
+      this.logger.warn(
+        `[Stripe Webhook] payment_intent.succeeded — no invoiceId in metadata`,
+      );
       return;
     }
 
@@ -135,11 +164,16 @@ export class StripeWebhookController {
     this.logger.log(`[Stripe Webhook] Marked invoice ${invoiceId} as paid`);
   }
 
-  private async handleSubscriptionDeleted(obj: Record<string, unknown>): Promise<void> {
-    const tenantId = (obj.metadata as Record<string, string> | undefined)?.tenantId;
+  private async handleSubscriptionDeleted(
+    obj: Record<string, unknown>,
+  ): Promise<void> {
+    const tenantId = (obj.metadata as Record<string, string> | undefined)
+      ?.tenantId;
 
     if (!tenantId) {
-      this.logger.warn(`[Stripe Webhook] subscription.deleted — no tenantId in metadata`);
+      this.logger.warn(
+        `[Stripe Webhook] subscription.deleted — no tenantId in metadata`,
+      );
       return;
     }
 
@@ -149,6 +183,8 @@ export class StripeWebhookController {
       .eq('tenant_id', tenantId)
       .eq('status', 'active');
 
-    this.logger.log(`[Stripe Webhook] Cancelled subscription for tenant: ${tenantId}`);
+    this.logger.log(
+      `[Stripe Webhook] Cancelled subscription for tenant: ${tenantId}`,
+    );
   }
 }

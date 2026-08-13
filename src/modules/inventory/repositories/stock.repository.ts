@@ -43,14 +43,19 @@ export class StockRepository extends ScopedRepository {
   async findLevels(tenantId: string, filter: StockLevelFilter) {
     let query = this.supabase
       .from('stock_levels')
-      .select('*, items(name, sku), item_variants(name, sku), warehouses(name, code)')
+      .select(
+        '*, items(name, sku), item_variants(name, sku), warehouses(name, code)',
+      )
       .eq('tenant_id', tenantId);
 
-    if (filter.warehouseId) query = query.eq('warehouse_id', filter.warehouseId);
+    if (filter.warehouseId)
+      query = query.eq('warehouse_id', filter.warehouseId);
     if (filter.itemId) query = query.eq('item_id', filter.itemId);
     if (filter.variantId) query = query.eq('variant_id', filter.variantId);
 
-    const { data, error } = await query.order('updated_at', { ascending: false });
+    const { data, error } = await query.order('updated_at', {
+      ascending: false,
+    });
     if (error) throw error;
     return data;
   }
@@ -76,7 +81,8 @@ export class StockRepository extends ScopedRepository {
       .order('received_at', { ascending: true });
 
     if (filter.itemId) query = query.eq('item_id', filter.itemId);
-    if (filter.warehouseId) query = query.eq('warehouse_id', filter.warehouseId);
+    if (filter.warehouseId)
+      query = query.eq('warehouse_id', filter.warehouseId);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -91,12 +97,16 @@ export class StockRepository extends ScopedRepository {
   ) {
     let query = this.supabase
       .from('v_stock_balance')
-      .select('quantity_on_hand, quantity_reserved, quantity_damaged, quantity_expired, quantity_backorder, quantity_available, quantity_incoming, quantity_atp')
+      .select(
+        'quantity_on_hand, quantity_reserved, quantity_damaged, quantity_expired, quantity_backorder, quantity_available, quantity_incoming, quantity_atp',
+      )
       .eq('tenant_id', tenantId)
       .eq('warehouse_id', warehouseId)
       .eq('item_id', itemId);
 
-    query = variantId ? query.eq('variant_id', variantId) : query.is('variant_id', null);
+    query = variantId
+      ? query.eq('variant_id', variantId)
+      : query.is('variant_id', null);
 
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
@@ -115,16 +125,19 @@ export class StockRepository extends ScopedRepository {
   }
 
   async findLevelsEnriched(tenantId: string, filter: StockLevelEnrichedFilter) {
-    const { data, error } = await this.supabase.rpc('fn_inventory_stock_levels_enriched', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: filter.warehouseId ?? null,
-      p_item_id: filter.itemId ?? null,
-      p_category_id: filter.categoryId ?? null,
-      p_location_id: filter.locationId ?? null,
-      p_batch_id: filter.batchId ?? null,
-      p_supplier_id: filter.supplierId ?? null,
-      p_status: filter.status ?? null,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_inventory_stock_levels_enriched',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: filter.warehouseId ?? null,
+        p_item_id: filter.itemId ?? null,
+        p_category_id: filter.categoryId ?? null,
+        p_location_id: filter.locationId ?? null,
+        p_batch_id: filter.batchId ?? null,
+        p_supplier_id: filter.supplierId ?? null,
+        p_status: filter.status ?? null,
+      },
+    );
     if (error) throw error;
     return data;
   }
@@ -135,19 +148,22 @@ export class StockRepository extends ScopedRepository {
     page: number,
     perPage: number,
   ) {
-    const { data, error } = await this.supabase.rpc('fn_inventory_movements_ledger', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: filter.warehouseId ?? null,
-      p_item_id: filter.itemId ?? null,
-      p_movement_type: filter.movementType ?? null,
-      p_reference_type: filter.referenceType ?? null,
-      p_reference_id: filter.referenceId ?? null,
-      p_created_by: filter.createdBy ?? null,
-      p_date_from: filter.dateFrom ?? null,
-      p_date_to: filter.dateTo ?? null,
-      p_limit: perPage,
-      p_offset: (page - 1) * perPage,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_inventory_movements_ledger',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: filter.warehouseId ?? null,
+        p_item_id: filter.itemId ?? null,
+        p_movement_type: filter.movementType ?? null,
+        p_reference_type: filter.referenceType ?? null,
+        p_reference_id: filter.referenceId ?? null,
+        p_created_by: filter.createdBy ?? null,
+        p_date_from: filter.dateFrom ?? null,
+        p_date_to: filter.dateTo ?? null,
+        p_limit: perPage,
+        p_offset: (page - 1) * perPage,
+      },
+    );
     if (error) throw error;
     const total = data && data.length > 0 ? Number(data[0].total_count) : 0;
     return { data: data ?? [], total, page, perPage };
@@ -164,11 +180,14 @@ export class StockRepository extends ScopedRepository {
       .select('*, items(name, sku), warehouses(name, code)', { count: 'exact' })
       .eq('tenant_id', tenantId);
 
-    if (filter.warehouseId) query = query.eq('warehouse_id', filter.warehouseId);
+    if (filter.warehouseId)
+      query = query.eq('warehouse_id', filter.warehouseId);
     if (filter.itemId) query = query.eq('item_id', filter.itemId);
     if (filter.variantId) query = query.eq('variant_id', filter.variantId);
-    if (filter.referenceType) query = query.eq('reference_type', filter.referenceType);
-    if (filter.referenceId) query = query.eq('reference_id', filter.referenceId);
+    if (filter.referenceType)
+      query = query.eq('reference_type', filter.referenceType);
+    if (filter.referenceId)
+      query = query.eq('reference_id', filter.referenceId);
 
     const from = (page - 1) * perPage;
     const { data, error, count } = await query
@@ -193,7 +212,10 @@ export class StockRepository extends ScopedRepository {
     p_reference_id: string | null;
     p_created_by: string | null;
   }) {
-    const { data, error } = await this.supabase.rpc('fn_apply_stock_movement', params);
+    const { data, error } = await this.supabase.rpc(
+      'fn_apply_stock_movement',
+      params,
+    );
     if (error) throw error;
     return data;
   }

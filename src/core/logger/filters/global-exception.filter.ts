@@ -33,7 +33,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       : 'Internal server error';
 
     const errorMessage =
-      typeof message === 'string' ? message : message.message ?? 'Unknown error';
+      typeof message === 'string'
+        ? message
+        : (message.message ?? 'Unknown error');
 
     // Some exceptions (e.g. LEAVE_BALANCE_EXCEEDED) throw a structured body with
     // extra machine-readable fields beyond `message` — pass those through as-is so
@@ -42,7 +44,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const extraFields =
       typeof message === 'object' && message !== null && !Array.isArray(message)
         ? Object.fromEntries(
-            Object.entries(message).filter(([key]) => !['statusCode', 'message', 'timestamp', 'path'].includes(key)),
+            Object.entries(message).filter(
+              ([key]) =>
+                !['statusCode', 'message', 'timestamp', 'path'].includes(key),
+            ),
           )
         : {};
 
@@ -51,7 +56,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     // Extract user context directly from the request so it is always
     // available even when exceptions originate from guards (which run before
     // interceptors and therefore before AsyncLocalStorage context is set).
-    const user = (request.user as JwtUser | undefined);
+    const user = request.user as JwtUser | undefined;
     const userContext = {
       tenantId: user?.tenant_id ?? 'unknown',
       userId: user?.sub ?? 'anonymous',
@@ -109,7 +114,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       typeof exception === 'object' &&
       exception !== null &&
       'message' in exception &&
-      typeof (exception as { message: unknown }).message === 'string'
+      typeof exception.message === 'string'
     ) {
       return new Error((exception as { message: string }).message);
     }

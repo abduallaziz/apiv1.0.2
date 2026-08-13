@@ -8,7 +8,9 @@ export class OutputsRepository {
   async findByProductionOrder(productionOrderId: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('production_order_outputs')
-      .select('id, production_order_id, item_id, variant_id, quantity, unit_cost, output_type, movement_id, created_at, updated_at, items(name, sku)')
+      .select(
+        'id, production_order_id, item_id, variant_id, quantity, unit_cost, output_type, movement_id, created_at, updated_at, items(name, sku)',
+      )
       .eq('production_order_id', productionOrderId)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: true });
@@ -19,7 +21,9 @@ export class OutputsRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('production_order_outputs')
-      .select('id, production_order_id, item_id, variant_id, quantity, unit_cost, output_type, movement_id, created_at, updated_at')
+      .select(
+        'id, production_order_id, item_id, variant_id, quantity, unit_cost, output_type, movement_id, created_at, updated_at',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .maybeSingle();
@@ -42,10 +46,18 @@ export class OutputsRepository {
     return data ?? [];
   }
 
-  async create(productionOrderId: string, tenantId: string, payload: Record<string, unknown>) {
+  async create(
+    productionOrderId: string,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('production_order_outputs')
-      .insert({ ...payload, production_order_id: productionOrderId, tenant_id: tenantId })
+      .insert({
+        ...payload,
+        production_order_id: productionOrderId,
+        tenant_id: tenantId,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -64,13 +76,21 @@ export class OutputsRepository {
     return data;
   }
 
-  async receive(tenantId: string, warehouseId: string, outputId: string, actorId: string | null) {
-    const { data, error } = await this.supabase.rpc('fn_receive_production_output', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId,
-      p_output_id: outputId,
-      p_actor_id: actorId,
-    });
+  async receive(
+    tenantId: string,
+    warehouseId: string,
+    outputId: string,
+    actorId: string | null,
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_receive_production_output',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: warehouseId,
+        p_output_id: outputId,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }

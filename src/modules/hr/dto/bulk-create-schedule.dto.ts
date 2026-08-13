@@ -1,4 +1,14 @@
-import { IsUUID, IsOptional, IsDateString, IsArray, ArrayMinSize, IsInt, Min, Max, ValidateNested } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsDateString,
+  IsArray,
+  ArrayMinSize,
+  IsInt,
+  Min,
+  Max,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ShiftDto } from './shift.dto';
 

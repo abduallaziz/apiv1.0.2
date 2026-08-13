@@ -13,11 +13,14 @@ export class ExpiredBatchesRepository {
     warehouseId: string,
     items: { item_id: string; variant_id: string | null }[],
   ) {
-    const { data, error } = await this.supabase.rpc('fn_check_expired_batches', {
-      p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId,
-      p_items: items,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_check_expired_batches',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: warehouseId,
+        p_items: items,
+      },
+    );
     if (error) throw error;
     return data;
   }

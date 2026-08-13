@@ -1,4 +1,11 @@
-import { IsUUID, IsIn, IsOptional, IsString, IsNumber, IsBoolean } from 'class-validator';
+import {
+  IsUUID,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsBoolean,
+} from 'class-validator';
 
 export class CreateInspectionDto {
   @IsIn(['goods_receipt', 'stock_count', 'production_order'])

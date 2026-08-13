@@ -12,7 +12,10 @@ export class EmployeeGeofencesService {
   }
 
   async create(tenant: TenantContext, dto: CreateEmployeeGeofenceDto) {
-    const ok = await this.repo.userBelongsToTenant(dto.user_id, tenant.tenantId);
+    const ok = await this.repo.userBelongsToTenant(
+      dto.user_id,
+      tenant.tenantId,
+    );
     if (!ok) throw new BadRequestException('User not found');
     return this.repo.create(tenant.tenantId, { ...dto });
   }

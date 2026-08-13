@@ -12,7 +12,13 @@ export class PlanningService {
     variantId?: string,
     lookbackDays?: number,
   ) {
-    return this.planningRepo.calculateDemandForecast(tenantId, warehouseId, itemId, variantId, lookbackDays);
+    return this.planningRepo.calculateDemandForecast(
+      tenantId,
+      warehouseId,
+      itemId,
+      variantId,
+      lookbackDays,
+    );
   }
 
   purchaseSuggestions(tenantId: string) {

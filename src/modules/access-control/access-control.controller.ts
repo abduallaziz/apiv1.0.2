@@ -57,7 +57,12 @@ export class AccessControlController {
     @GetTenant() tenant: TenantContext,
     @Req() req: { user: JwtPayload },
   ) {
-    return this.service.createRole(dto.name, dto.description ?? null, tenant, req.user);
+    return this.service.createRole(
+      dto.name,
+      dto.description ?? null,
+      tenant,
+      req.user,
+    );
   }
 
   @Delete('roles/:roleId')
@@ -86,7 +91,13 @@ export class AccessControlController {
     @GetTenant() tenant: TenantContext,
     @Req() req: { user: JwtPayload },
   ) {
-    return this.service.updatePermission(roleId, permissionKey, dto.is_granted, tenant, req.user);
+    return this.service.updatePermission(
+      roleId,
+      permissionKey,
+      dto.is_granted,
+      tenant,
+      req.user,
+    );
   }
 
   @Delete('roles/:roleId/permissions/:permissionKey')
@@ -96,7 +107,12 @@ export class AccessControlController {
     @GetTenant() tenant: TenantContext,
     @Req() req: { user: JwtPayload },
   ) {
-    return this.service.resetPermission(roleId, permissionKey, tenant, req.user);
+    return this.service.resetPermission(
+      roleId,
+      permissionKey,
+      tenant,
+      req.user,
+    );
   }
 
   @Post('roles/:roleId/reset')

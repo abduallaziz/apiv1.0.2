@@ -39,10 +39,21 @@ export class DeviationsRepository extends ScopedRepository {
     return data;
   }
 
-  async decide(id: string, tenantId: string, status: 'approved' | 'rejected', approverId: string, notes?: string) {
+  async decide(
+    id: string,
+    tenantId: string,
+    status: 'approved' | 'rejected',
+    approverId: string,
+    notes?: string,
+  ) {
     const { data, error } = await this.supabase
       .from('quality_deviations')
-      .update({ status, approver_id: approverId, decision_notes: notes ?? null, decided_at: new Date().toISOString() })
+      .update({
+        status,
+        approver_id: approverId,
+        decision_notes: notes ?? null,
+        decided_at: new Date().toISOString(),
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('status', 'pending')

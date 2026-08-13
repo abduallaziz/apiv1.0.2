@@ -19,12 +19,15 @@ export class ExpenseTemplatesService {
     return data ?? [];
   }
 
-  async create(tenantId: string, dto: {
-    name: string;
-    default_amount?: number | null;
-    expiry_hours?: number;
-    requires_photo?: boolean;
-  }) {
+  async create(
+    tenantId: string,
+    dto: {
+      name: string;
+      default_amount?: number | null;
+      expiry_hours?: number;
+      requires_photo?: boolean;
+    },
+  ) {
     const { data, error } = await this.supabase
       .from('expense_templates')
       .insert({

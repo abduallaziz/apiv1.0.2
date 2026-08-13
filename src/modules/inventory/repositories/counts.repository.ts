@@ -9,13 +9,20 @@ export class CountsRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, status?: string, pagination: PaginationDto = new PaginationDto()) {
-    const { data, error } = await this.supabase.rpc('fn_stock_counts_list_enriched', {
-      p_tenant_id: tenantId,
-      p_status: status ?? null,
-      p_limit: pagination.perPage,
-      p_offset: pagination.offset,
-    });
+  async findAll(
+    tenantId: string,
+    status?: string,
+    pagination: PaginationDto = new PaginationDto(),
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_stock_counts_list_enriched',
+      {
+        p_tenant_id: tenantId,
+        p_status: status ?? null,
+        p_limit: pagination.perPage,
+        p_offset: pagination.offset,
+      },
+    );
     if (error) throw error;
     return data;
   }
@@ -23,7 +30,9 @@ export class CountsRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('stock_counts')
-      .select('*, items:stock_count_items(*, items(name, sku), warehouse_locations(code, name))')
+      .select(
+        '*, items:stock_count_items(*, items(name, sku), warehouse_locations(code, name))',
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .maybeSingle();
@@ -54,29 +63,37 @@ export class CountsRepository extends ScopedRepository {
       .select('item_id, variant_id, batch_id, location_id, quantity_on_hand')
       .eq('tenant_id', tenantId)
       .eq('warehouse_id', data.warehouse_id);
-    if (scope?.itemIds?.length) levelsQuery = levelsQuery.in('item_id', scope.itemIds);
-    if (scope?.locationIds?.length) levelsQuery = levelsQuery.in('location_id', scope.locationIds);
+    if (scope?.itemIds?.length)
+      levelsQuery = levelsQuery.in('item_id', scope.itemIds);
+    if (scope?.locationIds?.length)
+      levelsQuery = levelsQuery.in('location_id', scope.locationIds);
     const { data: levels, error: levelsError } = await levelsQuery;
     if (levelsError) throw levelsError;
 
     if (levels && levels.length > 0) {
-      const { error: itemsError } = await this.supabase.from('stock_count_items').insert(
-        levels.map((l) => ({
-          tenant_id: tenantId,
-          stock_count_id: data.id,
-          item_id: l.item_id,
-          variant_id: l.variant_id,
-          batch_id: l.batch_id,
-          location_id: l.location_id,
-          expected_quantity: l.quantity_on_hand,
-        })),
-      );
+      const { error: itemsError } = await this.supabase
+        .from('stock_count_items')
+        .insert(
+          levels.map((l) => ({
+            tenant_id: tenantId,
+            stock_count_id: data.id,
+            item_id: l.item_id,
+            variant_id: l.variant_id,
+            batch_id: l.batch_id,
+            location_id: l.location_id,
+            expected_quantity: l.quantity_on_hand,
+          })),
+        );
       if (itemsError) throw itemsError;
     }
 
     await this.supabase
       .from('stock_counts')
-      .update({ status: 'in_progress', started_by: startedBy, started_at: new Date().toISOString() })
+      .update({
+        status: 'in_progress',
+        started_by: startedBy,
+        started_at: new Date().toISOString(),
+      })
       .eq('id', data.id);
 
     return this.findById(data.id, tenantId);
@@ -88,7 +105,9 @@ export class CountsRepository extends ScopedRepository {
     countedQuantity: number,
     reasonCodeId?: string | null,
   ) {
-    const payload: Record<string, unknown> = { counted_quantity: countedQuantity };
+    const payload: Record<string, unknown> = {
+      counted_quantity: countedQuantity,
+    };
     if (reasonCodeId !== undefined) payload.reason_code_id = reasonCodeId;
 
     const { data, error } = await this.supabase
@@ -104,7 +123,10 @@ export class CountsRepository extends ScopedRepository {
 
   // Read-only existence + tenant/applies_to check — reused, not new
   // reason-code infrastructure (table already exists from migration 107).
-  async reasonCodeExists(reasonCodeId: string, tenantId: string): Promise<boolean> {
+  async reasonCodeExists(
+    reasonCodeId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { count, error } = await this.supabase
       .from('reason_codes')
       .select('id', { count: 'exact', head: true })
@@ -122,7 +144,10 @@ export class CountsRepository extends ScopedRepository {
   // before finalize runs. Mirrors the same cost source fn_finalize_stock_count
   // itself already reads (items.cost_price); does not write to cost_layers
   // or touch the costing engine.
-  async computeTotalVarianceValue(stockCountId: string, tenantId: string): Promise<number> {
+  async computeTotalVarianceValue(
+    stockCountId: string,
+    tenantId: string,
+  ): Promise<number> {
     const { data, error } = await this.supabase
       .from('stock_count_items')
       .select('counted_quantity, expected_quantity, items(cost_price)')
@@ -132,7 +157,9 @@ export class CountsRepository extends ScopedRepository {
     if (error) throw error;
 
     return (data ?? []).reduce((sum: number, row: any) => {
-      const variance = Math.abs(Number(row.counted_quantity) - Number(row.expected_quantity));
+      const variance = Math.abs(
+        Number(row.counted_quantity) - Number(row.expected_quantity),
+      );
       const costPrice = Number(row.items?.cost_price ?? 0);
       return sum + variance * costPrice;
     }, 0);

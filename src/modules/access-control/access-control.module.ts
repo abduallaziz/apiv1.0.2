@@ -8,7 +8,11 @@ import { AccessControlAdminGuard } from './guards/access-control-admin.guard';
 // (PermissionsModule, AuditModule) and don't need to be imported here.
 @Module({
   controllers: [AccessControlController],
-  providers: [AccessControlService, AccessControlRepository, AccessControlAdminGuard],
+  providers: [
+    AccessControlService,
+    AccessControlRepository,
+    AccessControlAdminGuard,
+  ],
   exports: [AccessControlService],
 })
 export class AccessControlModule {}

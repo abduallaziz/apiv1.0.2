@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Delete, Param, Body, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { EmployeeGeofencesService } from './employee-geofences.service';
 import { CreateEmployeeGeofenceDto } from './dto/create-employee-geofence.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
@@ -15,19 +25,28 @@ export class EmployeeGeofencesController {
 
   @Get()
   @RequirePermission('hr.manage')
-  findAllForUser(@GetTenant() tenant: TenantContext, @Query('user_id', ParseUUIDPipe) userId: string) {
+  findAllForUser(
+    @GetTenant() tenant: TenantContext,
+    @Query('user_id', ParseUUIDPipe) userId: string,
+  ) {
     return this.service.findAllForUser(tenant, userId);
   }
 
   @Post()
   @RequirePermission('hr.manage')
-  create(@GetTenant() tenant: TenantContext, @Body() dto: CreateEmployeeGeofenceDto) {
+  create(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: CreateEmployeeGeofenceDto,
+  ) {
     return this.service.create(tenant, dto);
   }
 
   @Delete(':id')
   @RequirePermission('hr.manage')
-  remove(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.remove(id, tenant);
   }
 }

@@ -44,7 +44,11 @@ export class InspectionsRepository extends ScopedRepository {
     return data;
   }
 
-  async complete(id: string, tenantId: string, payload: Record<string, unknown>) {
+  async complete(
+    id: string,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('quality_inspections')
       .update({ ...payload, inspected_at: new Date().toISOString() })
@@ -57,11 +61,21 @@ export class InspectionsRepository extends ScopedRepository {
     return data;
   }
 
-  async addResults(tenantId: string, inspectionId: string, results: Record<string, unknown>[]) {
+  async addResults(
+    tenantId: string,
+    inspectionId: string,
+    results: Record<string, unknown>[],
+  ) {
     if (results.length === 0) return [];
     const { data, error } = await this.supabase
       .from('quality_results')
-      .insert(results.map((r) => ({ ...r, tenant_id: tenantId, quality_inspection_id: inspectionId })))
+      .insert(
+        results.map((r) => ({
+          ...r,
+          tenant_id: tenantId,
+          quality_inspection_id: inspectionId,
+        })),
+      )
       .select();
     if (error) throw error;
     return data;

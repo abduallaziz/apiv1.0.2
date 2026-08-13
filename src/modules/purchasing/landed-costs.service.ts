@@ -25,7 +25,10 @@ export class LandedCostsService {
     actorId: string,
     dto: CreateLandedCostDto,
   ) {
-    const receipt: any = await this.goodsReceiptsService.findById(goodsReceiptId, tenantId);
+    const receipt: any = await this.goodsReceiptsService.findById(
+      goodsReceiptId,
+      tenantId,
+    );
     if (receipt.status !== 'draft') {
       throw new ConflictException(
         `Cannot add a landed cost to goods receipt with status "${receipt.status}" — it must still be draft (unposted). Landed costs are baked into unit cost at posting time.`,

@@ -38,13 +38,17 @@ export class StripePaymentProvider implements PaymentProvider {
     return this.stripe;
   }
 
-  async createCustomer(input: CreateCustomerInput): Promise<CreateCustomerResult> {
+  async createCustomer(
+    input: CreateCustomerInput,
+  ): Promise<CreateCustomerResult> {
     const customer = await this.getStripe().customers.create({
       email: input.email,
       name: input.name,
       metadata: { tenantId: input.tenantId },
     });
-    this.logger.log(`[Stripe] Created customer: ${customer.id} for tenant: ${input.tenantId}`);
+    this.logger.log(
+      `[Stripe] Created customer: ${customer.id} for tenant: ${input.tenantId}`,
+    );
     return { providerCustomerId: customer.id };
   }
 
@@ -68,12 +72,19 @@ export class StripePaymentProvider implements PaymentProvider {
             ? 'failed'
             : 'pending';
 
-      this.logger.log(`[Stripe] PaymentIntent ${paymentIntent.id} — status: ${status}`);
+      this.logger.log(
+        `[Stripe] PaymentIntent ${paymentIntent.id} — status: ${status}`,
+      );
       return { providerPaymentId: paymentIntent.id, status };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown stripe error';
+      const message =
+        err instanceof Error ? err.message : 'Unknown stripe error';
       this.logger.error(`[Stripe] createPayment failed: ${message}`);
-      return { providerPaymentId: '', status: 'failed', failureReason: message };
+      return {
+        providerPaymentId: '',
+        status: 'failed',
+        failureReason: message,
+      };
     }
   }
 
@@ -83,10 +94,13 @@ export class StripePaymentProvider implements PaymentProvider {
         payment_intent: input.providerPaymentId,
         amount: Math.round(input.amount * 100),
       });
-      this.logger.log(`[Stripe] Refund created for payment: ${input.providerPaymentId}`);
+      this.logger.log(
+        `[Stripe] Refund created for payment: ${input.providerPaymentId}`,
+      );
       return { success: true };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown stripe error';
+      const message =
+        err instanceof Error ? err.message : 'Unknown stripe error';
       this.logger.error(`[Stripe] refundPayment failed: ${message}`);
       return { success: false };
     }

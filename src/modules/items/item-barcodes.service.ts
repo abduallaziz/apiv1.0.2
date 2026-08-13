@@ -38,7 +38,7 @@ export function errorMessage(error: unknown): string {
     error &&
     typeof error === 'object' &&
     'message' in error &&
-    typeof (error as { message: unknown }).message === 'string'
+    typeof error.message === 'string'
   ) {
     return (error as { message: string }).message;
   }
@@ -73,7 +73,10 @@ export class ItemBarcodesService {
 
     let variantName: string | null = null;
     if (barcode.variant_id) {
-      const variants = await this.itemsRepo.findVariants(barcode.item_id, tenantId);
+      const variants = await this.itemsRepo.findVariants(
+        barcode.item_id,
+        tenantId,
+      );
       const variant = (variants ?? []).find(
         (v: { id: string; name: string }) => v.id === barcode.variant_id,
       );
@@ -271,7 +274,12 @@ export class ItemBarcodesService {
           barcode: created.barcode,
         });
       } catch (error) {
-        results.push({ row: rowNum, status: 'error', barcode, message: errorMessage(error) });
+        results.push({
+          row: rowNum,
+          status: 'error',
+          barcode,
+          message: errorMessage(error),
+        });
       }
     }
 

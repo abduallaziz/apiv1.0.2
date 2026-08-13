@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { InspectionsService } from './inspections.service';
 import { CreateInspectionDto } from './dto/create-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -38,7 +48,11 @@ export class InspectionsController {
   @Post()
   @RequirePermission('quality.execute')
   @Audit('quality_inspection.created')
-  create(@Body() dto: CreateInspectionDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  create(
+    @Body() dto: CreateInspectionDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.inspectionsService.create(tenant.tenantId, dto, user.sub);
   }
 

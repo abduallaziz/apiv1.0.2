@@ -57,10 +57,20 @@ export class SupplierQuotesRepository extends ScopedRepository {
     return data;
   }
 
-  async createGroup(tenantId: string, rfqId: string, supplierId: string, quoteNumber: string) {
+  async createGroup(
+    tenantId: string,
+    rfqId: string,
+    supplierId: string,
+    quoteNumber: string,
+  ) {
     const { data, error } = await this.supabase
       .from('quote_groups')
-      .insert({ tenant_id: tenantId, rfq_id: rfqId, supplier_id: supplierId, quote_number: quoteNumber })
+      .insert({
+        tenant_id: tenantId,
+        rfq_id: rfqId,
+        supplier_id: supplierId,
+        quote_number: quoteNumber,
+      })
       .select()
       .single();
     if (error) throw error;

@@ -10,7 +10,10 @@ import { DunningResult } from '../interfaces/dunning-result.interface';
 import { PAYMENT_PROVIDER } from '../billing.constants';
 import { PaymentProvider } from '../providers/payment-provider.interface';
 import { NotificationService } from '../../notification/notification.service';
-import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../notification/notification.constants';
+import {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+} from '../../notification/notification.constants';
 
 @Injectable()
 export class DunningService {
@@ -32,7 +35,10 @@ export class DunningService {
       .is('deleted_at', null);
 
     if (error) {
-      this.logger.error('Failed to fetch past_due subscriptions', error.message);
+      this.logger.error(
+        'Failed to fetch past_due subscriptions',
+        error.message,
+      );
       return;
     }
 
@@ -58,7 +64,10 @@ export class DunningService {
       .lte('next_retry_at', now);
 
     if (error) {
-      this.logger.error('Failed to fetch pending dunning attempts', error.message);
+      this.logger.error(
+        'Failed to fetch pending dunning attempts',
+        error.message,
+      );
       return;
     }
 
@@ -113,7 +122,9 @@ export class DunningService {
     const nextAttemptNumber = lastAttemptNumber + 1;
 
     if (nextAttemptNumber > DUNNING_MAX_ATTEMPTS) {
-      this.logger.warn(`Subscription ${subscriptionId} exhausted all dunning attempts.`);
+      this.logger.warn(
+        `Subscription ${subscriptionId} exhausted all dunning attempts.`,
+      );
       await this.markExhausted(subscriptionId, tenantId);
       return {
         tenantId,
@@ -123,7 +134,8 @@ export class DunningService {
       };
     }
 
-    const retryHours = DUNNING_RETRY_INTERVALS_HOURS[nextAttemptNumber - 1] ?? 72;
+    const retryHours =
+      DUNNING_RETRY_INTERVALS_HOURS[nextAttemptNumber - 1] ?? 72;
     const nextRetryAt = new Date();
     nextRetryAt.setHours(nextRetryAt.getHours() + retryHours);
 
@@ -197,11 +209,14 @@ export class DunningService {
         this.logger.log(`Dunning succeeded for tenant ${attempt.tenant_id}`);
 
         // إشعار نجاح الدفع — نجلب owner المستأجر
-        await this.notifyTenantOwner(attempt.tenant_id, NOTIFICATION_TYPES.PAYMENT_SUCCESS, {
-          amount: invoice?.total_amount ?? 0,
-          currency: invoice?.currency ?? 'SAR',
-        });
-
+        await this.notifyTenantOwner(
+          attempt.tenant_id,
+          NOTIFICATION_TYPES.PAYMENT_SUCCESS,
+          {
+            amount: invoice?.total_amount ?? 0,
+            currency: invoice?.currency ?? 'SAR',
+          },
+        );
       } else {
         throw new Error(result.failureReason ?? 'Payment failed');
       }
@@ -216,9 +231,13 @@ export class DunningService {
         .eq('id', attempt.id);
 
       // إشعار فشل الدفع
-      await this.notifyTenantOwner(attempt.tenant_id, NOTIFICATION_TYPES.PAYMENT_FAILED, {
-        attempt_number: attempt.attempt_number,
-      });
+      await this.notifyTenantOwner(
+        attempt.tenant_id,
+        NOTIFICATION_TYPES.PAYMENT_FAILED,
+        {
+          attempt_number: attempt.attempt_number,
+        },
+      );
 
       if (attempt.attempt_number >= DUNNING_MAX_ATTEMPTS) {
         await this.markExhausted(attempt.subscription_id, attempt.tenant_id);
@@ -226,9 +245,14 @@ export class DunningService {
     }
   }
 
-  private async markExhausted(subscriptionId: string, tenantId: string): Promise<void> {
+  private async markExhausted(
+    subscriptionId: string,
+    tenantId: string,
+  ): Promise<void> {
     const gracePeriodEndsAt = new Date();
-    gracePeriodEndsAt.setDate(gracePeriodEndsAt.getDate() + DUNNING_GRACE_PERIOD_DAYS);
+    gracePeriodEndsAt.setDate(
+      gracePeriodEndsAt.getDate() + DUNNING_GRACE_PERIOD_DAYS,
+    );
 
     await this.supabase
       .from('subscriptions')
@@ -250,9 +274,13 @@ export class DunningService {
     );
 
     // إشعار دخول فترة السماح
-    await this.notifyTenantOwner(tenantId, NOTIFICATION_TYPES.SUBSCRIPTION_EXPIRED, {
-      grace_period_ends_at: gracePeriodEndsAt.toISOString(),
-    });
+    await this.notifyTenantOwner(
+      tenantId,
+      NOTIFICATION_TYPES.SUBSCRIPTION_EXPIRED,
+      {
+        grace_period_ends_at: gracePeriodEndsAt.toISOString(),
+      },
+    );
   }
 
   private async suspendTenant(tenantId: string): Promise<void> {
@@ -276,7 +304,9 @@ export class DunningService {
       .eq('tenant_id', tenantId)
       .eq('status', 'grace_period');
 
-    this.logger.warn(`Tenant ${tenantId} has been suspended due to non-payment.`);
+    this.logger.warn(
+      `Tenant ${tenantId} has been suspended due to non-payment.`,
+    );
   }
 
   // جلب owner المستأجر وإرسال الإشعار

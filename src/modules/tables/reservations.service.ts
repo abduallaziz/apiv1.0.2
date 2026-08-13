@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ReservationsRepository } from './repositories/reservations.repository';
 import { DineInService } from './dine-in.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
@@ -12,7 +16,10 @@ export class ReservationsService {
     private readonly dineInService: DineInService,
   ) {}
 
-  findAll(tenant: TenantContext, filters: { tableId?: string; from?: string; to?: string; status?: string }) {
+  findAll(
+    tenant: TenantContext,
+    filters: { tableId?: string; from?: string; to?: string; status?: string },
+  ) {
     return this.repo.findAll(tenant.tenantId, filters);
   }
 
@@ -23,12 +30,20 @@ export class ReservationsService {
   }
 
   async create(tenant: TenantContext, dto: CreateReservationDto) {
-    const tableOk = await this.repo.tableBelongsToTenant(dto.table_id, tenant.tenantId);
+    const tableOk = await this.repo.tableBelongsToTenant(
+      dto.table_id,
+      tenant.tenantId,
+    );
     if (!tableOk) throw new BadRequestException('Table not found');
     return this.repo.create(tenant.tenantId, dto);
   }
 
-  async update(id: string, tenant: TenantContext, dto: UpdateReservationDto, actorId: string) {
+  async update(
+    id: string,
+    tenant: TenantContext,
+    dto: UpdateReservationDto,
+    actorId: string,
+  ) {
     const reservation = await this.findOne(id, tenant);
 
     // كان يضبط حالة الطاولة "مشغولة" مباشرة بدون إنشاء أي طلب فعلي — فيظهر الموظف

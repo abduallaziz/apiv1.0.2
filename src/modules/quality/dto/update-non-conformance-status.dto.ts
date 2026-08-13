@@ -2,8 +2,19 @@ import { IsIn, IsOptional, IsString } from 'class-validator';
 
 // open -> investigating -> containment -> corrective_action -> verification -> closed
 export class UpdateNonConformanceStatusDto {
-  @IsIn(['investigating', 'containment', 'corrective_action', 'verification', 'closed'])
-  status: 'investigating' | 'containment' | 'corrective_action' | 'verification' | 'closed';
+  @IsIn([
+    'investigating',
+    'containment',
+    'corrective_action',
+    'verification',
+    'closed',
+  ])
+  status:
+    | 'investigating'
+    | 'containment'
+    | 'corrective_action'
+    | 'verification'
+    | 'closed';
 
   @IsString()
   @IsOptional()

@@ -22,13 +22,17 @@ export class QualityAnalyticsRepository extends ScopedRepository {
     const total = data.length;
     const passed = data.filter((r: any) => r.status === 'passed').length;
     const failed = data.filter((r: any) => r.status === 'failed').length;
-    const conditional = data.filter((r: any) => r.status === 'conditional').length;
+    const conditional = data.filter(
+      (r: any) => r.status === 'conditional',
+    ).length;
     const pending = data.filter((r: any) => r.status === 'pending').length;
     return {
       total_inspections: total,
       pending,
-      pass_rate_percentage: total > 0 ? Math.round((passed / total) * 10000) / 100 : null,
-      failure_rate_percentage: total > 0 ? Math.round((failed / total) * 10000) / 100 : null,
+      pass_rate_percentage:
+        total > 0 ? Math.round((passed / total) * 10000) / 100 : null,
+      failure_rate_percentage:
+        total > 0 ? Math.round((failed / total) * 10000) / 100 : null,
       conditional_count: conditional,
     };
   }
@@ -57,12 +61,14 @@ export class QualityAnalyticsRepository extends ScopedRepository {
     const total = data.length;
     const closed = data.filter((r: any) => r.status === 'closed').length;
     const overdue = data.filter(
-      (r: any) => r.due_date && !r.completed_at && new Date(r.due_date) < new Date(),
+      (r: any) =>
+        r.due_date && !r.completed_at && new Date(r.due_date) < new Date(),
     ).length;
     return {
       total_actions: total,
       closed_count: closed,
-      completion_rate_percentage: total > 0 ? Math.round((closed / total) * 10000) / 100 : null,
+      completion_rate_percentage:
+        total > 0 ? Math.round((closed / total) * 10000) / 100 : null,
       overdue_count: overdue,
     };
   }

@@ -67,7 +67,14 @@ describe('purchase order approval engine + receipt gate (migration 120)', () => 
     const locRepo = new LocationsRepository(supabase);
     const locService = new LocationsService(locRepo, null);
     const grRepo = new GoodsReceiptsRepository(supabase);
-    grService = new GoodsReceiptsService(grRepo, locService, poService, {} as any, {} as any, {} as any);
+    grService = new GoodsReceiptsService(
+      grRepo,
+      locService,
+      poService,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
 
     const { data: wh } = await supabase
       .from('warehouses')

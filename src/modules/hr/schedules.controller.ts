@@ -60,7 +60,10 @@ export class SchedulesController {
 
   @Post('bulk')
   @RequirePermission('hr.manage')
-  bulkCreate(@GetTenant() tenant: TenantContext, @Body() dto: BulkCreateScheduleDto) {
+  bulkCreate(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: BulkCreateScheduleDto,
+  ) {
     return this.service.bulkCreate(tenant, dto);
   }
 
@@ -76,7 +79,10 @@ export class SchedulesController {
 
   @Delete(':id')
   @RequirePermission('hr.manage')
-  remove(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.remove(id, tenant);
   }
 }

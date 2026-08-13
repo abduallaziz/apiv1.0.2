@@ -82,7 +82,9 @@ export class TenantManagementRepository {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const enriched = await Promise.all((data ?? []).map((t) => this.enrichTenant(t)));
+    const enriched = await Promise.all(
+      (data ?? []).map((t) => this.enrichTenant(t)),
+    );
 
     return { data: enriched, count: count ?? 0 };
   }

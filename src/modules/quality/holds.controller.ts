@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { HoldsService } from './holds.service';
 import { CreateHoldDto } from './dto/create-hold.dto';
 import { ReleaseHoldDto } from './dto/release-hold.dto';
@@ -38,7 +47,11 @@ export class HoldsController {
   @Post()
   @RequirePermission('quality.execute')
   @Audit('quality_hold.created')
-  create(@Body() dto: CreateHoldDto, @GetTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload) {
+  create(
+    @Body() dto: CreateHoldDto,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.holdsService.create(tenant.tenantId, dto, user.sub);
   }
 

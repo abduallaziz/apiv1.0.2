@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
 import { OperationsService } from './operations.service';
 import { CreateOperationDto } from './dto/create-operation.dto';
 import { UpdateOperationDto } from './dto/update-operation.dto';
@@ -19,8 +27,14 @@ export class OperationsController {
 
   @Get()
   @RequirePermission('manufacturing.view')
-  findAll(@Param('id') productionOrderId: string, @GetTenant() tenant: TenantContext) {
-    return this.operationsService.findByProductionOrder(productionOrderId, tenant.tenantId);
+  findAll(
+    @Param('id') productionOrderId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.operationsService.findByProductionOrder(
+      productionOrderId,
+      tenant.tenantId,
+    );
   }
 
   @Post()
@@ -30,7 +44,11 @@ export class OperationsController {
     @Body() dto: CreateOperationDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.operationsService.create(productionOrderId, tenant.tenantId, dto);
+    return this.operationsService.create(
+      productionOrderId,
+      tenant.tenantId,
+      dto,
+    );
   }
 
   @Patch(':operationId')
@@ -41,6 +59,11 @@ export class OperationsController {
     @Body() dto: UpdateOperationDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.operationsService.update(operationId, productionOrderId, tenant.tenantId, dto);
+    return this.operationsService.update(
+      operationId,
+      productionOrderId,
+      tenant.tenantId,
+      dto,
+    );
   }
 }

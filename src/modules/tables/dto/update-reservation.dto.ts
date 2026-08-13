@@ -1,4 +1,12 @@
-import { IsString, IsInt, Min, MaxLength, IsOptional, IsDateString, IsIn } from 'class-validator';
+import {
+  IsString,
+  IsInt,
+  Min,
+  MaxLength,
+  IsOptional,
+  IsDateString,
+  IsIn,
+} from 'class-validator';
 
 export class UpdateReservationDto {
   @IsOptional()

@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseModule, SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import {
+  SupabaseModule,
+  SUPABASE_CLIENT,
+} from '../../shared/supabase/supabase.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ItemsModule } from '../items/items.module';
@@ -76,7 +79,8 @@ import { QualityAnalyticsRepository } from './repositories/quality-analytics.rep
     QualityConfigService,
     {
       provide: InspectionsRepository,
-      useFactory: (supabase: SupabaseClient) => new InspectionsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new InspectionsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
@@ -86,35 +90,46 @@ import { QualityAnalyticsRepository } from './repositories/quality-analytics.rep
     },
     {
       provide: NonConformancesRepository,
-      useFactory: (supabase: SupabaseClient) => new NonConformancesRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new NonConformancesRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: CorrectiveActionsRepository,
-      useFactory: (supabase: SupabaseClient) => new CorrectiveActionsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new CorrectiveActionsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: DeviationsRepository,
-      useFactory: (supabase: SupabaseClient) => new DeviationsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new DeviationsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: QualityConfigRepository,
-      useFactory: (supabase: SupabaseClient) => new QualityConfigRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new QualityConfigRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: SupplierQualityRepository,
-      useFactory: (supabase: SupabaseClient) => new SupplierQualityRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new SupplierQualityRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {
       provide: QualityAnalyticsRepository,
-      useFactory: (supabase: SupabaseClient) => new QualityAnalyticsRepository(supabase),
+      useFactory: (supabase: SupabaseClient) =>
+        new QualityAnalyticsRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
   ],
-  exports: [HoldsService, HoldsRepository, QualityConfigService, InspectionsService],
+  exports: [
+    HoldsService,
+    HoldsRepository,
+    QualityConfigService,
+    InspectionsService,
+  ],
 })
 export class QualityModule {}

@@ -10,7 +10,9 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('quality/supplier-quality')
 export class SupplierQualityController {
-  constructor(private readonly supplierQualityRepo: SupplierQualityRepository) {}
+  constructor(
+    private readonly supplierQualityRepo: SupplierQualityRepository,
+  ) {}
 
   @Get()
   @RequirePermission('quality.view')
@@ -20,7 +22,10 @@ export class SupplierQualityController {
 
   @Get(':supplierId')
   @RequirePermission('quality.view')
-  findOne(@Param('supplierId') supplierId: string, @GetTenant() tenant: TenantContext) {
+  findOne(
+    @Param('supplierId') supplierId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.supplierQualityRepo.findBySupplier(tenant.tenantId, supplierId);
   }
 }

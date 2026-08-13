@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { TablesRepository } from './repositories/tables.repository';
 import { DineInRepository } from './repositories/dine-in.repository';
 import { InvoicesRepository } from '../invoices/repositories/invoices.repository';
@@ -32,11 +37,18 @@ export class DineInService {
     // raises a Postgres exception otherwise — this earlier check is just a fast,
     // friendlier fail before hitting the DB for the common case.
     if (table.status !== 'available') {
-      throw new BadRequestException(`Table is not available (status: ${table.status})`);
+      throw new BadRequestException(
+        `Table is not available (status: ${table.status})`,
+      );
     }
 
     try {
-      return await this.dineInRepo.openTableAtomic(tenant.tenantId, tableId, table.branch_id, cashierId);
+      return await this.dineInRepo.openTableAtomic(
+        tenant.tenantId,
+        tableId,
+        table.branch_id,
+        cashierId,
+      );
     } catch (err: any) {
       if (err?.message?.includes('not available')) {
         throw new BadRequestException(err.message);
@@ -45,13 +57,20 @@ export class DineInService {
     }
   }
 
-  async addItems(tenant: TenantContext, tableId: string, dto: AddDineInItemsDto) {
+  async addItems(
+    tenant: TenantContext,
+    tableId: string,
+    dto: AddDineInItemsDto,
+  ) {
     // الطلب المفتوح ونسبة الضريبة مستقلان تمامًا عن بعضهما — يُنفَّذان بالتوازي بدل التسلسل.
     const [order, taxRate] = await Promise.all([
       this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId),
       this.tenantsRepo.getTaxRate(tenant.tenantId),
     ]);
-    if (!order) throw new NotFoundException('No open order for this table — open the table first');
+    if (!order)
+      throw new NotFoundException(
+        'No open order for this table — open the table first',
+      );
 
     await this.dineInRepo.insertItems(order.id, tenant.tenantId, dto.items);
     return this.recalculateAndRespond(tenant, order, taxRate);
@@ -62,9 +81,16 @@ export class DineInService {
       this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId),
       this.tenantsRepo.getTaxRate(tenant.tenantId),
     ]);
-    if (!order) throw new NotFoundException('No open order for this table — open the table first');
+    if (!order)
+      throw new NotFoundException(
+        'No open order for this table — open the table first',
+      );
 
-    const removed = await this.dineInRepo.removeItem(itemId, order.id, tenant.tenantId);
+    const removed = await this.dineInRepo.removeItem(
+      itemId,
+      order.id,
+      tenant.tenantId,
+    );
     if (!removed) throw new NotFoundException('Order item not found');
 
     return this.recalculateAndRespond(tenant, order, taxRate);
@@ -75,7 +101,11 @@ export class DineInService {
    * totals, persists them, and builds the response directly from what's already in
    * hand instead of a redundant getCurrentOrder() re-fetch (see §78's perf fix).
    */
-  private async recalculateAndRespond(tenant: TenantContext, order: { id: string; [key: string]: unknown }, taxRate: number) {
+  private async recalculateAndRespond(
+    tenant: TenantContext,
+    order: { id: string; [key: string]: unknown },
+    taxRate: number,
+  ) {
     const allItems = await this.dineInRepo.getOrderItems(order.id);
     const built = this.posEngine.buildInvoice(
       allItems.map((i) => ({
@@ -108,7 +138,10 @@ export class DineInService {
   }
 
   async getCurrentOrder(tenant: TenantContext, tableId: string) {
-    const order = await this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId);
+    const order = await this.dineInRepo.findOpenOrderByTable(
+      tenant.tenantId,
+      tableId,
+    );
     if (!order) throw new NotFoundException('No open order for this table');
     const items = await this.dineInRepo.getOrderItems(order.id);
     return { ...order, items };
@@ -123,22 +156,35 @@ export class DineInService {
     ip: string,
     device: string,
   ) {
-    const order = await this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId);
+    const order = await this.dineInRepo.findOpenOrderByTable(
+      tenant.tenantId,
+      tableId,
+    );
     if (!order) throw new NotFoundException('No open order for this table');
     if (order.total <= 0) {
-      throw new BadRequestException('Cannot check out a table with no items ordered');
+      throw new BadRequestException(
+        'Cannot check out a table with no items ordered',
+      );
     }
 
     if (dto.payment_method === 'cash') {
       if (!dto.cash_tendered) {
-        throw new BadRequestException('cash_tendered required for cash payment');
+        throw new BadRequestException(
+          'cash_tendered required for cash payment',
+        );
       }
       this.paymentEngine.processCashPayment(order.total, dto.cash_tendered);
     } else if (dto.payment_method === 'split') {
       if (dto.cash_amount === undefined || dto.card_amount === undefined) {
-        throw new BadRequestException('cash_amount and card_amount required for split payment');
+        throw new BadRequestException(
+          'cash_amount and card_amount required for split payment',
+        );
       }
-      this.paymentEngine.processSplitPayment(order.total, dto.cash_amount, dto.card_amount);
+      this.paymentEngine.processSplitPayment(
+        order.total,
+        dto.cash_amount,
+        dto.card_amount,
+      );
     }
 
     // ذرّي عبر fn_checkout_dine_in_table — إنهاء الطلب وتحرير الطاولة بمعاملة واحدة،
@@ -151,7 +197,9 @@ export class DineInService {
       dto.customer_id ?? null,
     );
     if (!finalized) {
-      throw new BadRequestException('Order was already checked out or no longer open');
+      throw new BadRequestException(
+        'Order was already checked out or no longer open',
+      );
     }
 
     await this.auditService.log({
@@ -161,13 +209,19 @@ export class DineInService {
       action: 'dine_in.checkout',
       resource_type: 'order',
       resource_id: order.id,
-      after_data: { total: order.total, payment_method: dto.payment_method, table_id: tableId },
+      after_data: {
+        total: order.total,
+        payment_method: dto.payment_method,
+        table_id: tableId,
+      },
       ip_address: ip,
       device,
     });
 
     // خصم المخزون: نفس منطق POS العادي، best-effort (راجع STATUS.md §64)
-    const warehouseId = await this.invoicesRepo.getBranchDefaultWarehouse(order.branch_id);
+    const warehouseId = await this.invoicesRepo.getBranchDefaultWarehouse(
+      order.branch_id,
+    );
     if (warehouseId) {
       const items = await this.dineInRepo.getOrderItems(order.id);
       this.invoicesRepo
@@ -176,10 +230,16 @@ export class DineInService {
           warehouseId,
           order.id,
           cashierId,
-          items.map((i) => ({ item_id: i.item_id, variant_id: i.variant_id ?? null, quantity: i.qty })),
+          items.map((i) => ({
+            item_id: i.item_id,
+            variant_id: i.variant_id ?? null,
+            quantity: i.qty,
+          })),
         )
         .catch((err) => {
-          this.logger.warn(`Stock deduction failed for dine-in order ${order.id}: ${err?.message ?? err}`);
+          this.logger.warn(
+            `Stock deduction failed for dine-in order ${order.id}: ${err?.message ?? err}`,
+          );
         });
     }
 

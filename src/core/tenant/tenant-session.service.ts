@@ -19,7 +19,9 @@ import { TenantContext } from './tenant-context';
  */
 @Injectable()
 export class TenantSessionService {
-  constructor(@Optional() @Inject(PG_POOL) private readonly pool: Pool | null) {}
+  constructor(
+    @Optional() @Inject(PG_POOL) private readonly pool: Pool | null,
+  ) {}
 
   async runInTenantContext<T>(
     tenant: TenantContext,

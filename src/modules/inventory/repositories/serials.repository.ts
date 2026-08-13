@@ -46,7 +46,11 @@ export class SerialsRepository {
     return data ?? [];
   }
 
-  async findByItem(itemId: string, tenantId: string, status?: string): Promise<any[]> {
+  async findByItem(
+    itemId: string,
+    tenantId: string,
+    status?: string,
+  ): Promise<any[]> {
     let query = this.supabase
       .from('item_serials')
       .select(SERIAL_SELECT)
@@ -60,7 +64,11 @@ export class SerialsRepository {
     return data ?? [];
   }
 
-  async findByWarehouse(warehouseId: string, tenantId: string, status?: string): Promise<any[]> {
+  async findByWarehouse(
+    warehouseId: string,
+    tenantId: string,
+    status?: string,
+  ): Promise<any[]> {
     let query = this.supabase
       .from('item_serials')
       .select(SERIAL_SELECT)
@@ -106,7 +114,9 @@ export class SerialsRepository {
   async findOrderCustomer(orderId: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('orders')
-      .select('id, customer_id, created_at, total, customers(id, full_name, phone, email)')
+      .select(
+        'id, customer_id, created_at, total, customers(id, full_name, phone, email)',
+      )
       .eq('tenant_id', tenantId)
       .eq('id', orderId)
       .maybeSingle();
@@ -121,7 +131,10 @@ export class SerialsRepository {
       p_warranty_months: warrantyMonths,
     });
     if (error) {
-      if (isPostgrestError(error) && error.message?.includes('is not in_stock')) {
+      if (
+        isPostgrestError(error) &&
+        error.message?.includes('is not in_stock')
+      ) {
         throw new ConflictException(error.message);
       }
       throw error;

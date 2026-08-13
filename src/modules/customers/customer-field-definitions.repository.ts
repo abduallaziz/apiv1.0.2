@@ -14,7 +14,9 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
 
   async findAll(tenant: TenantContext, activeOnly = false) {
     let query = this.scopedQuery('customer_field_definitions', tenant)
-      .select('id, field_key, label_ar, label_en, field_type, options, required, is_active, sort_order, contact_role, created_at')
+      .select(
+        'id, field_key, label_ar, label_en, field_type, options, required, is_active, sort_order, contact_role, created_at',
+      )
       .order('sort_order', { ascending: true });
 
     if (activeOnly) query = query.eq('is_active', true);
@@ -25,7 +27,10 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
   }
 
   async findByKey(tenant: TenantContext, fieldKey: string) {
-    const { data } = await this.scopedQuery('customer_field_definitions', tenant)
+    const { data } = await this.scopedQuery(
+      'customer_field_definitions',
+      tenant,
+    )
       .select('id')
       .eq('field_key', fieldKey)
       .maybeSingle();
@@ -33,7 +38,10 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
   }
 
   async findById(tenant: TenantContext, id: string) {
-    const { data, error } = await this.scopedQuery('customer_field_definitions', tenant)
+    const { data, error } = await this.scopedQuery(
+      'customer_field_definitions',
+      tenant,
+    )
       .select('*')
       .eq('id', id)
       .maybeSingle();
@@ -53,14 +61,20 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
       .single();
     if (error) {
       if (error.code === '23505') {
-        throw new BadRequestException('field_key already exists for this tenant');
+        throw new BadRequestException(
+          'field_key already exists for this tenant',
+        );
       }
       throw error;
     }
     return data;
   }
 
-  async update(tenant: TenantContext, id: string, dto: UpdateFieldDefinitionDto) {
+  async update(
+    tenant: TenantContext,
+    id: string,
+    dto: UpdateFieldDefinitionDto,
+  ) {
     const { data, error } = await this.supabase
       .from('customer_field_definitions')
       .update({ ...dto, updated_at: new Date().toISOString() })

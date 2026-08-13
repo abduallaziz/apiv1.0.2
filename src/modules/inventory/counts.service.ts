@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CountsRepository } from './repositories/counts.repository';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
@@ -24,11 +28,24 @@ export class CountsService {
     // Same pattern as AdjustmentsService — 0/unset means approval is never
     // required, preserving today's unconditional finalize for every tenant
     // that hasn't opted in.
-    this.approvalThreshold = Number(this.config.get<string>('INVENTORY_COUNT_APPROVAL_THRESHOLD') ?? '0');
+    this.approvalThreshold = Number(
+      this.config.get<string>('INVENTORY_COUNT_APPROVAL_THRESHOLD') ?? '0',
+    );
   }
 
-  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
-    return (await this.countsRepo.findAll(tenantId, status, new PaginationDto(page, perPage))) ?? [];
+  async findAll(
+    tenantId: string,
+    status?: string,
+    page?: string,
+    perPage?: string,
+  ) {
+    return (
+      (await this.countsRepo.findAll(
+        tenantId,
+        status,
+        new PaginationDto(page, perPage),
+      )) ?? []
+    );
   }
 
   async findById(id: string, tenantId: string) {
@@ -47,7 +64,12 @@ export class CountsService {
   }
 
   create(tenantId: string, dto: CreateStockCountDto, actorId: string) {
-    if (dto.count_type && dto.count_type !== 'full' && !dto.item_ids?.length && !dto.location_ids?.length) {
+    if (
+      dto.count_type &&
+      dto.count_type !== 'full' &&
+      !dto.item_ids?.length &&
+      !dto.location_ids?.length
+    ) {
       throw new BadRequestException(
         `count_type "${dto.count_type}" requires at least one of item_ids or location_ids to scope the count`,
       );
@@ -66,15 +88,28 @@ export class CountsService {
     );
   }
 
-  async submitCount(countId: string, countItemId: string, tenantId: string, dto: SubmitCountItemDto) {
+  async submitCount(
+    countId: string,
+    countItemId: string,
+    tenantId: string,
+    dto: SubmitCountItemDto,
+  ) {
     await this.findById(countId, tenantId);
 
     if (dto.reason_code_id) {
-      const exists = await this.countsRepo.reasonCodeExists(dto.reason_code_id, tenantId);
+      const exists = await this.countsRepo.reasonCodeExists(
+        dto.reason_code_id,
+        tenantId,
+      );
       if (!exists) throw new NotFoundException('Reason code not found');
     }
 
-    return this.countsRepo.submitCount(countItemId, tenantId, dto.counted_quantity, dto.reason_code_id);
+    return this.countsRepo.submitCount(
+      countItemId,
+      tenantId,
+      dto.counted_quantity,
+      dto.reason_code_id,
+    );
   }
 
   async finalize(id: string, tenantId: string, actorId: string) {
@@ -89,7 +124,10 @@ export class CountsService {
     // 'pending_approval' in the first place.
     if (count.approval_status === null || count.approval_status === undefined) {
       if (this.approvalThreshold > 0) {
-        const varianceValue = await this.countsRepo.computeTotalVarianceValue(id, tenantId);
+        const varianceValue = await this.countsRepo.computeTotalVarianceValue(
+          id,
+          tenantId,
+        );
         if (varianceValue >= this.approvalThreshold) {
           await this.countsRepo.setPendingApproval(id, tenantId);
           throw new BadRequestException(
@@ -115,12 +153,19 @@ export class CountsService {
   // Purchasing (amendments/purchase-orders/etc. .service.ts): the RPC
   // performs the actual state transition, the TS layer owns the shared
   // decision ledger entry.
-  async approve(id: string, tenantId: string, actorId: string, dto: ApproveStockCountDto) {
+  async approve(
+    id: string,
+    tenantId: string,
+    actorId: string,
+    dto: ApproveStockCountDto,
+  ) {
     const count: any = await this.findById(id, tenantId);
     const pendingStatus = 'pending_approval';
 
     if (dto.approved) {
-      if (!this.approvalEngine.canApprove(count.approval_status, pendingStatus)) {
+      if (
+        !this.approvalEngine.canApprove(count.approval_status, pendingStatus)
+      ) {
         throw new BadRequestException(
           `Stock count ${id} is not pending approval (approval_status=${count.approval_status})`,
         );

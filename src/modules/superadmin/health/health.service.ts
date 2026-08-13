@@ -37,8 +37,10 @@ export class HealthService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     @InjectQueue(QUEUE_NAMES.DUNNING) private readonly dunningQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AUDIT_CLEANUP) private readonly auditQueue: Queue,
-    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue,
-    @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS) private readonly domainEventsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS)
+    private readonly notificationsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS)
+    private readonly domainEventsQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AI) private readonly aiQueue: Queue,
     @InjectQueue(QUEUE_NAMES.ANALYTICS) private readonly analyticsQueue: Queue,
   ) {}
@@ -46,7 +48,10 @@ export class HealthService {
   async checkDatabase(): Promise<ComponentHealth> {
     const start = Date.now();
     try {
-      const { error } = await this.supabase.from('tenants').select('id').limit(1);
+      const { error } = await this.supabase
+        .from('tenants')
+        .select('id')
+        .limit(1);
       if (error) throw error;
       return {
         status: 'ok',
@@ -62,24 +67,27 @@ export class HealthService {
   }
 
   async checkRedis(): Promise<ComponentHealth> {
-  const start = Date.now();
-  try {
-    // نستخدم getWaitingCount كـ indirect Redis ping
-    await this.dunningQueue.getWaitingCount();
-    return {
-      status: 'ok',
-      latency_ms: Date.now() - start,
-    };
-  } catch (err) {
-    return {
-      status: 'down',
-      latency_ms: Date.now() - start,
-      detail: err instanceof Error ? err.message : 'Unknown error',
-    };
+    const start = Date.now();
+    try {
+      // نستخدم getWaitingCount كـ indirect Redis ping
+      await this.dunningQueue.getWaitingCount();
+      return {
+        status: 'ok',
+        latency_ms: Date.now() - start,
+      };
+    } catch (err) {
+      return {
+        status: 'down',
+        latency_ms: Date.now() - start,
+        detail: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
   }
-}
 
-  async checkQueues(): Promise<{ summary: ComponentHealth; queues: QueueHealth[] }> {
+  async checkQueues(): Promise<{
+    summary: ComponentHealth;
+    queues: QueueHealth[];
+  }> {
     const queues: Array<{ name: string; queue: Queue }> = [
       { name: QUEUE_NAMES.DUNNING, queue: this.dunningQueue },
       { name: QUEUE_NAMES.AUDIT_CLEANUP, queue: this.auditQueue },
@@ -104,7 +112,15 @@ export class HealthService {
         const status: 'ok' | 'degraded' | 'down' =
           failed > 50 ? 'degraded' : isPaused ? 'degraded' : 'ok';
 
-        results.push({ name, status, waiting, active, failed, delayed, paused: isPaused });
+        results.push({
+          name,
+          status,
+          waiting,
+          active,
+          failed,
+          delayed,
+          paused: isPaused,
+        });
       } catch {
         results.push({
           name,
@@ -141,7 +157,9 @@ export class HealthService {
     };
 
     const hasDown = Object.values(components).some((c) => c.status === 'down');
-    const hasDegraded = Object.values(components).some((c) => c.status === 'degraded');
+    const hasDegraded = Object.values(components).some(
+      (c) => c.status === 'degraded',
+    );
 
     return {
       status: hasDown ? 'down' : hasDegraded ? 'degraded' : 'ok',

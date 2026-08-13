@@ -5,7 +5,9 @@ import { TenantContext } from '../../../core/tenant/tenant-context';
 
 @Injectable()
 export class AttendanceRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async findOpenRecord(tenantId: string, userId: string) {
     const { data, error } = await this.supabase
@@ -20,7 +22,8 @@ export class AttendanceRepository {
   }
 
   async findTodayRecord(tenantId: string, userId: string) {
-    const todayStart = new Date().toISOString().substring(0, 10) + 'T00:00:00.000Z';
+    const todayStart =
+      new Date().toISOString().substring(0, 10) + 'T00:00:00.000Z';
     const { data, error } = await this.supabase
       .from('attendance_records')
       .select('id, check_in_at, check_out_at')
@@ -36,7 +39,12 @@ export class AttendanceRepository {
 
   // Plain tenantId/userId variant of findAll, for the unauthenticated
   // attendance-link flow where there's no TenantContext instance.
-  async findForRange(tenantId: string, userId: string, from: string, to: string) {
+  async findForRange(
+    tenantId: string,
+    userId: string,
+    from: string,
+    to: string,
+  ) {
     const { data, error } = await this.supabase
       .from('attendance_records')
       .select('id, check_in_at, check_out_at')
@@ -51,12 +59,21 @@ export class AttendanceRepository {
       check_in_at: r.check_in_at,
       check_out_at: r.check_out_at,
       hours_worked: r.check_out_at
-        ? parseFloat(((new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 3600000).toFixed(2))
+        ? parseFloat(
+            (
+              (new Date(r.check_out_at).getTime() -
+                new Date(r.check_in_at).getTime()) /
+              3600000
+            ).toFixed(2),
+          )
         : null,
     }));
   }
 
-  async branchBelongsToTenant(branchId: string, tenantId: string): Promise<boolean> {
+  async branchBelongsToTenant(
+    branchId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('branches')
       .select('id')
@@ -137,16 +154,34 @@ export class AttendanceRepository {
       check_in_at: r.check_in_at,
       check_out_at: r.check_out_at,
       hours_worked: r.check_out_at
-        ? parseFloat(((new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 3600000).toFixed(2))
+        ? parseFloat(
+            (
+              (new Date(r.check_out_at).getTime() -
+                new Date(r.check_in_at).getTime()) /
+              3600000
+            ).toFixed(2),
+          )
         : null,
     }));
   }
 
-  async createExceptions(tenantId: string, userId: string, dates: string[], reason: string, createdBy: string) {
+  async createExceptions(
+    tenantId: string,
+    userId: string,
+    dates: string[],
+    reason: string,
+    createdBy: string,
+  ) {
     const { data, error } = await this.supabase
       .from('attendance_exceptions')
       .upsert(
-        dates.map((date) => ({ tenant_id: tenantId, user_id: userId, date, reason, created_by: createdBy })),
+        dates.map((date) => ({
+          tenant_id: tenantId,
+          user_id: userId,
+          date,
+          reason,
+          created_by: createdBy,
+        })),
         { onConflict: 'tenant_id,user_id,date' },
       )
       .select('id, user_id, date, reason, created_at');
@@ -154,10 +189,15 @@ export class AttendanceRepository {
     return data ?? [];
   }
 
-  async findExceptions(tenantId: string, filters: { userId?: string; from?: string; to?: string }) {
+  async findExceptions(
+    tenantId: string,
+    filters: { userId?: string; from?: string; to?: string },
+  ) {
     let q = this.supabase
       .from('attendance_exceptions')
-      .select('id, user_id, date, reason, created_at, users!attendance_exceptions_user_id_fkey(name)')
+      .select(
+        'id, user_id, date, reason, created_at, users!attendance_exceptions_user_id_fkey(name)',
+      )
       .eq('tenant_id', tenantId)
       .order('date', { ascending: false });
     if (filters.userId) q = q.eq('user_id', filters.userId);

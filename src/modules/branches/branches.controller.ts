@@ -41,10 +41,7 @@ export class BranchesController {
 
   @Post()
   @RequirePermission('branches.manage')
-  create(
-    @Body() dto: CreateBranchDto,
-    @GetTenant() tenant: TenantContext,
-  ) {
+  create(@Body() dto: CreateBranchDto, @GetTenant() tenant: TenantContext) {
     return this.service.create(dto, tenant);
   }
 

@@ -31,13 +31,23 @@ export class HoldsRepository extends ScopedRepository {
 
   // Creates the hold AND applies the hard block (fn_apply_stock_movement
   // 'quality_hold') in one transaction — see migration 166.
-  async create(tenantId: string, payload: {
-    warehouse_id: string; item_id: string; variant_id: string | null;
-    location_id: string | null; batch_id: string | null; serial_id: string | null;
-    quantity_held: number | null; reason: string | null;
-    source_document_type: string | null; source_document_id: string | null;
-    quality_inspection_id: string | null; created_by: string | null;
-  }) {
+  async create(
+    tenantId: string,
+    payload: {
+      warehouse_id: string;
+      item_id: string;
+      variant_id: string | null;
+      location_id: string | null;
+      batch_id: string | null;
+      serial_id: string | null;
+      quantity_held: number | null;
+      reason: string | null;
+      source_document_type: string | null;
+      source_document_id: string | null;
+      quality_inspection_id: string | null;
+      created_by: string | null;
+    },
+  ) {
     const { data, error } = await this.supabase.rpc('fn_create_quality_hold', {
       p_tenant_id: tenantId,
       p_warehouse_id: payload.warehouse_id,
@@ -58,7 +68,12 @@ export class HoldsRepository extends ScopedRepository {
   }
 
   // Reverses the hard block (fn_apply_stock_movement 'quality_release').
-  async release(id: string, tenantId: string, releasedBy: string, reason?: string) {
+  async release(
+    id: string,
+    tenantId: string,
+    releasedBy: string,
+    reason?: string,
+  ) {
     const { data, error } = await this.supabase.rpc('fn_release_quality_hold', {
       p_hold_id: id,
       p_tenant_id: tenantId,
@@ -70,7 +85,13 @@ export class HoldsRepository extends ScopedRepository {
   }
 
   // Rejects the hold — disposition stands, held quantity stays excluded.
-  async reject(id: string, tenantId: string, actorId: string, disposition: string, reason?: string) {
+  async reject(
+    id: string,
+    tenantId: string,
+    actorId: string,
+    disposition: string,
+    reason?: string,
+  ) {
     const { data, error } = await this.supabase.rpc('fn_reject_quality_hold', {
       p_hold_id: id,
       p_tenant_id: tenantId,
@@ -95,7 +116,11 @@ export class HoldsRepository extends ScopedRepository {
 
   // Advisory-only lookup, used exclusively by InvoicesService before its
   // existing deductStockForSale() call — read-only, never blocks.
-  async checkHolds(tenantId: string, warehouseId: string, items: { item_id: string; variant_id: string | null }[]) {
+  async checkHolds(
+    tenantId: string,
+    warehouseId: string,
+    items: { item_id: string; variant_id: string | null }[],
+  ) {
     const { data, error } = await this.supabase.rpc('fn_check_quality_holds', {
       p_tenant_id: tenantId,
       p_warehouse_id: warehouseId,

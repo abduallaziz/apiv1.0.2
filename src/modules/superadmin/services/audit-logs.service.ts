@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AuditLogsRepository, PaginatedAuditLogs, AuditLogEntry } from '../repositories/audit-logs.repository';
+import {
+  AuditLogsRepository,
+  PaginatedAuditLogs,
+  AuditLogEntry,
+} from '../repositories/audit-logs.repository';
 import { AuditQueryDto } from '../dto/audit-query.dto';
 import * as ExcelJS from 'exceljs';
 
@@ -17,7 +21,9 @@ export class AuditLogsService {
     return log;
   }
 
-  async exportToExcel(query: Omit<AuditQueryDto, 'page' | 'limit'>): Promise<Buffer> {
+  async exportToExcel(
+    query: Omit<AuditQueryDto, 'page' | 'limit'>,
+  ): Promise<Buffer> {
     const logs = await this.auditLogsRepository.findForExport(query);
 
     const workbook = new ExcelJS.Workbook();
@@ -64,13 +70,22 @@ export class AuditLogsService {
     return Buffer.from(buffer);
   }
 
-  async exportToCsv(query: Omit<AuditQueryDto, 'page' | 'limit'>): Promise<string> {
+  async exportToCsv(
+    query: Omit<AuditQueryDto, 'page' | 'limit'>,
+  ): Promise<string> {
     const logs = await this.auditLogsRepository.findForExport(query);
 
     const headers = [
-      'id', 'tenant_id', 'actor_id', 'actor_role',
-      'action', 'resource_type', 'resource_id',
-      'ip_address', 'device', 'created_at',
+      'id',
+      'tenant_id',
+      'actor_id',
+      'actor_role',
+      'action',
+      'resource_type',
+      'resource_id',
+      'ip_address',
+      'device',
+      'created_at',
     ];
 
     const rows = logs.map((log) =>

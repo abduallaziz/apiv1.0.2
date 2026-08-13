@@ -10,12 +10,20 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('inventory/analytics')
 export class AdvancedAnalyticsController {
-  constructor(private readonly advancedAnalyticsService: AdvancedAnalyticsService) {}
+  constructor(
+    private readonly advancedAnalyticsService: AdvancedAnalyticsService,
+  ) {}
 
   @Get('valuation')
   @RequirePermission('inventory.view')
-  valuation(@GetTenant() tenant: TenantContext, @Query('warehouse_id') warehouseId?: string) {
-    return this.advancedAnalyticsService.valuation(tenant.tenantId, warehouseId);
+  valuation(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId?: string,
+  ) {
+    return this.advancedAnalyticsService.valuation(
+      tenant.tenantId,
+      warehouseId,
+    );
   }
 
   @Get('turnover')
@@ -26,12 +34,20 @@ export class AdvancedAnalyticsController {
     @Query('date_to') dateTo: string,
     @Query('warehouse_id') warehouseId?: string,
   ) {
-    return this.advancedAnalyticsService.turnover(tenant.tenantId, dateFrom, dateTo, warehouseId);
+    return this.advancedAnalyticsService.turnover(
+      tenant.tenantId,
+      dateFrom,
+      dateTo,
+      warehouseId,
+    );
   }
 
   @Get('aging')
   @RequirePermission('inventory.view')
-  aging(@GetTenant() tenant: TenantContext, @Query('warehouse_id') warehouseId?: string) {
+  aging(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId?: string,
+  ) {
     return this.advancedAnalyticsService.aging(tenant.tenantId, warehouseId);
   }
 
@@ -43,7 +59,12 @@ export class AdvancedAnalyticsController {
     @Query('date_to') dateTo: string,
     @Query('warehouse_id') warehouseId?: string,
   ) {
-    return this.advancedAnalyticsService.abcAnalysis(tenant.tenantId, dateFrom, dateTo, warehouseId);
+    return this.advancedAnalyticsService.abcAnalysis(
+      tenant.tenantId,
+      dateFrom,
+      dateTo,
+      warehouseId,
+    );
   }
 
   @Get('dead-stock')
@@ -78,8 +99,14 @@ export class AdvancedAnalyticsController {
 
   @Get('overstock')
   @RequirePermission('inventory.view')
-  overstock(@GetTenant() tenant: TenantContext, @Query('warehouse_id') warehouseId?: string) {
-    return this.advancedAnalyticsService.overstock(tenant.tenantId, warehouseId);
+  overstock(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId?: string,
+  ) {
+    return this.advancedAnalyticsService.overstock(
+      tenant.tenantId,
+      warehouseId,
+    );
   }
 
   @Get('stock-accuracy')
@@ -90,12 +117,20 @@ export class AdvancedAnalyticsController {
     @Query('date_to') dateTo: string,
     @Query('warehouse_id') warehouseId?: string,
   ) {
-    return this.advancedAnalyticsService.stockAccuracy(tenant.tenantId, dateFrom, dateTo, warehouseId);
+    return this.advancedAnalyticsService.stockAccuracy(
+      tenant.tenantId,
+      dateFrom,
+      dateTo,
+      warehouseId,
+    );
   }
 
   @Get('coverage')
   @RequirePermission('inventory.view')
-  coverage(@GetTenant() tenant: TenantContext, @Query('warehouse_id') warehouseId?: string) {
+  coverage(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId?: string,
+  ) {
     return this.advancedAnalyticsService.coverage(tenant.tenantId, warehouseId);
   }
 }

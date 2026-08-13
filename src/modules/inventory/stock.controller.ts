@@ -24,7 +24,12 @@ export class StockController {
     @Query('item_id') itemId: string,
     @Query('variant_id') variantId?: string,
   ) {
-    return this.stockService.findAtp(tenant.tenantId, warehouseId, itemId, variantId);
+    return this.stockService.findAtp(
+      tenant.tenantId,
+      warehouseId,
+      itemId,
+      variantId,
+    );
   }
 
   @Get('levels')
@@ -35,7 +40,11 @@ export class StockController {
     @Query('item_id') itemId?: string,
     @Query('variant_id') variantId?: string,
   ) {
-    return this.stockService.findLevels(tenant.tenantId, { warehouseId, itemId, variantId });
+    return this.stockService.findLevels(tenant.tenantId, {
+      warehouseId,
+      itemId,
+      variantId,
+    });
   }
 
   @Get('levels/enriched')
@@ -78,7 +87,16 @@ export class StockController {
   ) {
     return this.stockService.findMovementsLedger(
       tenant.tenantId,
-      { warehouseId, itemId, movementType, referenceType, referenceId, createdBy, dateFrom, dateTo },
+      {
+        warehouseId,
+        itemId,
+        movementType,
+        referenceType,
+        referenceId,
+        createdBy,
+        dateFrom,
+        dateTo,
+      },
       Number(page),
       Number(perPage),
     );

@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceExceptionDto } from './dto/create-attendance-exception.dto';
@@ -68,7 +76,14 @@ export class AttendanceController {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.createException(tenant, dto.user_id, dto.date_from, dto.date_to, dto.reason, user.sub);
+    return this.service.createException(
+      tenant,
+      dto.user_id,
+      dto.date_from,
+      dto.date_to,
+      dto.reason,
+      user.sub,
+    );
   }
 
   @Get('exceptions')

@@ -11,7 +11,10 @@ import { ExpenseEngine } from '../../engines/expense-engine/expense.engine';
 import { ApprovalEngine } from '../../engines/approval-engine/approval.engine';
 import { MetricsService } from '../../core/metrics/metrics.service';
 import { NotificationService } from '../../core/notification/notification.service';
-import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../core/notification/notification.constants';
+import {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+} from '../../core/notification/notification.constants';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { RejectExpenseDto } from './dto/reject-expense.dto';
 import { QueryExpensesDto } from './dto/query-expenses.dto';
@@ -61,15 +64,22 @@ export class ExpensesService {
     };
   }
 
-  async findAll(tenantId: string, query: QueryExpensesDto, pagination: PaginationDto = new PaginationDto()) {
+  async findAll(
+    tenantId: string,
+    query: QueryExpensesDto,
+    pagination: PaginationDto = new PaginationDto(),
+  ) {
     let req = this.supabase
       .from('expenses')
-      .select(`
+      .select(
+        `
         *,
         category:expense_categories(id, name),
         requester:users!requested_by(id, name, role),
         approver:users!approved_by(id, name, role)
-      `, { count: 'exact' })
+      `,
+        { count: 'exact' },
+      )
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -82,18 +92,25 @@ export class ExpensesService {
     const [from, to] = pagination.range;
     const { data, error, count } = await req.range(from, to);
     if (error) throw new Error(error.message);
-    return { data: data ?? [], total: count ?? 0, page: pagination.page, perPage: pagination.perPage };
+    return {
+      data: data ?? [],
+      total: count ?? 0,
+      page: pagination.page,
+      perPage: pagination.perPage,
+    };
   }
 
   async findOne(id: string, tenantId: string) {
     const { data, error } = await this.supabase
       .from('expenses')
-      .select(`
+      .select(
+        `
         *,
         category:expense_categories(id, name),
         requester:users!requested_by(id, name, role),
         approver:users!approved_by(id, name, role)
-      `)
+      `,
+      )
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
@@ -133,13 +150,15 @@ export class ExpensesService {
     this.metricsService.recordExpense(tenantId, 'requested');
 
     // إشعار للمستخدم أن طلب المصروف تم استلامه
-    this.notificationService.notify({
-      userId,
-      tenantId,
-      type: NOTIFICATION_TYPES.EXPENSE_REQUESTED,
-      channels: [NOTIFICATION_CHANNELS.IN_APP],
-      data: { amount: dto.amount, title: dto.description ?? '' },
-    }).catch(() => {});
+    this.notificationService
+      .notify({
+        userId,
+        tenantId,
+        type: NOTIFICATION_TYPES.EXPENSE_REQUESTED,
+        channels: [NOTIFICATION_CHANNELS.IN_APP],
+        data: { amount: dto.amount, title: dto.description ?? '' },
+      })
+      .catch(() => {});
 
     return data;
   }
@@ -159,7 +178,9 @@ export class ExpensesService {
         .update({ status: 'expired' })
         .eq('id', id)
         .eq('tenant_id', tenantId);
-      throw new BadRequestException('Expense has expired and cannot be approved');
+      throw new BadRequestException(
+        'Expense has expired and cannot be approved',
+      );
     }
 
     const result = this.approvalEngine.approve(approverId);
@@ -182,13 +203,15 @@ export class ExpensesService {
 
     // إشعار لصاحب الطلب أن مصروفه اعتُمد
     if (expense.requested_by) {
-      this.notificationService.notify({
-        userId: expense.requested_by,
-        tenantId,
-        type: NOTIFICATION_TYPES.EXPENSE_APPROVED,
-        channels: [NOTIFICATION_CHANNELS.IN_APP],
-        data: { amount: expense.amount, title: expense.title },
-      }).catch(() => {});
+      this.notificationService
+        .notify({
+          userId: expense.requested_by,
+          tenantId,
+          type: NOTIFICATION_TYPES.EXPENSE_APPROVED,
+          channels: [NOTIFICATION_CHANNELS.IN_APP],
+          data: { amount: expense.amount, title: expense.title },
+        })
+        .catch(() => {});
     }
 
     return data;
@@ -210,9 +233,8 @@ export class ExpensesService {
 
     const result = this.approvalEngine.reject(approverId, dto.reason);
 
-    const prefix = expense.status === 'approved'
-      ? 'Approval Reversed'
-      : 'Rejected';
+    const prefix =
+      expense.status === 'approved' ? 'Approval Reversed' : 'Rejected';
 
     const { data, error } = await this.supabase
       .from('expenses')
@@ -235,13 +257,19 @@ export class ExpensesService {
 
     // إشعار لصاحب الطلب أن مصروفه رُفض
     if (expense.requested_by) {
-      this.notificationService.notify({
-        userId: expense.requested_by,
-        tenantId,
-        type: NOTIFICATION_TYPES.EXPENSE_REJECTED,
-        channels: [NOTIFICATION_CHANNELS.IN_APP],
-        data: { amount: expense.amount, title: expense.title, reason: dto.reason ?? '' },
-      }).catch(() => {});
+      this.notificationService
+        .notify({
+          userId: expense.requested_by,
+          tenantId,
+          type: NOTIFICATION_TYPES.EXPENSE_REJECTED,
+          channels: [NOTIFICATION_CHANNELS.IN_APP],
+          data: {
+            amount: expense.amount,
+            title: expense.title,
+            reason: dto.reason ?? '',
+          },
+        })
+        .catch(() => {});
     }
 
     return data;
@@ -302,7 +330,9 @@ export class ExpensesService {
       .lte('next_run_at', now.toISOString());
 
     if (error) {
-      this.logger.error(`Error fetching recurring expense templates: ${error.message}`);
+      this.logger.error(
+        `Error fetching recurring expense templates: ${error.message}`,
+      );
       return 0;
     }
 
@@ -345,16 +375,25 @@ export class ExpensesService {
             amount: template.default_amount ?? 0,
             notes: `Auto-generated from recurring template: ${template.name}`,
             status: template.is_pre_approved ? 'approved' : 'pending',
-            resolved_at: template.is_pre_approved ? new Date().toISOString() : null,
-            expires_at: new Date(Date.now() + expiryHours * 3600000).toISOString(),
+            resolved_at: template.is_pre_approved
+              ? new Date().toISOString()
+              : null,
+            expires_at: new Date(
+              Date.now() + expiryHours * 3600000,
+            ).toISOString(),
           });
 
         if (insertError) {
-          this.logger.error(`Failed to create recurring expense for template ${template.id}: ${insertError.message}`);
+          this.logger.error(
+            `Failed to create recurring expense for template ${template.id}: ${insertError.message}`,
+          );
           continue;
         }
 
-        const next = this.calculateNextRun(template.recurrence_type, template.recurrence_day);
+        const next = this.calculateNextRun(
+          template.recurrence_type,
+          template.recurrence_day,
+        );
 
         await this.supabase
           .from('expense_templates')
@@ -364,14 +403,19 @@ export class ExpensesService {
         this.metricsService.recordExpense(template.tenant_id, 'requested');
         created++;
       } catch (err) {
-        this.logger.error(`Unexpected error processing recurring template ${template.id}: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.error(
+          `Unexpected error processing recurring template ${template.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
     return created;
   }
 
-  private calculateNextRun(recurrenceType: string, recurrenceDay: number | null): Date {
+  private calculateNextRun(
+    recurrenceType: string,
+    recurrenceDay: number | null,
+  ): Date {
     const now = new Date();
 
     if (recurrenceType === 'daily') {
@@ -395,7 +439,12 @@ export class ExpensesService {
       const targetDay = recurrenceDay ?? 1;
       const next = new Date(now);
       next.setMonth(next.getMonth() + 1);
-      next.setDate(Math.min(targetDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+      next.setDate(
+        Math.min(
+          targetDay,
+          new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate(),
+        ),
+      );
       next.setHours(0, 0, 0, 0);
       return next;
     }

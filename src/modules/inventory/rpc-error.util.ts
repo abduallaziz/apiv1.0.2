@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 /**
  * RPC functions raise plain Postgres exceptions with conventional message
@@ -7,10 +11,16 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
  * Map them to the right HTTP exception instead of letting them fall through
  * to the global filter as 500s.
  */
-export function throwFromRpcError(error: { message: string; code?: string }): never {
+export function throwFromRpcError(error: {
+  message: string;
+  code?: string;
+}): never {
   const message = error.message ?? 'Unknown database error';
 
-  if (message.includes('INSUFFICIENT_STOCK') || message.includes('INSUFFICIENT_COST_LAYERS')) {
+  if (
+    message.includes('INSUFFICIENT_STOCK') ||
+    message.includes('INSUFFICIENT_COST_LAYERS')
+  ) {
     throw new ConflictException(message);
   }
   if (message.includes('not found')) {

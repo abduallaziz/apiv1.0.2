@@ -12,21 +12,19 @@ export class AuditService {
   ) {}
 
   async log(entry: AuditEntry): Promise<void> {
-    const { error } = await this.supabase
-      .from('audit_logs')
-      .insert({
-        tenant_id: entry.tenant_id,
-        actor_id: entry.actor_id,
-        actor_role: entry.actor_role,
-        action: entry.action,
-        resource_type: entry.resource_type,
-        resource_id: entry.resource_id ?? null,
-        before_data: entry.before_data ?? null,
-        after_data: entry.after_data ?? null,
-        ip_address: entry.ip_address,
-        device: entry.device,
-        created_at: new Date().toISOString(),
-      });
+    const { error } = await this.supabase.from('audit_logs').insert({
+      tenant_id: entry.tenant_id,
+      actor_id: entry.actor_id,
+      actor_role: entry.actor_role,
+      action: entry.action,
+      resource_type: entry.resource_type,
+      resource_id: entry.resource_id ?? null,
+      before_data: entry.before_data ?? null,
+      after_data: entry.after_data ?? null,
+      ip_address: entry.ip_address,
+      device: entry.device,
+      created_at: new Date().toISOString(),
+    });
 
     if (error) {
       this.logger.error(`Failed to write audit log: ${error.message}`);

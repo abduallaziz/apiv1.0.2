@@ -12,7 +12,9 @@ function isPostgrestError(error: unknown): error is PostgrestError {
 
 function toHttpError(error: unknown): unknown {
   if (isPostgrestError(error) && error.code === '23505') {
-    return new ConflictException('A configuration for this supplier/item/variant already exists');
+    return new ConflictException(
+      'A configuration for this supplier/item/variant already exists',
+    );
   }
   return error;
 }
@@ -46,7 +48,11 @@ export class SupplierItemsRepository extends ScopedRepository {
     return data;
   }
 
-  async create(tenantId: string, supplierId: string, payload: Record<string, unknown>) {
+  async create(
+    tenantId: string,
+    supplierId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('supplier_items')
       .insert({ ...payload, tenant_id: tenantId, supplier_id: supplierId })
@@ -56,7 +62,12 @@ export class SupplierItemsRepository extends ScopedRepository {
     return data;
   }
 
-  async update(id: string, tenantId: string, supplierId: string, payload: Record<string, unknown>) {
+  async update(
+    id: string,
+    tenantId: string,
+    supplierId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('supplier_items')
       .update({ ...payload, updated_at: new Date().toISOString() })

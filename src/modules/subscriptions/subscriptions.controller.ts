@@ -19,7 +19,10 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 export class SubscriptionsController {
   constructor(private readonly subscriptionsService: SubscriptionsService) {}
 
-  private resolveTenant(tenant: TenantContext | undefined, req: Request): TenantContext {
+  private resolveTenant(
+    tenant: TenantContext | undefined,
+    req: Request,
+  ): TenantContext {
     if (tenant) return tenant;
     // superadmin bypass — build TenantContext from JWT
     const user = req.user as { tenant_id: string; sub: string; role: string };
@@ -28,7 +31,9 @@ export class SubscriptionsController {
 
   @Get('current')
   getCurrent(@GetTenant() tenant: TenantContext, @Req() req: Request) {
-    return this.subscriptionsService.getCurrent(this.resolveTenant(tenant, req));
+    return this.subscriptionsService.getCurrent(
+      this.resolveTenant(tenant, req),
+    );
   }
 
   @Post('upgrade')
@@ -37,7 +42,10 @@ export class SubscriptionsController {
     @Req() req: Request,
     @Body() dto: CreateSubscriptionDto,
   ) {
-    return this.subscriptionsService.upgrade(this.resolveTenant(tenant, req), dto);
+    return this.subscriptionsService.upgrade(
+      this.resolveTenant(tenant, req),
+      dto,
+    );
   }
 
   @Delete('cancel')

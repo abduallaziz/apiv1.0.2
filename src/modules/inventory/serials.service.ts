@@ -50,7 +50,10 @@ export class SerialsService {
     if (!serial.sold_order_id) {
       return { sold: false, order: null, customer: null };
     }
-    const order = await this.serialsRepo.findOrderCustomer(serial.sold_order_id, tenantId);
+    const order = await this.serialsRepo.findOrderCustomer(
+      serial.sold_order_id,
+      tenantId,
+    );
     return {
       sold: true,
       order_id: serial.sold_order_id,
@@ -77,7 +80,9 @@ export class SerialsService {
     }
     const expiresAt = new Date(serial.warranty_expires_at);
     const now = new Date();
-    const daysRemaining = Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000);
+    const daysRemaining = Math.ceil(
+      (expiresAt.getTime() - now.getTime()) / 86400000,
+    );
     return {
       has_warranty: true,
       status: daysRemaining >= 0 ? ('active' as const) : ('expired' as const),
@@ -92,11 +97,17 @@ export class SerialsService {
   // new event-log table — no new audit mechanism, per approved scope.
   async getLifecycleHistory(id: string, tenantId: string) {
     const serial = (await this.findById(id, tenantId)) as unknown as SerialRow;
-    const events: { event: string; at: string; detail?: Record<string, unknown> }[] = [
-      { event: 'created', at: serial.created_at },
-    ];
+    const events: {
+      event: string;
+      at: string;
+      detail?: Record<string, unknown>;
+    }[] = [{ event: 'created', at: serial.created_at }];
     if (serial.sold_at) {
-      events.push({ event: 'sold', at: serial.sold_at, detail: { order_id: serial.sold_order_id } });
+      events.push({
+        event: 'sold',
+        at: serial.sold_at,
+        detail: { order_id: serial.sold_order_id },
+      });
     }
     if (serial.status === 'returned' || serial.status === 'scrapped') {
       events.push({ event: serial.status, at: serial.updated_at });

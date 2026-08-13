@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { CouponsService } from './coupons.service';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -28,10 +37,21 @@ export class CouponsController {
   // actual invoice creation re-validates and redeems atomically on its own.
   @Post('validate')
   @RequirePermission('invoice.create.own')
-  async validate(@GetTenant() tenant: TenantContext, @Body() dto: ValidateCouponDto) {
+  async validate(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: ValidateCouponDto,
+  ) {
     const coupon = await this.service.validate(tenant, dto.code, dto.subtotal);
-    const discount_amount = this.service.calculateDiscount(coupon, dto.subtotal);
-    return { code: coupon.code, discount_type: coupon.discount_type, discount_value: coupon.discount_value, discount_amount };
+    const discount_amount = this.service.calculateDiscount(
+      coupon,
+      dto.subtotal,
+    );
+    return {
+      code: coupon.code,
+      discount_type: coupon.discount_type,
+      discount_value: coupon.discount_value,
+      discount_amount,
+    };
   }
 
   @Post()

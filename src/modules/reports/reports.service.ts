@@ -2,7 +2,11 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantContext } from '../../core/tenant/tenant-context';
-import { ReportQueryDto, ReportPeriod, ExportFormat } from './dto/report-query.dto';
+import {
+  ReportQueryDto,
+  ReportPeriod,
+  ExportFormat,
+} from './dto/report-query.dto';
 import * as ExcelJS from 'exceljs';
 
 @Injectable()
@@ -54,7 +58,9 @@ export class ReportsService {
 
     let q = this.supabase
       .from('orders')
-      .select('id, total, subtotal, discount, tax, payment_method, created_at, branch_id')
+      .select(
+        'id, total, subtotal, discount, tax, payment_method, created_at, branch_id',
+      )
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
       .gte('created_at', from)
@@ -69,14 +75,16 @@ export class ReportsService {
     const totalDiscount = orders.reduce((s, o) => s + (o.discount || 0), 0);
     const totalTax = orders.reduce((s, o) => s + (o.tax || 0), 0);
 
-    const byPaymentMethod: Record<string, { count: number; total: number }> = {};
+    const byPaymentMethod: Record<string, { count: number; total: number }> =
+      {};
     for (const o of orders) {
       const m = o.payment_method || 'unknown';
       if (!byPaymentMethod[m]) byPaymentMethod[m] = { count: 0, total: 0 };
       byPaymentMethod[m].count++;
       byPaymentMethod[m].total += o.total || 0;
     }
-    for (const m of Object.keys(byPaymentMethod)) byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
+    for (const m of Object.keys(byPaymentMethod))
+      byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
 
     const byDay: Record<string, number> = {};
     for (const o of orders) {
@@ -91,7 +99,8 @@ export class ReportsService {
         total_orders: orders.length,
         total_discount: this.round2(totalDiscount),
         total_tax: this.round2(totalTax),
-        avg_order_value: orders.length > 0 ? this.round2(totalRevenue / orders.length) : 0,
+        avg_order_value:
+          orders.length > 0 ? this.round2(totalRevenue / orders.length) : 0,
       },
       by_payment_method: byPaymentMethod,
       daily_breakdown: Object.entries(byDay)
@@ -105,7 +114,9 @@ export class ReportsService {
 
     let q = this.supabase
       .from('shifts')
-      .select('id, cashier_id, branch_id, status, opening_cash, closing_cash, expected_cash, discrepancy, opened_at, closed_at')
+      .select(
+        'id, cashier_id, branch_id, status, opening_cash, closing_cash, expected_cash, discrepancy, opened_at, closed_at',
+      )
       .eq('tenant_id', tenant.tenantId)
       .gte('opened_at', from)
       .lte('opened_at', to)
@@ -116,19 +127,23 @@ export class ReportsService {
     const { data: shifts, error } = await q;
     if (error) throw error;
 
-    const closed = shifts.filter(s => s.status === 'closed');
-    const totalDiscrepancy = closed.reduce((s, sh) => s + Math.abs(sh.discrepancy || 0), 0);
+    const closed = shifts.filter((s) => s.status === 'closed');
+    const totalDiscrepancy = closed.reduce(
+      (s, sh) => s + Math.abs(sh.discrepancy || 0),
+      0,
+    );
 
     return {
       period: { from, to },
       summary: {
         total_shifts: shifts.length,
         closed_shifts: closed.length,
-        open_shifts: shifts.filter(s => s.status === 'open').length,
+        open_shifts: shifts.filter((s) => s.status === 'open').length,
         total_discrepancy: this.round2(totalDiscrepancy),
-        avg_discrepancy: closed.length > 0 ? this.round2(totalDiscrepancy / closed.length) : 0,
+        avg_discrepancy:
+          closed.length > 0 ? this.round2(totalDiscrepancy / closed.length) : 0,
       },
-      shifts: shifts.map(s => ({
+      shifts: shifts.map((s) => ({
         id: s.id,
         cashier_id: s.cashier_id,
         branch_id: s.branch_id,
@@ -148,7 +163,9 @@ export class ReportsService {
 
     let q = this.supabase
       .from('expenses')
-      .select('id, amount, status, notes, created_at, branch_id, template_id, requested_by, approved_by, resolved_at, category:expense_categories(id, name)')
+      .select(
+        'id, amount, status, notes, created_at, branch_id, template_id, requested_by, approved_by, resolved_at, category:expense_categories(id, name)',
+      )
       .eq('tenant_id', tenant.tenantId)
       .gte('created_at', from)
       .lte('created_at', to)
@@ -159,20 +176,29 @@ export class ReportsService {
     const { data: expenses, error } = await q;
     if (error) throw error;
 
-    const approved = expenses.filter(e => e.status === 'approved');
-    const rejected = expenses.filter(e => e.status === 'rejected');
-    const pending = expenses.filter(e => e.status === 'pending');
+    const approved = expenses.filter((e) => e.status === 'approved');
+    const rejected = expenses.filter((e) => e.status === 'rejected');
+    const pending = expenses.filter((e) => e.status === 'pending');
     const totalApproved = approved.reduce((s, e) => s + (e.amount || 0), 0);
 
-    const byCategory: Record<string, { category: string; count: number; total: number }> = {};
+    const byCategory: Record<
+      string,
+      { category: string; count: number; total: number }
+    > = {};
     for (const e of approved) {
-      const cat = (e.category as unknown as { id: string; name: string } | null);
+      const cat = e.category as unknown as { id: string; name: string } | null;
       const key = cat?.id ?? 'uncategorized';
-      if (!byCategory[key]) byCategory[key] = { category: cat?.name ?? 'Uncategorized', count: 0, total: 0 };
+      if (!byCategory[key])
+        byCategory[key] = {
+          category: cat?.name ?? 'Uncategorized',
+          count: 0,
+          total: 0,
+        };
       byCategory[key].count++;
       byCategory[key].total += e.amount || 0;
     }
-    for (const key of Object.keys(byCategory)) byCategory[key].total = this.round2(byCategory[key].total);
+    for (const key of Object.keys(byCategory))
+      byCategory[key].total = this.round2(byCategory[key].total);
 
     return {
       period: { from, to },
@@ -184,7 +210,7 @@ export class ReportsService {
         total_approved_amount: this.round2(totalApproved),
       },
       by_category: Object.values(byCategory).sort((a, b) => b.total - a.total),
-      expenses: expenses.map(e => ({
+      expenses: expenses.map((e) => ({
         id: e.id,
         amount: e.amount,
         status: e.status,
@@ -201,7 +227,12 @@ export class ReportsService {
   // Card-network and wallet-provider methods settle identically to 'card'/'wallet' today
   // (no distinct gateway processing yet — see migration 006). Grouped here for the summary
   // buckets, while by_method below still exposes every exact value individually.
-  private static readonly CARD_NETWORK_METHODS = ['card', 'mada', 'visa', 'mastercard'];
+  private static readonly CARD_NETWORK_METHODS = [
+    'card',
+    'mada',
+    'visa',
+    'mastercard',
+  ];
   private static readonly WALLET_METHODS = ['wallet', 'stc_pay', 'apple_pay'];
 
   async getPaymentsReport(tenant: TenantContext, query: ReportQueryDto) {
@@ -221,8 +252,11 @@ export class ReportsService {
     if (error) throw error;
 
     const bucket = (methods: string[]) => {
-      const matched = orders.filter(o => methods.includes(o.payment_method));
-      return { count: matched.length, total: this.round2(matched.reduce((s, o) => s + (o.total || 0), 0)) };
+      const matched = orders.filter((o) => methods.includes(o.payment_method));
+      return {
+        count: matched.length,
+        total: this.round2(matched.reduce((s, o) => s + (o.total || 0), 0)),
+      };
     };
 
     const byMethod: Record<string, { count: number; total: number }> = {};
@@ -232,13 +266,16 @@ export class ReportsService {
       byMethod[m].count++;
       byMethod[m].total += o.total || 0;
     }
-    for (const m of Object.keys(byMethod)) byMethod[m].total = this.round2(byMethod[m].total);
+    for (const m of Object.keys(byMethod))
+      byMethod[m].total = this.round2(byMethod[m].total);
 
     return {
       period: { from, to },
       summary: {
         total_orders: orders.length,
-        grand_total: this.round2(orders.reduce((s, o) => s + (o.total || 0), 0)),
+        grand_total: this.round2(
+          orders.reduce((s, o) => s + (o.total || 0), 0),
+        ),
         cash: bucket(['cash']),
         card: bucket(ReportsService.CARD_NETWORK_METHODS),
         wallet: bucket(ReportsService.WALLET_METHODS),
@@ -249,26 +286,38 @@ export class ReportsService {
     };
   }
 
-  async exportToExcel(reportType: string, data: Record<string, unknown>): Promise<Buffer> {
+  async exportToExcel(
+    reportType: string,
+    data: Record<string, unknown>,
+  ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Sefay V1.02';
     workbook.created = new Date();
 
     const headerStyle: Partial<ExcelJS.Style> = {
       font: { bold: true, color: { argb: 'FFFFFFFF' } },
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E2130' } },
+      fill: {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF1E2130' },
+      },
       alignment: { horizontal: 'center' },
     };
 
     const sheet = workbook.addWorksheet(reportType);
 
     if (reportType === 'revenue') {
-      const typed = data as { summary: Record<string, number>; daily_breakdown: { date: string; total: number }[] };
+      const typed = data as {
+        summary: Record<string, number>;
+        daily_breakdown: { date: string; total: number }[];
+      };
       sheet.columns = [
         { header: 'Date', key: 'date', width: 20 },
         { header: 'Total Revenue', key: 'total', width: 20 },
       ];
-      sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+      sheet
+        .getRow(1)
+        .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
       for (const row of typed.daily_breakdown) sheet.addRow(row);
 
       const summarySheet = workbook.addWorksheet('Summary');
@@ -276,7 +325,9 @@ export class ReportsService {
         { header: 'Metric', key: 'metric', width: 30 },
         { header: 'Value', key: 'value', width: 20 },
       ];
-      summarySheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+      summarySheet
+        .getRow(1)
+        .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
       for (const [key, value] of Object.entries(typed.summary)) {
         summarySheet.addRow({ metric: key, value });
       }
@@ -284,65 +335,84 @@ export class ReportsService {
       const typed = data as { shifts: Record<string, unknown>[] };
       if (typed.shifts.length > 0) {
         const keys = Object.keys(typed.shifts[0]);
-        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
-        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        sheet.columns = keys.map((k) => ({ header: k, key: k, width: 20 }));
+        sheet
+          .getRow(1)
+          .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.shifts) sheet.addRow(row);
       }
     } else if (reportType === 'expenses') {
       const typed = data as { expenses: Record<string, unknown>[] };
       if (typed.expenses.length > 0) {
         const keys = Object.keys(typed.expenses[0]);
-        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
-        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        sheet.columns = keys.map((k) => ({ header: k, key: k, width: 20 }));
+        sheet
+          .getRow(1)
+          .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.expenses) sheet.addRow(row);
       }
     } else if (reportType === 'payments') {
       const typed = data as { summary: Record<string, unknown> };
-      const rows = Object.entries(typed.summary).map(([metric, value]) => ({ metric, value }));
+      const rows = Object.entries(typed.summary).map(([metric, value]) => ({
+        metric,
+        value,
+      }));
       sheet.columns = [
         { header: 'Metric', key: 'metric', width: 30 },
         { header: 'Value', key: 'value', width: 20 },
       ];
-      sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+      sheet
+        .getRow(1)
+        .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
       for (const row of rows) sheet.addRow(row);
     } else if (reportType === 'employees') {
       const typed = data as { employees: Record<string, unknown>[] };
       if (typed.employees.length > 0) {
         const keys = Object.keys(typed.employees[0]);
-        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
-        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        sheet.columns = keys.map((k) => ({ header: k, key: k, width: 20 }));
+        sheet
+          .getRow(1)
+          .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.employees) sheet.addRow(row);
       }
     } else if (reportType === 'customers') {
       const typed = data as { customers: Record<string, unknown>[] };
       if (typed.customers.length > 0) {
         const keys = Object.keys(typed.customers[0]);
-        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
-        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        sheet.columns = keys.map((k) => ({ header: k, key: k, width: 20 }));
+        sheet
+          .getRow(1)
+          .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.customers) sheet.addRow(row);
       }
     } else if (reportType === 'tax') {
       const typed = data as { daily_breakdown: Record<string, unknown>[] };
       if (typed.daily_breakdown.length > 0) {
         const keys = Object.keys(typed.daily_breakdown[0]);
-        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
-        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        sheet.columns = keys.map((k) => ({ header: k, key: k, width: 20 }));
+        sheet
+          .getRow(1)
+          .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.daily_breakdown) sheet.addRow(row);
       }
     } else if (reportType === 'inventory') {
       const typed = data as { top_by_value: Record<string, unknown>[] };
       if (typed.top_by_value.length > 0) {
         const keys = Object.keys(typed.top_by_value[0]);
-        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
-        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        sheet.columns = keys.map((k) => ({ header: k, key: k, width: 20 }));
+        sheet
+          .getRow(1)
+          .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.top_by_value) sheet.addRow(row);
       }
     } else if (reportType === 'cogs') {
       const typed = data as { top_by_cost: Record<string, unknown>[] };
       if (typed.top_by_cost.length > 0) {
         const keys = Object.keys(typed.top_by_cost[0]);
-        sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
-        sheet.getRow(1).eachCell(cell => Object.assign(cell, { style: headerStyle }));
+        sheet.columns = keys.map((k) => ({ header: k, key: k, width: 20 }));
+        sheet
+          .getRow(1)
+          .eachCell((cell) => Object.assign(cell, { style: headerStyle }));
         for (const row of typed.top_by_cost) sheet.addRow(row);
       }
     }
@@ -355,7 +425,9 @@ export class ReportsService {
 
     const { data: orderItems, error } = await this.supabase
       .from('order_items')
-      .select('item_id, item_name, qty, total_price, orders!inner(tenant_id, status, created_at)')
+      .select(
+        'item_id, item_name, qty, total_price, orders!inner(tenant_id, status, created_at)',
+      )
       .eq('orders.tenant_id', tenant.tenantId)
       .eq('orders.status', 'completed')
       .gte('orders.created_at', from)
@@ -363,12 +435,15 @@ export class ReportsService {
 
     if (error) throw error;
 
-    const map: Record<string, { name: string; quantity: number; total: number }> = {};
+    const map: Record<
+      string,
+      { name: string; quantity: number; total: number }
+    > = {};
     for (const row of orderItems ?? []) {
       const id = row.item_id ?? row.item_name;
       if (!map[id]) map[id] = { name: row.item_name, quantity: 0, total: 0 };
       map[id].quantity += row.qty ?? 0;
-      map[id].total    += row.total_price ?? 0;
+      map[id].total += row.total_price ?? 0;
     }
 
     const items = Object.values(map)
@@ -378,11 +453,11 @@ export class ReportsService {
     const maxTotal = items[0]?.total ?? 1;
 
     return {
-      items: items.map(i => ({
-        name:     i.name,
+      items: items.map((i) => ({
+        name: i.name,
         quantity: i.quantity,
-        total:    this.round2(i.total),
-        pct:      Math.round((i.total / maxTotal) * 100),
+        total: this.round2(i.total),
+        pct: Math.round((i.total / maxTotal) * 100),
       })),
     };
   }
@@ -399,24 +474,28 @@ export class ReportsService {
     if (oErr) throw oErr;
 
     const activity: {
-      type: 'order' | 'refund' | 'alert'
-      title: string
-      sub: string
-      amount: number | null
-      time: string
+      type: 'order' | 'refund' | 'alert';
+      title: string;
+      sub: string;
+      amount: number | null;
+      time: string;
     }[] = [];
 
     for (const o of orders ?? []) {
       activity.push({
-        type:   o.status === 'cancelled' ? 'refund' : 'order',
-        title:  `فاتورة #${o.id.slice(-4).toUpperCase()}`,
-        sub:    o.payment_method ?? 'cash',
-        amount: this.round2(o.status === 'cancelled' ? -(o.total ?? 0) : (o.total ?? 0)),
-        time:   o.created_at,
+        type: o.status === 'cancelled' ? 'refund' : 'order',
+        title: `فاتورة #${o.id.slice(-4).toUpperCase()}`,
+        sub: o.payment_method ?? 'cash',
+        amount: this.round2(
+          o.status === 'cancelled' ? -(o.total ?? 0) : (o.total ?? 0),
+        ),
+        time: o.created_at,
       });
     }
 
-    activity.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+    activity.sort(
+      (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime(),
+    );
 
     return { activity: activity.slice(0, 8) };
   }
@@ -430,7 +509,7 @@ export class ReportsService {
     }
 
     const from = days[0] + 'T00:00:00.000Z';
-    const to   = days[6] + 'T23:59:59.999Z';
+    const to = days[6] + 'T23:59:59.999Z';
 
     const { data: orders, error: oErr } = await this.supabase
       .from('orders')
@@ -462,20 +541,22 @@ export class ReportsService {
 
     if (eErr) throw eErr;
 
-    const salesMap:     Record<string, number> = {};
-    const ordersMap:    Record<string, number> = {};
+    const salesMap: Record<string, number> = {};
+    const ordersMap: Record<string, number> = {};
     const customersMap: Record<string, number> = {};
-    const expensesMap:  Record<string, number> = {};
+    const expensesMap: Record<string, number> = {};
 
     for (const d of days) {
-      salesMap[d] = 0; ordersMap[d] = 0;
-      customersMap[d] = 0; expensesMap[d] = 0;
+      salesMap[d] = 0;
+      ordersMap[d] = 0;
+      customersMap[d] = 0;
+      expensesMap[d] = 0;
     }
 
     for (const o of orders ?? []) {
       const d = o.created_at.substring(0, 10);
       if (salesMap[d] !== undefined) {
-        salesMap[d]  += o.total ?? 0;
+        salesMap[d] += o.total ?? 0;
         ordersMap[d] += 1;
       }
     }
@@ -489,10 +570,10 @@ export class ReportsService {
     }
 
     return {
-      sales:     days.map(d => this.round2(salesMap[d])),
-      orders:    days.map(d => ordersMap[d]),
-      customers: days.map(d => customersMap[d]),
-      expenses:  days.map(d => this.round2(expensesMap[d])),
+      sales: days.map((d) => this.round2(salesMap[d])),
+      orders: days.map((d) => ordersMap[d]),
+      customers: days.map((d) => customersMap[d]),
+      expenses: days.map((d) => this.round2(expensesMap[d])),
     };
   }
 
@@ -513,7 +594,7 @@ export class ReportsService {
     const { data: orders, error } = await q;
     if (error) throw error;
 
-    const cashierIds = [...new Set((orders ?? []).map(o => o.cashier_id))];
+    const cashierIds = [...new Set((orders ?? []).map((o) => o.cashier_id))];
     const namesById: Record<string, string> = {};
     const commissionRateById: Record<string, number | null> = {};
     if (cashierIds.length > 0) {
@@ -527,10 +608,18 @@ export class ReportsService {
       }
     }
 
-    const byCashier: Record<string, { name: string; order_count: number; total_sales: number }> = {};
+    const byCashier: Record<
+      string,
+      { name: string; order_count: number; total_sales: number }
+    > = {};
     for (const o of orders ?? []) {
       const id = o.cashier_id as string;
-      if (!byCashier[id]) byCashier[id] = { name: namesById[id] ?? 'Unknown', order_count: 0, total_sales: 0 };
+      if (!byCashier[id])
+        byCashier[id] = {
+          name: namesById[id] ?? 'Unknown',
+          order_count: 0,
+          total_sales: 0,
+        };
       byCashier[id].order_count++;
       byCashier[id].total_sales += o.total || 0;
     }
@@ -543,9 +632,13 @@ export class ReportsService {
           name: v.name,
           order_count: v.order_count,
           total_sales: this.round2(v.total_sales),
-          avg_order_value: v.order_count > 0 ? this.round2(v.total_sales / v.order_count) : 0,
+          avg_order_value:
+            v.order_count > 0 ? this.round2(v.total_sales / v.order_count) : 0,
           commission_rate: commissionRate,
-          commission_earned: commissionRate !== null ? this.round2(v.total_sales * commissionRate) : null,
+          commission_earned:
+            commissionRate !== null
+              ? this.round2(v.total_sales * commissionRate)
+              : null,
         };
       })
       .sort((a, b) => b.total_sales - a.total_sales);
@@ -570,7 +663,7 @@ export class ReportsService {
     const { data: orders, error } = await q;
     if (error) throw error;
 
-    const customerIds = [...new Set((orders ?? []).map(o => o.customer_id))];
+    const customerIds = [...new Set((orders ?? []).map((o) => o.customer_id))];
     const namesById: Record<string, string> = {};
     if (customerIds.length > 0) {
       const { data: customers } = await this.supabase
@@ -580,10 +673,18 @@ export class ReportsService {
       for (const c of customers ?? []) namesById[c.id] = c.full_name;
     }
 
-    const byCustomer: Record<string, { name: string; order_count: number; total_spent: number }> = {};
+    const byCustomer: Record<
+      string,
+      { name: string; order_count: number; total_spent: number }
+    > = {};
     for (const o of orders ?? []) {
       const id = o.customer_id as string;
-      if (!byCustomer[id]) byCustomer[id] = { name: namesById[id] ?? 'Unknown', order_count: 0, total_spent: 0 };
+      if (!byCustomer[id])
+        byCustomer[id] = {
+          name: namesById[id] ?? 'Unknown',
+          order_count: 0,
+          total_spent: 0,
+        };
       byCustomer[id].order_count++;
       byCustomer[id].total_spent += o.total || 0;
     }
@@ -594,7 +695,8 @@ export class ReportsService {
         name: v.name,
         order_count: v.order_count,
         total_spent: this.round2(v.total_spent),
-        avg_order_value: v.order_count > 0 ? this.round2(v.total_spent / v.order_count) : 0,
+        avg_order_value:
+          v.order_count > 0 ? this.round2(v.total_spent / v.order_count) : 0,
       }))
       .sort((a, b) => b.total_spent - a.total_spent);
 
@@ -605,7 +707,11 @@ export class ReportsService {
     };
   }
 
-  async getDailyReconciliation(tenant: TenantContext, date: string, branchId?: string) {
+  async getDailyReconciliation(
+    tenant: TenantContext,
+    date: string,
+    branchId?: string,
+  ) {
     const from = `${date}T00:00:00.000`;
     const to = `${date}T23:59:59.999`;
 
@@ -633,7 +739,9 @@ export class ReportsService {
     // already-correct per-shift figures instead of recomputing cash math from scratch.
     let shiftsQ = this.supabase
       .from('shifts')
-      .select('id, branch_id, status, opening_cash, closing_cash, expected_cash, discrepancy')
+      .select(
+        'id, branch_id, status, opening_cash, closing_cash, expected_cash, discrepancy',
+      )
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'closed')
       .gte('closed_at', from)
@@ -641,38 +749,55 @@ export class ReportsService {
       .is('deleted_at', null);
     if (branchId) shiftsQ = shiftsQ.eq('branch_id', branchId);
 
-    const [{ data: orders, error: ordersErr }, { data: expenses, error: expensesErr }, { data: shifts, error: shiftsErr }] =
-      await Promise.all([ordersQ, expensesQ, shiftsQ]);
+    const [
+      { data: orders, error: ordersErr },
+      { data: expenses, error: expensesErr },
+      { data: shifts, error: shiftsErr },
+    ] = await Promise.all([ordersQ, expensesQ, shiftsQ]);
     if (ordersErr) throw ordersErr;
     if (expensesErr) throw expensesErr;
     if (shiftsErr) throw shiftsErr;
 
-    const byPaymentMethod: Record<string, { count: number; total: number }> = {};
+    const byPaymentMethod: Record<string, { count: number; total: number }> =
+      {};
     for (const o of orders ?? []) {
       const m = o.payment_method || 'unknown';
       if (!byPaymentMethod[m]) byPaymentMethod[m] = { count: 0, total: 0 };
       byPaymentMethod[m].count++;
       byPaymentMethod[m].total += o.total || 0;
     }
-    for (const m of Object.keys(byPaymentMethod)) byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
+    for (const m of Object.keys(byPaymentMethod))
+      byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
 
     return {
       date,
       sales: {
         total_orders: (orders ?? []).length,
-        total_revenue: this.round2((orders ?? []).reduce((s, o) => s + (o.total || 0), 0)),
+        total_revenue: this.round2(
+          (orders ?? []).reduce((s, o) => s + (o.total || 0), 0),
+        ),
         by_payment_method: byPaymentMethod,
       },
       expenses: {
         approved_count: (expenses ?? []).length,
-        total_approved_amount: this.round2((expenses ?? []).reduce((s, e) => s + (e.amount || 0), 0)),
+        total_approved_amount: this.round2(
+          (expenses ?? []).reduce((s, e) => s + (e.amount || 0), 0),
+        ),
       },
       cash_shifts: {
         closed_shift_count: (shifts ?? []).length,
-        total_opening_cash: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.opening_cash || 0), 0)),
-        total_closing_cash: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.closing_cash || 0), 0)),
-        total_expected_cash: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.expected_cash || 0), 0)),
-        total_discrepancy: this.round2((shifts ?? []).reduce((s, sh) => s + (sh.discrepancy || 0), 0)),
+        total_opening_cash: this.round2(
+          (shifts ?? []).reduce((s, sh) => s + (sh.opening_cash || 0), 0),
+        ),
+        total_closing_cash: this.round2(
+          (shifts ?? []).reduce((s, sh) => s + (sh.closing_cash || 0), 0),
+        ),
+        total_expected_cash: this.round2(
+          (shifts ?? []).reduce((s, sh) => s + (sh.expected_cash || 0), 0),
+        ),
+        total_discrepancy: this.round2(
+          (shifts ?? []).reduce((s, sh) => s + (sh.discrepancy || 0), 0),
+        ),
       },
     };
   }
@@ -695,10 +820,14 @@ export class ReportsService {
 
     const taxRate = await this.getTenantTaxRate(tenant.tenantId);
 
-    const byDay: Record<string, { subtotal: number; tax: number; total: number; order_count: number }> = {};
+    const byDay: Record<
+      string,
+      { subtotal: number; tax: number; total: number; order_count: number }
+    > = {};
     for (const o of orders ?? []) {
       const day = o.created_at.substring(0, 10);
-      if (!byDay[day]) byDay[day] = { subtotal: 0, tax: 0, total: 0, order_count: 0 };
+      if (!byDay[day])
+        byDay[day] = { subtotal: 0, tax: 0, total: 0, order_count: 0 };
       byDay[day].subtotal += o.subtotal || 0;
       byDay[day].tax += o.tax || 0;
       byDay[day].total += o.total || 0;
@@ -710,9 +839,15 @@ export class ReportsService {
       tax_rate: taxRate,
       summary: {
         total_orders: (orders ?? []).length,
-        total_subtotal: this.round2((orders ?? []).reduce((s, o) => s + (o.subtotal || 0), 0)),
-        total_tax_collected: this.round2((orders ?? []).reduce((s, o) => s + (o.tax || 0), 0)),
-        grand_total: this.round2((orders ?? []).reduce((s, o) => s + (o.total || 0), 0)),
+        total_subtotal: this.round2(
+          (orders ?? []).reduce((s, o) => s + (o.subtotal || 0), 0),
+        ),
+        total_tax_collected: this.round2(
+          (orders ?? []).reduce((s, o) => s + (o.tax || 0), 0),
+        ),
+        grand_total: this.round2(
+          (orders ?? []).reduce((s, o) => s + (o.total || 0), 0),
+        ),
       },
       daily_breakdown: Object.entries(byDay)
         .map(([date, v]) => ({
@@ -747,11 +882,15 @@ export class ReportsService {
       .lte('occurred_at', to);
     if (error) throw error;
 
-    const totalCogs = (movements ?? []).reduce((s, m) => s + (m.total_cost || 0), 0);
+    const totalCogs = (movements ?? []).reduce(
+      (s, m) => s + (m.total_cost || 0),
+      0,
+    );
 
     const byItem: Record<string, { quantity: number; total_cost: number }> = {};
     for (const m of movements ?? []) {
-      if (!byItem[m.item_id]) byItem[m.item_id] = { quantity: 0, total_cost: 0 };
+      if (!byItem[m.item_id])
+        byItem[m.item_id] = { quantity: 0, total_cost: 0 };
       byItem[m.item_id].quantity += m.quantity || 0;
       byItem[m.item_id].total_cost += m.total_cost || 0;
     }
@@ -759,7 +898,10 @@ export class ReportsService {
     const itemIds = Object.keys(byItem);
     const namesById: Record<string, string> = {};
     if (itemIds.length > 0) {
-      const { data: items } = await this.supabase.from('items').select('id, name').in('id', itemIds);
+      const { data: items } = await this.supabase
+        .from('items')
+        .select('id, name')
+        .in('id', itemIds);
       for (const i of items ?? []) namesById[i.id] = i.name;
     }
 
@@ -793,7 +935,10 @@ export class ReportsService {
         total_cogs: this.round2(totalCogs),
         total_revenue: this.round2(totalRevenue),
         gross_profit: this.round2(grossProfit),
-        gross_margin_pct: totalRevenue > 0 ? parseFloat(((grossProfit / totalRevenue) * 100).toFixed(1)) : 0,
+        gross_margin_pct:
+          totalRevenue > 0
+            ? parseFloat(((grossProfit / totalRevenue) * 100).toFixed(1))
+            : 0,
       },
       top_by_cost: topByCost,
       // COGS only reflects items with has_inventory=true sold at a branch with a
@@ -806,25 +951,37 @@ export class ReportsService {
   }
 
   async getInventoryReport(tenant: TenantContext, warehouseId?: string) {
-    const { data, error } = await this.supabase.rpc('fn_inventory_stock_levels_enriched', {
-      p_tenant_id: tenant.tenantId,
-      p_warehouse_id: warehouseId ?? null,
-      p_item_id: null,
-      p_category_id: null,
-      p_location_id: null,
-      p_batch_id: null,
-      p_supplier_id: null,
-      p_status: null,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_inventory_stock_levels_enriched',
+      {
+        p_tenant_id: tenant.tenantId,
+        p_warehouse_id: warehouseId ?? null,
+        p_item_id: null,
+        p_category_id: null,
+        p_location_id: null,
+        p_batch_id: null,
+        p_supplier_id: null,
+        p_status: null,
+      },
+    );
     if (error) throw error;
 
     const rows = data ?? [];
-    const totalValue = rows.reduce((s: number, r: any) => s + (r.inventory_value || 0), 0);
-    const lowStockCount = rows.filter((r: any) => r.status === 'low_stock').length;
-    const outOfStockCount = rows.filter((r: any) => r.status === 'out_of_stock').length;
+    const totalValue = rows.reduce(
+      (s: number, r: any) => s + (r.inventory_value || 0),
+      0,
+    );
+    const lowStockCount = rows.filter(
+      (r: any) => r.status === 'low_stock',
+    ).length;
+    const outOfStockCount = rows.filter(
+      (r: any) => r.status === 'out_of_stock',
+    ).length;
 
     const topByValue = [...rows]
-      .sort((a: any, b: any) => (b.inventory_value || 0) - (a.inventory_value || 0))
+      .sort(
+        (a: any, b: any) => (b.inventory_value || 0) - (a.inventory_value || 0),
+      )
       .slice(0, 10)
       .map((r: any) => ({
         item_name: r.item_name,
@@ -841,11 +998,19 @@ export class ReportsService {
         low_stock_count: lowStockCount,
         out_of_stock_count: outOfStockCount,
       },
-      top_by_value: topByValue.map((r: any) => ({ ...r, inventory_value: this.round2(r.inventory_value || 0) })),
+      top_by_value: topByValue.map((r: any) => ({
+        ...r,
+        inventory_value: this.round2(r.inventory_value || 0),
+      })),
     };
   }
 
-  private async getOrderMetrics(tenantId: string, from: string, to: string, branchId?: string) {
+  private async getOrderMetrics(
+    tenantId: string,
+    from: string,
+    to: string,
+    branchId?: string,
+  ) {
     let q = this.supabase
       .from('orders')
       .select('id, total, customer_id, branch_id, created_at')
@@ -865,8 +1030,11 @@ export class ReportsService {
     return {
       revenue: this.round2(totalRevenue),
       order_count: orderCount,
-      avg_order_value: orderCount > 0 ? this.round2(totalRevenue / orderCount) : 0,
-      unique_customers: new Set((orders ?? []).map((o) => o.customer_id).filter(Boolean)).size,
+      avg_order_value:
+        orderCount > 0 ? this.round2(totalRevenue / orderCount) : 0,
+      unique_customers: new Set(
+        (orders ?? []).map((o) => o.customer_id).filter(Boolean),
+      ).size,
     };
   }
 
@@ -886,7 +1054,12 @@ export class ReportsService {
 
     const [current, previous] = await Promise.all([
       this.getOrderMetrics(tenant.tenantId, from, to, query.branch_id),
-      this.getOrderMetrics(tenant.tenantId, previousFrom, previousTo, query.branch_id),
+      this.getOrderMetrics(
+        tenant.tenantId,
+        previousFrom,
+        previousTo,
+        query.branch_id,
+      ),
     ]);
 
     return {
@@ -894,8 +1067,14 @@ export class ReportsService {
       previous_period: { from: previousFrom, to: previousTo, ...previous },
       change: {
         revenue_pct: this.percentChange(current.revenue, previous.revenue),
-        order_count_pct: this.percentChange(current.order_count, previous.order_count),
-        avg_order_value_pct: this.percentChange(current.avg_order_value, previous.avg_order_value),
+        order_count_pct: this.percentChange(
+          current.order_count,
+          previous.order_count,
+        ),
+        avg_order_value_pct: this.percentChange(
+          current.avg_order_value,
+          previous.avg_order_value,
+        ),
       },
     };
   }
@@ -935,7 +1114,9 @@ export class ReportsService {
 
     const { data: employees, error: empErr } = await this.supabase
       .from('users')
-      .select('id, name, base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value')
+      .select(
+        'id, name, base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value',
+      )
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
       .not('base_salary', 'is', null);
@@ -989,7 +1170,11 @@ export class ReportsService {
       const byDate = (leaveDatesByUser[l.user_id] ??= new Map());
       const from = l.date_from < monthStart ? monthStart : l.date_from;
       const to = l.date_to > monthEnd ? monthEnd : l.date_to;
-      for (let d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)) {
+      for (
+        let d = new Date(`${from}T00:00:00Z`);
+        d <= new Date(`${to}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + 1)
+      ) {
         byDate.set(d.toISOString().substring(0, 10), l.leave_type);
       }
     }
@@ -1003,7 +1188,8 @@ export class ReportsService {
     for (const s of schedules ?? []) {
       const byDate = (schedulesByUser[s.user_id] ??= new Map());
       const existing = byDate.get(s.scheduled_date);
-      if (!existing || s.start_time < existing) byDate.set(s.scheduled_date, s.start_time);
+      if (!existing || s.start_time < existing)
+        byDate.set(s.scheduled_date, s.start_time);
     }
 
     // First attendance record per (user, date) — later punches that same day are ignored
@@ -1012,15 +1198,19 @@ export class ReportsService {
     for (const a of attendance ?? []) {
       const date = a.check_in_at.substring(0, 10);
       const byDate = (attendanceByUserDate[a.user_id] ??= {});
-      if (!byDate[date] || a.check_in_at < byDate[date]) byDate[date] = a.check_in_at;
+      if (!byDate[date] || a.check_in_at < byDate[date])
+        byDate[date] = a.check_in_at;
     }
 
     const excusedByUser: Record<string, Set<string>> = {};
-    for (const e of exceptions ?? []) (excusedByUser[e.user_id] ??= new Set()).add(e.date);
+    for (const e of exceptions ?? [])
+      (excusedByUser[e.user_id] ??= new Set()).add(e.date);
 
     const results = employees.map((emp) => {
-      const scheduledDates = schedulesByUser[emp.id] ?? new Map<string, string>();
-      const dayRate = scheduledDates.size > 0 ? emp.base_salary / scheduledDates.size : 0;
+      const scheduledDates =
+        schedulesByUser[emp.id] ?? new Map<string, string>();
+      const dayRate =
+        scheduledDates.size > 0 ? emp.base_salary / scheduledDates.size : 0;
       const excused = excusedByUser[emp.id] ?? new Set();
       const attendanceDates = attendanceByUserDate[emp.id] ?? {};
       const leaveDates = leaveDatesByUser[emp.id] ?? new Map<string, string>();
@@ -1058,12 +1248,24 @@ export class ReportsService {
         // start_time without a 'Z' suffix would parse as server-local time instead, which
         // skewed lateness by the server's UTC offset (same class of bug as the bulk
         // scheduling date shift above).
-        const scheduledStart = new Date(`${scheduledDate}T${earliestStartTime}Z`);
+        const scheduledStart = new Date(
+          `${scheduledDate}T${earliestStartTime}Z`,
+        );
         const actualStart = new Date(checkInAt);
-        const minutesLate = Math.max(0, (actualStart.getTime() - scheduledStart.getTime()) / 60000);
-        const minutesBeyondGrace = Math.max(0, minutesLate - emp.grace_period_minutes);
+        const minutesLate = Math.max(
+          0,
+          (actualStart.getTime() - scheduledStart.getTime()) / 60000,
+        );
+        const minutesBeyondGrace = Math.max(
+          0,
+          minutesLate - emp.grace_period_minutes,
+        );
 
-        if (minutesBeyondGrace > 0 && emp.late_deduction_mode && emp.late_deduction_value) {
+        if (
+          minutesBeyondGrace > 0 &&
+          emp.late_deduction_mode &&
+          emp.late_deduction_value
+        ) {
           lateCount++;
           if (emp.late_deduction_mode === 'fixed') {
             lateDeduction += emp.late_deduction_value;
@@ -1078,7 +1280,9 @@ export class ReportsService {
       absenceDeduction = this.round2(absenceDeduction);
       lateDeduction = this.round2(lateDeduction);
       leaveDeduction = this.round2(leaveDeduction);
-      const netSalary = this.round2(emp.base_salary - absenceDeduction - lateDeduction - leaveDeduction);
+      const netSalary = this.round2(
+        emp.base_salary - absenceDeduction - lateDeduction - leaveDeduction,
+      );
 
       return {
         user_id: emp.id,
@@ -1103,7 +1307,11 @@ export class ReportsService {
   async getHrSummary(tenant: TenantContext) {
     const today = new Date().toISOString().substring(0, 10);
     const monthStart = `${today.substring(0, 7)}-01`;
-    const monthEnd = new Date(Number(today.substring(0, 4)), Number(today.substring(5, 7)), 0)
+    const monthEnd = new Date(
+      Number(today.substring(0, 4)),
+      Number(today.substring(5, 7)),
+      0,
+    )
       .toISOString()
       .substring(0, 10);
 
@@ -1118,10 +1326,22 @@ export class ReportsService {
     const totalEmployees = userIds.length;
 
     if (totalEmployees === 0) {
-      return { total_employees: 0, present_today: 0, absent_today: 0, pending_leaves: 0, approved_leaves_this_month: 0 };
+      return {
+        total_employees: 0,
+        present_today: 0,
+        absent_today: 0,
+        pending_leaves: 0,
+        approved_leaves_this_month: 0,
+      };
     }
 
-    const [scheduleRes, attendanceRes, leaveTodayRes, pendingRes, approvedMonthRes] = await Promise.all([
+    const [
+      scheduleRes,
+      attendanceRes,
+      leaveTodayRes,
+      pendingRes,
+      approvedMonthRes,
+    ] = await Promise.all([
       this.supabase
         .from('work_schedules')
         .select('user_id')
@@ -1162,16 +1382,25 @@ export class ReportsService {
     if (pendingRes.error) throw pendingRes.error;
     if (approvedMonthRes.error) throw approvedMonthRes.error;
 
-    const scheduledToday = new Set((scheduleRes.data ?? []).map((s) => s.user_id));
-    const onLeaveToday = new Set((leaveTodayRes.data ?? []).map((l) => l.user_id));
+    const scheduledToday = new Set(
+      (scheduleRes.data ?? []).map((s) => s.user_id),
+    );
+    const onLeaveToday = new Set(
+      (leaveTodayRes.data ?? []).map((l) => l.user_id),
+    );
     const presentToday = new Set(
-      (attendanceRes.data ?? []).filter((a) => !a.check_out_at).map((a) => a.user_id),
+      (attendanceRes.data ?? [])
+        .filter((a) => !a.check_out_at)
+        .map((a) => a.user_id),
     ).size;
 
     let absentToday = 0;
-    const checkedInToday = new Set((attendanceRes.data ?? []).map((a) => a.user_id));
+    const checkedInToday = new Set(
+      (attendanceRes.data ?? []).map((a) => a.user_id),
+    );
     for (const userId of scheduledToday) {
-      if (!checkedInToday.has(userId) && !onLeaveToday.has(userId)) absentToday++;
+      if (!checkedInToday.has(userId) && !onLeaveToday.has(userId))
+        absentToday++;
     }
 
     return {
@@ -1194,7 +1423,8 @@ export class ReportsService {
     if (error) throw error;
 
     const rows = data ?? [];
-    const countOf = (resourceType: string) => rows.filter((r) => r.resource_type === resourceType).length;
+    const countOf = (resourceType: string) =>
+      rows.filter((r) => r.resource_type === resourceType).length;
 
     return {
       total_today: rows.length,
@@ -1233,10 +1463,16 @@ export class ReportsService {
     if (currentOrders.error) throw currentOrders.error;
     if (previousOrders.error) throw previousOrders.error;
 
-    const currentCustomers = new Set((currentOrders.data ?? []).map((o) => o.customer_id));
-    const previousCustomers = new Set((previousOrders.data ?? []).map((o) => o.customer_id));
+    const currentCustomers = new Set(
+      (currentOrders.data ?? []).map((o) => o.customer_id),
+    );
+    const previousCustomers = new Set(
+      (previousOrders.data ?? []).map((o) => o.customer_id),
+    );
 
-    const churnedCustomerIds = [...previousCustomers].filter((id) => !currentCustomers.has(id));
+    const churnedCustomerIds = [...previousCustomers].filter(
+      (id) => !currentCustomers.has(id),
+    );
 
     return {
       current_period: { from, to },
@@ -1244,9 +1480,15 @@ export class ReportsService {
       previous_period_customers: previousCustomers.size,
       current_period_customers: currentCustomers.size,
       churned_customers: churnedCustomerIds.length,
-      churn_rate_pct: previousCustomers.size > 0
-        ? parseFloat(((churnedCustomerIds.length / previousCustomers.size) * 100).toFixed(1))
-        : 0,
+      churn_rate_pct:
+        previousCustomers.size > 0
+          ? parseFloat(
+              (
+                (churnedCustomerIds.length / previousCustomers.size) *
+                100
+              ).toFixed(1),
+            )
+          : 0,
     };
   }
 }

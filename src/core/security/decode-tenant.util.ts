@@ -8,7 +8,9 @@ import { JwtPayload } from '../../shared/types/jwt-payload.type';
  * any business logic runs. A forged token here can only ever misattribute
  * its own request's rate-limit accounting, never bypass authentication.
  */
-export function decodeTenantId(req: Record<string, unknown>): string | undefined {
+export function decodeTenantId(
+  req: Record<string, unknown>,
+): string | undefined {
   const headers = req['headers'] as Record<string, string> | undefined;
   const authHeader = headers?.['authorization'];
   if (!authHeader?.startsWith('Bearer ')) return undefined;

@@ -48,7 +48,10 @@ export class DineInController {
 
   @Get('order')
   @RequirePermission('tables.manage')
-  getCurrentOrder(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  getCurrentOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.getCurrentOrder(tenant, id);
   }
 
@@ -72,7 +75,15 @@ export class DineInController {
   ) {
     const user = req.user as { sub: string; role: string };
     const ip = (req.headers['x-forwarded-for'] as string) ?? req.ip ?? '';
-    const device = (req.headers['user-agent'] as string) ?? '';
-    return this.service.checkout(tenant, id, dto, user.sub, user.role, ip, device);
+    const device = req.headers['user-agent'] ?? '';
+    return this.service.checkout(
+      tenant,
+      id,
+      dto,
+      user.sub,
+      user.role,
+      ip,
+      device,
+    );
   }
 }

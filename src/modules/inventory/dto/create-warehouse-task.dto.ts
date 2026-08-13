@@ -1,4 +1,11 @@
-import { IsString, IsOptional, IsUUID, IsIn, IsNumber, Min } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsUUID,
+  IsIn,
+  IsNumber,
+  Min,
+} from 'class-validator';
 
 export class CreateWarehouseTaskDto {
   @IsUUID()

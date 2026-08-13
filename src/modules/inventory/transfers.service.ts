@@ -14,9 +14,18 @@ export class TransfersService {
     private readonly stockService: StockService,
   ) {}
 
-  async findAll(tenantId: string, status?: string, page?: string, perPage?: string) {
+  async findAll(
+    tenantId: string,
+    status?: string,
+    page?: string,
+    perPage?: string,
+  ) {
     const pagination = new PaginationDto(page, perPage);
-    const { data, total } = await this.transfersRepo.findAll(tenantId, status, pagination);
+    const { data, total } = await this.transfersRepo.findAll(
+      tenantId,
+      status,
+      pagination,
+    );
     return { data, total, page: pagination.page, perPage: pagination.perPage };
   }
 
@@ -39,10 +48,18 @@ export class TransfersService {
 
     for (const line of items) {
       if (line.from_location_id) {
-        await this.locationsService.findById(line.from_location_id, header.from_warehouse_id, tenantId);
+        await this.locationsService.findById(
+          line.from_location_id,
+          header.from_warehouse_id,
+          tenantId,
+        );
       }
       if (line.to_location_id) {
-        await this.locationsService.findById(line.to_location_id, header.to_warehouse_id, tenantId);
+        await this.locationsService.findById(
+          line.to_location_id,
+          header.to_warehouse_id,
+          tenantId,
+        );
       }
     }
 

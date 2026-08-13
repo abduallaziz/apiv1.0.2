@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { SchedulesRepository } from './repositories/schedules.repository';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
@@ -23,11 +27,17 @@ export class SchedulesService {
   }
 
   async create(tenant: TenantContext, dto: CreateScheduleDto) {
-    const userOk = await this.repo.userBelongsToTenant(dto.user_id, tenant.tenantId);
+    const userOk = await this.repo.userBelongsToTenant(
+      dto.user_id,
+      tenant.tenantId,
+    );
     if (!userOk) throw new BadRequestException('User not found');
 
     if (dto.branch_id) {
-      const branchOk = await this.repo.branchBelongsToTenant(dto.branch_id, tenant.tenantId);
+      const branchOk = await this.repo.branchBelongsToTenant(
+        dto.branch_id,
+        tenant.tenantId,
+      );
       if (!branchOk) throw new BadRequestException('Branch not found');
     }
 
@@ -38,7 +48,10 @@ export class SchedulesService {
     await this.findOne(id, tenant);
 
     if (dto.branch_id) {
-      const branchOk = await this.repo.branchBelongsToTenant(dto.branch_id, tenant.tenantId);
+      const branchOk = await this.repo.branchBelongsToTenant(
+        dto.branch_id,
+        tenant.tenantId,
+      );
       if (!branchOk) throw new BadRequestException('Branch not found');
     }
 
@@ -56,7 +69,10 @@ export class SchedulesService {
       if (!ok) throw new BadRequestException(`User not found: ${userId}`);
     }
     if (dto.branch_id) {
-      const ok = await this.repo.branchBelongsToTenant(dto.branch_id, tenant.tenantId);
+      const ok = await this.repo.branchBelongsToTenant(
+        dto.branch_id,
+        tenant.tenantId,
+      );
       if (!ok) throw new BadRequestException('Branch not found');
     }
 
@@ -69,20 +85,31 @@ export class SchedulesService {
     };
     const from = parseYMD(dto.date_from);
     const to = parseYMD(dto.date_to);
-    if (to < from) throw new BadRequestException('date_to must be on or after date_from');
+    if (to < from)
+      throw new BadRequestException('date_to must be on or after date_from');
 
-    const overrideByDay = new Map((dto.day_overrides ?? []).map((o) => [o.day, o.shifts]));
+    const overrideByDay = new Map(
+      (dto.day_overrides ?? []).map((o) => [o.day, o.shifts]),
+    );
 
     // A day with a split shift (e.g. 08:00-12:00 + 14:00-00:00) produces one
     // row per shift segment, not one row per date.
-    const dateShifts: { scheduled_date: string; start_time: string; end_time: string }[] = [];
+    const dateShifts: {
+      scheduled_date: string;
+      start_time: string;
+      end_time: string;
+    }[] = [];
     for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
       const dayOfWeek = d.getUTCDay();
       if (!dto.days_of_week || dto.days_of_week.includes(dayOfWeek)) {
         const shifts = overrideByDay.get(dayOfWeek) ?? dto.shifts;
         const scheduled_date = d.toISOString().substring(0, 10);
         for (const shift of shifts) {
-          dateShifts.push({ scheduled_date, start_time: shift.start_time, end_time: shift.end_time });
+          dateShifts.push({
+            scheduled_date,
+            start_time: shift.start_time,
+            end_time: shift.end_time,
+          });
         }
       }
     }

@@ -1,8 +1,19 @@
-import { ConflictException, Injectable, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  BadRequestException,
+} from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 
-const SORTABLE_COLUMNS = new Set(['code', 'name', 'zone', 'is_active', 'created_at', 'updated_at']);
+const SORTABLE_COLUMNS = new Set([
+  'code',
+  'name',
+  'zone',
+  'is_active',
+  'created_at',
+  'updated_at',
+]);
 
 interface PostgrestError {
   code?: string;
@@ -20,7 +31,9 @@ function toHttpError(error: unknown): unknown {
   if (!isPostgrestError(error)) return error;
 
   if (error.code === '23505') {
-    return new ConflictException('Location code already exists in this warehouse');
+    return new ConflictException(
+      'Location code already exists in this warehouse',
+    );
   }
   if (error.code === '23503') {
     return new BadRequestException('The selected warehouse does not exist');
@@ -50,7 +63,10 @@ export class LocationsRepository extends ScopedRepository {
     const limit = options.limit && options.limit > 0 ? options.limit : 20;
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    const sortBy = options.sortBy && SORTABLE_COLUMNS.has(options.sortBy) ? options.sortBy : 'code';
+    const sortBy =
+      options.sortBy && SORTABLE_COLUMNS.has(options.sortBy)
+        ? options.sortBy
+        : 'code';
     const ascending = options.sortOrder !== 'desc';
 
     let query = this.supabase
@@ -69,7 +85,9 @@ export class LocationsRepository extends ScopedRepository {
       query = query.eq('is_active', options.isActive);
     }
 
-    const { data, error, count } = await query.order(sortBy, { ascending }).range(from, to);
+    const { data, error, count } = await query
+      .order(sortBy, { ascending })
+      .range(from, to);
     if (error) throw error;
     return { data, total: count ?? 0, page, limit };
   }
@@ -86,10 +104,19 @@ export class LocationsRepository extends ScopedRepository {
     return data;
   }
 
-  async create(warehouseId: string, tenantId: string, payload: Record<string, unknown>) {
+  async create(
+    warehouseId: string,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('warehouse_locations')
-      .insert({ ...payload, warehouse_id: warehouseId, tenant_id: tenantId, is_active: payload.is_active ?? true })
+      .insert({
+        ...payload,
+        warehouse_id: warehouseId,
+        tenant_id: tenantId,
+        is_active: payload.is_active ?? true,
+      })
       .select()
       .single();
     if (error) throw toHttpError(error);
@@ -102,13 +129,28 @@ export class LocationsRepository extends ScopedRepository {
     itemIds: string[],
     categoryIds: string[],
   ) {
-    await this.supabase.from('warehouse_location_restrictions').delete().eq('tenant_id', tenantId).eq('location_id', locationId);
+    await this.supabase
+      .from('warehouse_location_restrictions')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('location_id', locationId);
     const rows = [
-      ...itemIds.map((item_id) => ({ tenant_id: tenantId, location_id: locationId, item_id })),
-      ...categoryIds.map((category_id) => ({ tenant_id: tenantId, location_id: locationId, category_id })),
+      ...itemIds.map((item_id) => ({
+        tenant_id: tenantId,
+        location_id: locationId,
+        item_id,
+      })),
+      ...categoryIds.map((category_id) => ({
+        tenant_id: tenantId,
+        location_id: locationId,
+        category_id,
+      })),
     ];
     if (rows.length === 0) return [];
-    const { data, error } = await this.supabase.from('warehouse_location_restrictions').insert(rows).select();
+    const { data, error } = await this.supabase
+      .from('warehouse_location_restrictions')
+      .insert(rows)
+      .select();
     if (error) throw toHttpError(error);
     return data;
   }
@@ -123,7 +165,12 @@ export class LocationsRepository extends ScopedRepository {
     return data;
   }
 
-  async update(id: string, warehouseId: string, tenantId: string, payload: Record<string, unknown>) {
+  async update(
+    id: string,
+    warehouseId: string,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ) {
     const { data, error } = await this.supabase
       .from('warehouse_locations')
       .update(payload)

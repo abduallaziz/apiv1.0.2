@@ -251,8 +251,10 @@ describe('RFQ + Supplier Quote + Award module (migrations 122-125)', () => {
     // The document's number lives on the stable quote_group and is never
     // re-specified on a revision — it stays identical across versions.
     const v2Full = await quotesService.findById(v2.id, TEST_TENANT_ID);
-    expect((v2Full as any).quote_groups.quote_number).toBe((v1After as any).quote_groups.quote_number);
-    expect((v2Full as any).quote_groups.quote_number).toBeTruthy();
+    expect(v2Full.quote_groups.quote_number).toBe(
+      v1After.quote_groups.quote_number,
+    );
+    expect(v2Full.quote_groups.quote_number).toBeTruthy();
   }, 30_000);
 
   it('award snapshots quote pricing at award time and is independent of the RFQ status', async () => {

@@ -1,4 +1,11 @@
-import { IsUUID, IsOptional, IsNumber, Min, IsString, IsIn } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsNumber,
+  Min,
+  IsString,
+  IsIn,
+} from 'class-validator';
 
 export class CreateHoldDto {
   @IsUUID()
@@ -36,7 +43,11 @@ export class CreateHoldDto {
 
   @IsIn(['goods_receipt', 'stock_count', 'production_order', 'manual'])
   @IsOptional()
-  source_document_type?: 'goods_receipt' | 'stock_count' | 'production_order' | 'manual';
+  source_document_type?:
+    | 'goods_receipt'
+    | 'stock_count'
+    | 'production_order'
+    | 'manual';
 
   @IsUUID()
   @IsOptional()

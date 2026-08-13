@@ -22,8 +22,14 @@ export class LandedCostsController {
 
   @Get()
   @RequirePermission('purchasing.view')
-  findAll(@Param('id') goodsReceiptId: string, @GetTenant() tenant: TenantContext) {
-    return this.landedCostsService.findByReceipt(goodsReceiptId, tenant.tenantId);
+  findAll(
+    @Param('id') goodsReceiptId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.landedCostsService.findByReceipt(
+      goodsReceiptId,
+      tenant.tenantId,
+    );
   }
 
   @Post()
@@ -35,6 +41,11 @@ export class LandedCostsController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.landedCostsService.create(goodsReceiptId, tenant.tenantId, user.sub, dto);
+    return this.landedCostsService.create(
+      goodsReceiptId,
+      tenant.tenantId,
+      user.sub,
+      dto,
+    );
   }
 }

@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { LoyaltyTiersRepository } from './loyalty-tiers.repository';
 import { GetTenant } from '../tenant/get-tenant.decorator';
 import { TenantContext } from '../tenant/tenant-context';
@@ -22,7 +32,10 @@ export class LoyaltyTiersController {
 
   @Post()
   @RequirePermission('settings.manage')
-  create(@GetTenant() tenant: TenantContext, @Body() dto: CreateLoyaltyTierDto) {
+  create(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: CreateLoyaltyTierDto,
+  ) {
     return this.repo.create(tenant, dto);
   }
 

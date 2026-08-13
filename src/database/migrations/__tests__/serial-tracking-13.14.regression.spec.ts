@@ -38,33 +38,46 @@ describe('serial number tracking regression (Migration 13.14)', () => {
   ) => {
     const { data: gr, error: grErr } = await supabase
       .from('goods_receipts')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, receipt_number: `R1314-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, status: 'draft' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        receipt_number: `R1314-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        status: 'draft',
+      })
       .select()
       .single();
     if (grErr) throw grErr;
     grIds.push(gr.id);
 
-    const { error: griErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID,
-      goods_receipt_id: gr.id,
-      item_id: itemId,
-      quantity_received: quantity,
-      unit_cost: 10,
-      serial_number: opts.serialNumber ?? null,
-      batch_number: opts.batchNumber ?? null,
-    });
+    const { error: griErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: itemId,
+        quantity_received: quantity,
+        unit_cost: 10,
+        serial_number: opts.serialNumber ?? null,
+        batch_number: opts.batchNumber ?? null,
+      });
     if (griErr) throw griErr;
 
-    const { data: posted, error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
-      p_goods_receipt_id: gr.id,
-      p_actor_id: null,
-    });
+    const { data: posted, error: postErr } = await supabase.rpc(
+      'fn_post_goods_receipt',
+      {
+        p_goods_receipt_id: gr.id,
+        p_actor_id: null,
+      },
+    );
     if (postErr) throw postErr;
     return posted;
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
     serialsRepo = new SerialsRepository(supabase);
     serialsService = new SerialsService(serialsRepo);
 
@@ -79,7 +92,15 @@ describe('serial number tracking regression (Migration 13.14)', () => {
 
     const { data: iSerial, error: iSerialErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr 13.14 Serialized Item', type: 'product', operation_type: 'sell', price: 100, track_serial: true, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr 13.14 Serialized Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 100,
+        track_serial: true,
+        is_active: true,
+      })
       .select()
       .single();
     if (iSerialErr) throw iSerialErr;
@@ -88,7 +109,14 @@ describe('serial number tracking regression (Migration 13.14)', () => {
 
     const { data: iPlain, error: iPlainErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr 13.14 Plain Item', type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr 13.14 Plain Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     if (iPlainErr) throw iPlainErr;
@@ -110,7 +138,10 @@ describe('serial number tracking regression (Migration 13.14)', () => {
     await supabase.from('cost_layers').delete().in('item_id', itemIds);
     await supabase.from('stock_levels').delete().in('item_id', itemIds);
     for (const id of grIds) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', id);
       await supabase.from('goods_receipts').delete().eq('id', id);
     }
     for (const id of orderIds) {
@@ -145,28 +176,36 @@ describe('serial number tracking regression (Migration 13.14)', () => {
       .eq('serial_number', serialNumber)
       .single();
     expect(serial).toBeTruthy();
-    serialIds.push(serial!.id);
+    serialIds.push(serial.id);
 
     // The item_batches anchor row exists (still required for cost_layers.batch_id),
     // but its own serial_number column must be NULL — the dual-write is fixed.
-    expect(serial!.batch_id).toBeTruthy();
+    expect(serial.batch_id).toBeTruthy();
     const { data: batchRow } = await supabase
       .from('item_batches')
       .select('serial_number')
-      .eq('id', serial!.batch_id)
+      .eq('id', serial.batch_id)
       .single();
-    expect(batchRow!.serial_number).toBeNull();
+    expect(batchRow.serial_number).toBeNull();
   }, 30_000);
 
   it('Test 3: serial sale transitions in_stock -> sold', async () => {
     const serialNumber = `R1314-SN3-${Date.now()}`;
     await seedGoodsReceipt(itemSerialized, 1, { serialNumber });
-    const [serial] = await serialsRepo.findByNumber(serialNumber, TEST_TENANT_ID);
+    const [serial] = await serialsRepo.findByNumber(
+      serialNumber,
+      TEST_TENANT_ID,
+    );
     serialIds.push(serial.id);
 
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .insert({ tenant_id: TEST_TENANT_ID, customer_id: customerId, status: 'completed', total: 100 })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        customer_id: customerId,
+        status: 'completed',
+        total: 100,
+      })
       .select()
       .single();
     if (orderErr) throw orderErr;
@@ -182,12 +221,20 @@ describe('serial number tracking regression (Migration 13.14)', () => {
   it('Test 4: serial return transitions sold -> returned', async () => {
     const serialNumber = `R1314-SN4-${Date.now()}`;
     await seedGoodsReceipt(itemSerialized, 1, { serialNumber });
-    const [serial] = await serialsRepo.findByNumber(serialNumber, TEST_TENANT_ID);
+    const [serial] = await serialsRepo.findByNumber(
+      serialNumber,
+      TEST_TENANT_ID,
+    );
     serialIds.push(serial.id);
 
     const { data: order } = await supabase
       .from('orders')
-      .insert({ tenant_id: TEST_TENANT_ID, customer_id: customerId, status: 'completed', total: 100 })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        customer_id: customerId,
+        status: 'completed',
+        total: 100,
+      })
       .select()
       .single();
     orderIds.push(order.id);
@@ -200,71 +247,136 @@ describe('serial number tracking regression (Migration 13.14)', () => {
   it('Test 5: customer history returns the correct customer and order', async () => {
     const serialNumber = `R1314-SN5-${Date.now()}`;
     await seedGoodsReceipt(itemSerialized, 1, { serialNumber });
-    const [serial] = await serialsRepo.findByNumber(serialNumber, TEST_TENANT_ID);
+    const [serial] = await serialsRepo.findByNumber(
+      serialNumber,
+      TEST_TENANT_ID,
+    );
     serialIds.push(serial.id);
 
     const { data: order } = await supabase
       .from('orders')
-      .insert({ tenant_id: TEST_TENANT_ID, customer_id: customerId, status: 'completed', total: 100 })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        customer_id: customerId,
+        status: 'completed',
+        total: 100,
+      })
       .select()
       .single();
     orderIds.push(order.id);
     await serialsRepo.sell(serial.id, order.id, 6);
 
-    const history = await serialsService.getCustomerHistory(serial.id, TEST_TENANT_ID);
+    const history = await serialsService.getCustomerHistory(
+      serial.id,
+      TEST_TENANT_ID,
+    );
     expect(history.sold).toBe(true);
     expect(history.order_id).toBe(order.id);
-    expect((history.customer as any).id).toBe(customerId);
-    expect((history.customer as any).full_name).toBe('Regr 13.14 Customer');
+    expect(history.customer.id).toBe(customerId);
+    expect(history.customer.full_name).toBe('Regr 13.14 Customer');
 
-    const byCustomer = await serialsRepo.findByCustomer(customerId, TEST_TENANT_ID);
+    const byCustomer = await serialsRepo.findByCustomer(
+      customerId,
+      TEST_TENANT_ID,
+    );
     expect(byCustomer.some((s: any) => s.id === serial.id)).toBe(true);
   }, 30_000);
 
   it('Test 6: warranty status calculation — active vs expired vs none', async () => {
     const activeSerialNumber = `R1314-SN6A-${Date.now()}`;
-    await seedGoodsReceipt(itemSerialized, 1, { serialNumber: activeSerialNumber });
-    const [activeSerial] = await serialsRepo.findByNumber(activeSerialNumber, TEST_TENANT_ID);
+    await seedGoodsReceipt(itemSerialized, 1, {
+      serialNumber: activeSerialNumber,
+    });
+    const [activeSerial] = await serialsRepo.findByNumber(
+      activeSerialNumber,
+      TEST_TENANT_ID,
+    );
     serialIds.push(activeSerial.id);
-    const { data: order1 } = await supabase.from('orders').insert({ tenant_id: TEST_TENANT_ID, customer_id: customerId, status: 'completed', total: 100 }).select().single();
+    const { data: order1 } = await supabase
+      .from('orders')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        customer_id: customerId,
+        status: 'completed',
+        total: 100,
+      })
+      .select()
+      .single();
     orderIds.push(order1.id);
     await serialsRepo.sell(activeSerial.id, order1.id, 12); // 12 months from now -> active
 
-    const activeStatus = await serialsService.getWarrantyStatus(activeSerial.id, TEST_TENANT_ID);
+    const activeStatus = await serialsService.getWarrantyStatus(
+      activeSerial.id,
+      TEST_TENANT_ID,
+    );
     expect(activeStatus.has_warranty).toBe(true);
     expect(activeStatus.status).toBe('active');
     expect(activeStatus.days_remaining).toBeGreaterThan(0);
 
     const noWarrantySerialNumber = `R1314-SN6B-${Date.now()}`;
-    await seedGoodsReceipt(itemSerialized, 1, { serialNumber: noWarrantySerialNumber });
-    const [noWarrantySerial] = await serialsRepo.findByNumber(noWarrantySerialNumber, TEST_TENANT_ID);
+    await seedGoodsReceipt(itemSerialized, 1, {
+      serialNumber: noWarrantySerialNumber,
+    });
+    const [noWarrantySerial] = await serialsRepo.findByNumber(
+      noWarrantySerialNumber,
+      TEST_TENANT_ID,
+    );
     serialIds.push(noWarrantySerial.id);
-    const noWarrantyStatus = await serialsService.getWarrantyStatus(noWarrantySerial.id, TEST_TENANT_ID);
+    const noWarrantyStatus = await serialsService.getWarrantyStatus(
+      noWarrantySerial.id,
+      TEST_TENANT_ID,
+    );
     expect(noWarrantyStatus.has_warranty).toBe(false);
     expect(noWarrantyStatus.status).toBe('none');
 
     // Directly seed an already-expired warranty to verify the 'expired' branch.
     const expiredSerialNumber = `R1314-SN6C-${Date.now()}`;
-    await seedGoodsReceipt(itemSerialized, 1, { serialNumber: expiredSerialNumber });
-    const [expiredSerial] = await serialsRepo.findByNumber(expiredSerialNumber, TEST_TENANT_ID);
+    await seedGoodsReceipt(itemSerialized, 1, {
+      serialNumber: expiredSerialNumber,
+    });
+    const [expiredSerial] = await serialsRepo.findByNumber(
+      expiredSerialNumber,
+      TEST_TENANT_ID,
+    );
     serialIds.push(expiredSerial.id);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    await supabase.from('item_serials').update({ status: 'sold', warranty_months: 1, warranty_expires_at: yesterday, sold_at: new Date().toISOString() }).eq('id', expiredSerial.id);
-    const expiredStatus = await serialsService.getWarrantyStatus(expiredSerial.id, TEST_TENANT_ID);
+    const yesterday = new Date(Date.now() - 86400000)
+      .toISOString()
+      .slice(0, 10);
+    await supabase
+      .from('item_serials')
+      .update({
+        status: 'sold',
+        warranty_months: 1,
+        warranty_expires_at: yesterday,
+        sold_at: new Date().toISOString(),
+      })
+      .eq('id', expiredSerial.id);
+    const expiredStatus = await serialsService.getWarrantyStatus(
+      expiredSerial.id,
+      TEST_TENANT_ID,
+    );
     expect(expiredStatus.status).toBe('expired');
     expect(expiredStatus.days_remaining).toBeNull();
   }, 30_000);
 
-  it('Test 7: tenant isolation — another tenant cannot see this tenant\'s serial', async () => {
+  it("Test 7: tenant isolation — another tenant cannot see this tenant's serial", async () => {
     const serialNumber = `R1314-SN7-${Date.now()}`;
     await seedGoodsReceipt(itemSerialized, 1, { serialNumber });
-    const [serial] = await serialsRepo.findByNumber(serialNumber, TEST_TENANT_ID);
+    const [serial] = await serialsRepo.findByNumber(
+      serialNumber,
+      TEST_TENANT_ID,
+    );
     serialIds.push(serial.id);
 
-    const crossTenant = await serialsRepo.findByNumber(serialNumber, OTHER_TENANT_ID);
+    const crossTenant = await serialsRepo.findByNumber(
+      serialNumber,
+      OTHER_TENANT_ID,
+    );
     expect(crossTenant).toEqual([]);
 
-    await expect(serialsService.findById(serial.id, OTHER_TENANT_ID)).rejects.toThrow('Serial not found');
+    await expect(
+      serialsService.findById(serial.id, OTHER_TENANT_ID),
+    ).rejects.toThrow('Serial not found');
   }, 30_000);
 
   it('Test 8: existing non-serialized receipt/sale flow is unchanged', async () => {
@@ -272,7 +384,10 @@ describe('serial number tracking regression (Migration 13.14)', () => {
     expect(posted.status).toBe('posted');
 
     // No item_serials row should ever be created for a line with no serial_number.
-    const { data: stray } = await supabase.from('item_serials').select('id').eq('item_id', itemPlain);
+    const { data: stray } = await supabase
+      .from('item_serials')
+      .select('id')
+      .eq('item_id', itemPlain);
     expect(stray).toEqual([]);
 
     const { data: level } = await supabase

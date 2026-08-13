@@ -4,7 +4,7 @@ import * as path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
-const secret = process.env.JWT_SECRET!;
+const secret = process.env.JWT_SECRET;
 
 const cashierToken = jwt.sign(
   {

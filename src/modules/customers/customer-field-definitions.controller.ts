@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { CustomerFieldDefinitionsService } from './customer-field-definitions.service';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -22,7 +31,10 @@ export class CustomerFieldDefinitionsController {
 
   @Post()
   @RequirePermission('customers.manage')
-  create(@GetTenant() tenant: TenantContext, @Body() dto: CreateFieldDefinitionDto) {
+  create(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: CreateFieldDefinitionDto,
+  ) {
     return this.service.create(tenant, dto);
   }
 

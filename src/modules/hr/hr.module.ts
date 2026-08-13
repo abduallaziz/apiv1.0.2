@@ -24,7 +24,14 @@ import { GeofenceService } from '../../shared/geo/geofence.service';
 
 @Module({
   imports: [PermissionsModule, CoreAuthModule, UsersModule],
-  controllers: [AttendanceController, AttendanceLinkController, SchedulesController, ShiftPatternsController, EmployeeGeofencesController, LeavesController],
+  controllers: [
+    AttendanceController,
+    AttendanceLinkController,
+    SchedulesController,
+    ShiftPatternsController,
+    EmployeeGeofencesController,
+    LeavesController,
+  ],
   providers: [
     AttendanceService,
     AttendanceRepository,

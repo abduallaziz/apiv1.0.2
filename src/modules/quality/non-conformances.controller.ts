@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { NonConformancesService } from './non-conformances.service';
 import { CreateNonConformanceDto } from './dto/create-non-conformance.dto';
 import { UpdateNonConformanceStatusDto } from './dto/update-non-conformance-status.dto';
@@ -16,7 +26,9 @@ import { Audit } from '../../core/audit/audit.decorator';
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('quality/non-conformances')
 export class NonConformancesController {
-  constructor(private readonly nonConformancesService: NonConformancesService) {}
+  constructor(
+    private readonly nonConformancesService: NonConformancesService,
+  ) {}
 
   @Get()
   @RequirePermission('quality.view')
@@ -39,14 +51,21 @@ export class NonConformancesController {
   @Post()
   @RequirePermission('quality.manage')
   @Audit('non_conformance.created')
-  create(@Body() dto: CreateNonConformanceDto, @GetTenant() tenant: TenantContext) {
+  create(
+    @Body() dto: CreateNonConformanceDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.nonConformancesService.create(tenant.tenantId, dto);
   }
 
   @Post(':id/defects')
   @RequirePermission('quality.manage')
   @Audit('non_conformance.defect_added')
-  addDefect(@Param('id') id: string, @Body() dto: CreateDefectDto, @GetTenant() tenant: TenantContext) {
+  addDefect(
+    @Param('id') id: string,
+    @Body() dto: CreateDefectDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.nonConformancesService.addDefect(id, tenant.tenantId, dto);
   }
 
@@ -63,6 +82,11 @@ export class NonConformancesController {
     @GetTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.nonConformancesService.updateStatus(id, tenant.tenantId, dto, user.sub);
+    return this.nonConformancesService.updateStatus(
+      id,
+      tenant.tenantId,
+      dto,
+      user.sub,
+    );
   }
 }

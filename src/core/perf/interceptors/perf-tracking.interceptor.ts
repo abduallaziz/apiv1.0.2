@@ -24,13 +24,20 @@ export class PerfTrackingInterceptor implements NestInterceptor {
 
     const start = Date.now();
     const method = request.method;
-    const route = (request.route?.path as string | undefined) ?? request.path ?? 'unknown';
+    const route =
+      (request.route?.path as string | undefined) ?? request.path ?? 'unknown';
 
     const record = (statusCode: number): void => {
       const durationMs = Date.now() - start;
       const dbQueryCount = this.asyncContext.get()?.dbQueryCount ?? 0;
       // Fire-and-forget — Redis write is async but must never stall the response
-      void this.perfTracking.record(method, route, durationMs, dbQueryCount, statusCode);
+      void this.perfTracking.record(
+        method,
+        route,
+        durationMs,
+        dbQueryCount,
+        statusCode,
+      );
     };
 
     return next.handle().pipe(

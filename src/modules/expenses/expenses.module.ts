@@ -14,8 +14,17 @@ import { NotificationModule } from '../../core/notification/notification.module'
 import { AuditInterceptor } from '../../core/audit/audit.interceptor';
 
 @Module({
-  imports: [ExpenseEngineModule, ApprovalEngineModule, PermissionsModule, NotificationModule],
-  controllers: [ExpensesController, ExpenseCategoriesController, ExpenseTemplatesController],
+  imports: [
+    ExpenseEngineModule,
+    ApprovalEngineModule,
+    PermissionsModule,
+    NotificationModule,
+  ],
+  controllers: [
+    ExpensesController,
+    ExpenseCategoriesController,
+    ExpenseTemplatesController,
+  ],
   providers: [
     ExpensesService,
     ExpenseCategoriesService,

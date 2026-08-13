@@ -24,7 +24,9 @@ export class AuditCleanupProcessor extends WorkerHost {
       return;
     }
 
-    this.logger.log(`Starting audit log cleanup (retention: ${AUDIT_RETENTION_DAYS} days)`);
+    this.logger.log(
+      `Starting audit log cleanup (retention: ${AUDIT_RETENTION_DAYS} days)`,
+    );
 
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - AUDIT_RETENTION_DAYS);

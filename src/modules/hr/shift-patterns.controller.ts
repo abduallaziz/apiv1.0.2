@@ -1,6 +1,19 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { ShiftPatternsService } from './shift-patterns.service';
-import { CreateShiftPatternDto, UpdateShiftPatternDto } from './dto/shift-pattern.dto';
+import {
+  CreateShiftPatternDto,
+  UpdateShiftPatternDto,
+} from './dto/shift-pattern.dto';
 import { AssignScheduleDto } from './dto/assign-schedule.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
@@ -22,7 +35,10 @@ export class ShiftPatternsController {
 
   @Post()
   @RequirePermission('hr.manage')
-  create(@GetTenant() tenant: TenantContext, @Body() dto: CreateShiftPatternDto) {
+  create(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: CreateShiftPatternDto,
+  ) {
     return this.service.create(tenant, dto);
   }
 
@@ -38,7 +54,10 @@ export class ShiftPatternsController {
 
   @Delete(':id')
   @RequirePermission('hr.manage')
-  remove(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.remove(id, tenant);
   }
 

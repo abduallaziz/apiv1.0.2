@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ProductionOrdersRepository } from './repositories/production-orders.repository';
 import { BomRepository } from './repositories/bom.repository';
 import { WarehousesService } from '../inventory/warehouses.service';
@@ -81,8 +85,14 @@ export class ProductionOrdersService {
     const order: any = await this.findById(id, tenantId);
 
     const bom: any = await this.bomRepo.findById(order.bom_id, tenantId);
-    const bomLines: any[] = bom ? await this.bomRepo.findLines(bom.id, tenantId) : [];
-    const bomItem = bom ? await this.itemsService.findById(bom.item_id, tenantId).catch(() => null) : null;
+    const bomLines: any[] = bom
+      ? await this.bomRepo.findLines(bom.id, tenantId)
+      : [];
+    const bomItem = bom
+      ? await this.itemsService
+          .findById(bom.item_id, tenantId)
+          .catch(() => null)
+      : null;
 
     const consumption =
       order.status === 'completed'
@@ -91,12 +101,17 @@ export class ProductionOrdersService {
     const consumedByItem = new Map<string, number>();
     for (const m of consumption) {
       const key = `${m.item_id}:${m.variant_id ?? ''}`;
-      consumedByItem.set(key, (consumedByItem.get(key) ?? 0) + Number(m.quantity));
+      consumedByItem.set(
+        key,
+        (consumedByItem.get(key) ?? 0) + Number(m.quantity),
+      );
     }
 
     const components = await Promise.all(
       bomLines.map(async (line) => {
-        const componentItem = await this.itemsService.findById(line.component_item_id, tenantId).catch(() => null);
+        const componentItem = await this.itemsService
+          .findById(line.component_item_id, tenantId)
+          .catch(() => null);
         const key = `${line.component_item_id}:${line.component_variant_id ?? ''}`;
         return {
           id: line.id,
@@ -138,9 +153,17 @@ export class ProductionOrdersService {
   private async validateLocations(
     tenantId: string,
     warehouseId: string,
-    dto: { source_location_id?: string; staging_location_id?: string; output_location_id?: string },
+    dto: {
+      source_location_id?: string;
+      staging_location_id?: string;
+      output_location_id?: string;
+    },
   ) {
-    for (const locationId of [dto.source_location_id, dto.staging_location_id, dto.output_location_id]) {
+    for (const locationId of [
+      dto.source_location_id,
+      dto.staging_location_id,
+      dto.output_location_id,
+    ]) {
       if (locationId) {
         await this.locationsService.findById(locationId, warehouseId, tenantId); // throws if missing/mismatched warehouse
       }
@@ -151,8 +174,10 @@ export class ProductionOrdersService {
     await this.warehousesService.findById(dto.warehouse_id, tenantId); // throws NotFoundException if missing
     const bom = await this.bomRepo.findById(dto.bom_id, tenantId);
     if (!bom) throw new NotFoundException('BOM not found');
-    if (!(bom as any).is_active) {
-      throw new BadRequestException('Cannot create a production order against an inactive BOM');
+    if (!bom.is_active) {
+      throw new BadRequestException(
+        'Cannot create a production order against an inactive BOM',
+      );
     }
     await this.validateLocations(tenantId, dto.warehouse_id, dto);
 
@@ -174,27 +199,41 @@ export class ProductionOrdersService {
   async update(id: string, tenantId: string, dto: UpdateProductionOrderDto) {
     const existing: any = await this.findById(id, tenantId);
     if (existing.status !== 'draft') {
-      throw new BadRequestException(`Production order ${id} is not in draft status (status=${existing.status})`);
+      throw new BadRequestException(
+        `Production order ${id} is not in draft status (status=${existing.status})`,
+      );
     }
-    if (dto.source_location_id || dto.staging_location_id || dto.output_location_id) {
+    if (
+      dto.source_location_id ||
+      dto.staging_location_id ||
+      dto.output_location_id
+    ) {
       await this.validateLocations(tenantId, existing.warehouse_id, dto);
     }
 
-    const updated = await this.productionOrdersRepo.update(id, tenantId, { ...dto });
+    const updated = await this.productionOrdersRepo.update(id, tenantId, {
+      ...dto,
+    });
     if (!updated) {
-      throw new BadRequestException(`Production order ${id} is not in draft status`);
+      throw new BadRequestException(
+        `Production order ${id} is not in draft status`,
+      );
     }
     return updated;
   }
 
   async start(id: string, tenantId: string) {
     const existing = await this.findById(id, tenantId);
-    if ((existing as any).status !== 'draft') {
-      throw new BadRequestException(`Production order ${id} is not in draft status (status=${(existing as any).status})`);
+    if (existing.status !== 'draft') {
+      throw new BadRequestException(
+        `Production order ${id} is not in draft status (status=${existing.status})`,
+      );
     }
     const started = await this.productionOrdersRepo.start(id, tenantId);
     if (!started) {
-      throw new BadRequestException(`Production order ${id} is not in draft status`);
+      throw new BadRequestException(
+        `Production order ${id} is not in draft status`,
+      );
     }
     return started;
   }
@@ -207,7 +246,11 @@ export class ProductionOrdersService {
   // for now this guard exists specifically to prevent fn_post_production_
   // order from silently consuming owned components and orphaning their
   // ownership layers (no consumption path for production exists yet).
-  private async assertNoOwnedComponents(tenantId: string, warehouseId: string, bomId: string) {
+  private async assertNoOwnedComponents(
+    tenantId: string,
+    warehouseId: string,
+    bomId: string,
+  ) {
     const lines: any[] = await this.bomRepo.findLines(bomId, tenantId);
     for (const line of lines) {
       const activeLayers = await this.ownershipRepo.findActiveForItem(
@@ -224,16 +267,29 @@ export class ProductionOrdersService {
     }
   }
 
-  async complete(id: string, tenantId: string, actorId: string | null, dto: CompleteProductionOrderDto) {
+  async complete(
+    id: string,
+    tenantId: string,
+    actorId: string | null,
+    dto: CompleteProductionOrderDto,
+  ) {
     const existing: any = await this.findById(id, tenantId); // 404 if missing, before hitting the RPC
-    await this.assertNoOwnedComponents(tenantId, existing.warehouse_id, existing.bom_id);
+    await this.assertNoOwnedComponents(
+      tenantId,
+      existing.warehouse_id,
+      existing.bom_id,
+    );
     // Migration 13.16A — routing gate: a no-op for the overwhelming majority
     // of production orders (zero operations rows). Only blocks completion
     // when the order actually has routing operations and at least one is
     // still not 'completed'. fn_post_production_order itself is untouched.
     await this.operationsService.assertAllOperationsComplete(id, tenantId);
     try {
-      const result = await this.productionOrdersRepo.complete(id, actorId, dto.quantity_produced);
+      const result = await this.productionOrdersRepo.complete(
+        id,
+        actorId,
+        dto.quantity_produced,
+      );
       await this.stockService.invalidateStockCache(tenantId);
       // Migration 13.16A — optional scrap posting, orchestrated at the
       // application layer immediately after the existing, unmodified
@@ -254,17 +310,31 @@ export class ProductionOrdersService {
       // i.e. every production order that doesn't use by-products).
       const bom: any = await this.bomRepo.findById(existing.bom_id, tenantId);
       if (bom) {
-        const mainMovement = await this.productionOrdersRepo.findMainReceiptMovement(
-          tenantId, id, bom.item_id, bom.variant_id ?? null,
-        );
+        const mainMovement =
+          await this.productionOrdersRepo.findMainReceiptMovement(
+            tenantId,
+            id,
+            bom.item_id,
+            bom.variant_id ?? null,
+          );
         if (mainMovement) {
           await this.outputsService.recordMainProductOutput(
-            id, tenantId, bom.item_id, bom.variant_id ?? null,
-            Number(mainMovement.quantity), Number(mainMovement.unit_cost), mainMovement.id,
+            id,
+            tenantId,
+            bom.item_id,
+            bom.variant_id ?? null,
+            Number(mainMovement.quantity),
+            Number(mainMovement.unit_cost),
+            mainMovement.id,
           );
         }
       }
-      await this.outputsService.receiveAllUnposted(id, tenantId, existing.warehouse_id, actorId);
+      await this.outputsService.receiveAllUnposted(
+        id,
+        tenantId,
+        existing.warehouse_id,
+        actorId,
+      );
       // Migration 13.19 — Manufacturing Quality Gate. Additive step AFTER
       // the existing, unmodified fn_post_production_order call succeeds
       // (output already received into stock via that unmodified RPC) — does
@@ -274,18 +344,29 @@ export class ProductionOrdersService {
       if (bom) {
         try {
           const rule = await this.qualityConfigService.resolvePlan(
-            tenantId, 'production_output', bom.item_id, null, null, existing.warehouse_id,
+            tenantId,
+            'production_output',
+            bom.item_id,
+            null,
+            null,
+            existing.warehouse_id,
           );
           if (rule?.action === 'require_inspection') {
-            await this.inspectionsService.create(tenantId, {
-              reference_type: 'production_order',
-              reference_id: id,
-              item_id: bom.item_id,
-              variant_id: bom.variant_id ?? undefined,
-              template_id: rule.template_id ?? undefined,
-              warehouse_id: existing.warehouse_id,
-              quantity_inspected: Number(result.quantity_produced ?? dto.quantity_produced ?? 0),
-            } as any, actorId ?? undefined as any);
+            await this.inspectionsService.create(
+              tenantId,
+              {
+                reference_type: 'production_order',
+                reference_id: id,
+                item_id: bom.item_id,
+                variant_id: bom.variant_id ?? undefined,
+                template_id: rule.template_id ?? undefined,
+                warehouse_id: existing.warehouse_id,
+                quantity_inspected: Number(
+                  result.quantity_produced ?? dto.quantity_produced ?? 0,
+                ),
+              } as any,
+              actorId ?? (undefined as any),
+            );
           }
         } catch {
           // best-effort — never block the already-completed production order
@@ -304,7 +385,7 @@ export class ProductionOrdersService {
             resource_type: 'production_order',
             resource_id: id,
             before_data: existing,
-            after_data: result as unknown as Record<string, unknown>,
+            after_data: result,
           })
           .catch(() => {}); // audit failure must never affect the production posting
       }
@@ -318,14 +399,16 @@ export class ProductionOrdersService {
   // needed since fn_post_production_order hasn't run in either status.
   async cancel(id: string, tenantId: string) {
     const existing = await this.findById(id, tenantId);
-    if (!['draft', 'in_progress'].includes((existing as any).status)) {
+    if (!['draft', 'in_progress'].includes(existing.status)) {
       throw new BadRequestException(
-        `Production order ${id} cannot be cancelled from status=${(existing as any).status}`,
+        `Production order ${id} cannot be cancelled from status=${existing.status}`,
       );
     }
     const cancelled = await this.productionOrdersRepo.cancel(id, tenantId);
     if (!cancelled) {
-      throw new BadRequestException(`Production order ${id} cannot be cancelled from its current status`);
+      throw new BadRequestException(
+        `Production order ${id} cannot be cancelled from its current status`,
+      );
     }
     return cancelled;
   }

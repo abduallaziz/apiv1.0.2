@@ -1,10 +1,17 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ShiftsRepository } from './shifts.repository';
 import { ShiftEngine } from '../../engines/shift-engine/shift.engine';
 import { AuditService } from '../../core/audit/audit.service';
 import { MetricsService } from '../../core/metrics/metrics.service';
 import { NotificationService } from '../../core/notification/notification.service';
-import { NOTIFICATION_TYPES, NOTIFICATION_CHANNELS } from '../../core/notification/notification.constants';
+import {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+} from '../../core/notification/notification.constants';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
@@ -53,13 +60,15 @@ export class ShiftsService {
 
     this.metricsService.recordShift(tenant.tenantId, 'open');
 
-    this.notificationService.notify({
-      userId: actorId,
-      tenantId: tenant.tenantId,
-      type: NOTIFICATION_TYPES.SHIFT_OPENED,
-      channels: [NOTIFICATION_CHANNELS.IN_APP],
-      data: { shift_id: shift.id, opening_cash: dto.opening_cash },
-    }).catch(() => {});
+    this.notificationService
+      .notify({
+        userId: actorId,
+        tenantId: tenant.tenantId,
+        type: NOTIFICATION_TYPES.SHIFT_OPENED,
+        channels: [NOTIFICATION_CHANNELS.IN_APP],
+        data: { shift_id: shift.id, opening_cash: dto.opening_cash },
+      })
+      .catch(() => {});
 
     return shift;
   }
@@ -75,8 +84,10 @@ export class ShiftsService {
   ) {
     const shift = await this.repo.findById(shiftId, tenant.tenantId);
     if (!shift) throw new NotFoundException('Shift not found');
-    if (shift.status === 'closed') throw new BadRequestException('Shift already closed');
-    if (shift.cashier_id !== actorId) throw new BadRequestException('Not your shift');
+    if (shift.status === 'closed')
+      throw new BadRequestException('Shift already closed');
+    if (shift.cashier_id !== actorId)
+      throw new BadRequestException('Not your shift');
 
     const invoices = await this.repo.getShiftInvoices(shiftId, tenant.tenantId);
     const expenses = await this.repo.getShiftExpenses(shiftId, tenant.tenantId);
@@ -109,17 +120,19 @@ export class ShiftsService {
 
     this.metricsService.recordShift(tenant.tenantId, 'close');
 
-    this.notificationService.notify({
-      userId: actorId,
-      tenantId: tenant.tenantId,
-      type: NOTIFICATION_TYPES.SHIFT_CLOSED,
-      channels: [NOTIFICATION_CHANNELS.IN_APP],
-      data: {
-        shift_id: shiftId,
-        total: summary.totalInvoices,
-        discrepancy: summary.discrepancy,
-      },
-    }).catch(() => {});
+    this.notificationService
+      .notify({
+        userId: actorId,
+        tenantId: tenant.tenantId,
+        type: NOTIFICATION_TYPES.SHIFT_CLOSED,
+        channels: [NOTIFICATION_CHANNELS.IN_APP],
+        data: {
+          shift_id: shiftId,
+          total: summary.totalInvoices,
+          discrepancy: summary.discrepancy,
+        },
+      })
+      .catch(() => {});
 
     return { shift: closed, summary };
   }
@@ -137,7 +150,10 @@ export class ShiftsService {
     device: string,
   ) {
     const shift = await this.repo.findOpenByUser(actorId, tenant.tenantId);
-    if (!shift) throw new BadRequestException('No open shift — open a shift before opening the drawer');
+    if (!shift)
+      throw new BadRequestException(
+        'No open shift — open a shift before opening the drawer',
+      );
 
     await this.audit.log({
       tenant_id: tenant.tenantId,
@@ -146,7 +162,10 @@ export class ShiftsService {
       action: 'pos.drawer_opened',
       resource_type: 'shift',
       resource_id: shift.id,
-      after_data: { branch_id: shift.branch_id, opened_at: new Date().toISOString() },
+      after_data: {
+        branch_id: shift.branch_id,
+        opened_at: new Date().toISOString(),
+      },
       ip_address: ip,
       device,
     });
@@ -158,7 +177,11 @@ export class ShiftsService {
     return this.repo.findAll(tenant.tenantId, branchId);
   }
 
-  async getCurrentShift(tenant: TenantContext, actorId: string, branchId?: string) {
+  async getCurrentShift(
+    tenant: TenantContext,
+    actorId: string,
+    branchId?: string,
+  ) {
     if (branchId) {
       return this.repo.findCurrentByBranch(branchId, tenant.tenantId);
     }
@@ -170,7 +193,10 @@ export class ShiftsService {
   // STATUS.md "Cash Register Session" migration). Kept here rather than
   // duplicated in InvoicesService so the "what counts as an open session"
   // rule has exactly one owner.
-  async assertOpenSession(tenantId: string, shiftId?: string | null): Promise<void> {
+  async assertOpenSession(
+    tenantId: string,
+    shiftId?: string | null,
+  ): Promise<void> {
     if (!shiftId) {
       throw new BadRequestException(
         'NO_ACTIVE_CASH_SESSION: no cash register session id was provided',

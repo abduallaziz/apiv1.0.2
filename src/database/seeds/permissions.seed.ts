@@ -344,19 +344,22 @@ const permissions = [
     name: 'quality.manage',
     resource: 'quality',
     action: 'manage',
-    description: 'Configure quality templates/plans/rules, create non-conformances, assign corrective actions',
+    description:
+      'Configure quality templates/plans/rules, create non-conformances, assign corrective actions',
   },
   {
     name: 'quality.execute',
     resource: 'quality',
     action: 'execute',
-    description: 'Perform inspections, create quality holds, work corrective actions',
+    description:
+      'Perform inspections, create quality holds, work corrective actions',
   },
   {
     name: 'quality.approve',
     resource: 'quality',
     action: 'approve',
-    description: 'Release/reject quality holds, verify and close corrective actions, decide deviations, close non-conformances',
+    description:
+      'Release/reject quality holds, verify and close corrective actions, decide deviations, close non-conformances',
   },
 
   // Warehouse (WMS) — Picking/Packing/Shipping execution reuses the
@@ -369,13 +372,15 @@ const permissions = [
     name: 'warehouse.manage',
     resource: 'warehouse',
     action: 'manage',
-    description: 'Configure putaway rules, replenishment rules, location purpose/capacity/restrictions; create/assign warehouse tasks',
+    description:
+      'Configure putaway rules, replenishment rules, location purpose/capacity/restrictions; create/assign warehouse tasks',
   },
   {
     name: 'warehouse.approve',
     resource: 'warehouse',
     action: 'approve',
-    description: 'Confirm/complete warehouse tasks (putaway/replenishment placement)',
+    description:
+      'Confirm/complete warehouse tasks (putaway/replenishment placement)',
   },
 
   // Scanner Platform (Universal Device Platform, #21) — device
@@ -394,7 +399,8 @@ const permissions = [
     name: 'devices.manage',
     resource: 'devices',
     action: 'manage',
-    description: 'Register/edit/disable scanner devices, assign devices to users/warehouses',
+    description:
+      'Register/edit/disable scanner devices, assign devices to users/warehouses',
   },
 
   // Ownership
@@ -402,7 +408,8 @@ const permissions = [
     name: 'ownership.view',
     resource: 'ownership',
     action: 'view',
-    description: 'View inventory ownership layers (consignment/customer-owned stock)',
+    description:
+      'View inventory ownership layers (consignment/customer-owned stock)',
   },
   {
     name: 'ownership.manage',

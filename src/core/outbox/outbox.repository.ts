@@ -48,7 +48,11 @@ export class OutboxRepository {
     }
   }
 
-  async markFailed(id: string, retryCount: number, errorMessage: string): Promise<void> {
+  async markFailed(
+    id: string,
+    retryCount: number,
+    errorMessage: string,
+  ): Promise<void> {
     const { error } = await this.supabase
       .from('domain_events_outbox')
       .update({

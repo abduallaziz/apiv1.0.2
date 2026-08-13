@@ -1,6 +1,13 @@
 import {
-  Controller, Get, Post, Patch, Delete,
-  Param, Body, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -113,7 +120,13 @@ export class UsersController {
     @GetTenant() tenant: TenantContext,
     @Request() req: any,
   ) {
-    return this.usersService.setPermissionOverride(id, dto.permission_key, dto.action, tenant, req.user.sub);
+    return this.usersService.setPermissionOverride(
+      id,
+      dto.permission_key,
+      dto.action,
+      tenant,
+      req.user.sub,
+    );
   }
 
   @Delete(':id/permissions/overrides')
@@ -125,12 +138,20 @@ export class UsersController {
     @GetTenant() tenant: TenantContext,
     @Request() req: any,
   ) {
-    return this.usersService.removePermissionOverride(id, permissionKey, tenant, req.user.sub);
+    return this.usersService.removePermissionOverride(
+      id,
+      permissionKey,
+      tenant,
+      req.user.sub,
+    );
   }
 
   @Get(':id/permissions/overrides')
   @UseGuards(AccessControlAdminGuard)
-  getPermissionOverrides(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+  getPermissionOverrides(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.usersService.getPermissionOverrides(id, tenant);
   }
 
@@ -158,14 +179,20 @@ export class UsersController {
   @Post(':id/attendance-link')
   @Audit('attendance.link.regenerated')
   @RequirePermission('hr.manage')
-  generateAttendanceLink(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+  generateAttendanceLink(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.usersService.generateAttendanceLink(id, tenant);
   }
 
   @Post(':id/attendance-link/unbind-device')
   @Audit('attendance.link.device.unbound')
   @RequirePermission('hr.manage')
-  unbindAttendanceDevice(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
+  unbindAttendanceDevice(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.usersService.unbindAttendanceDevice(id, tenant);
   }
 }

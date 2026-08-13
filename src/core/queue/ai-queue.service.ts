@@ -23,9 +23,7 @@ export interface EnqueueAiJobOptions {
 
 @Injectable()
 export class AiQueueService {
-  constructor(
-    @InjectQueue(QUEUE_NAMES.AI) private readonly aiQueue: Queue,
-  ) {}
+  constructor(@InjectQueue(QUEUE_NAMES.AI) private readonly aiQueue: Queue) {}
 
   async enqueue(opts: EnqueueAiJobOptions) {
     const bullPriority =
@@ -59,7 +57,11 @@ export class AiQueueService {
 
   async getQueueStats() {
     const counts = await this.aiQueue.getJobCounts(
-      'waiting', 'active', 'completed', 'failed', 'delayed',
+      'waiting',
+      'active',
+      'completed',
+      'failed',
+      'delayed',
     );
     return { queue: QUEUE_NAMES.AI, ...counts };
   }

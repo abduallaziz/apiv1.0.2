@@ -1,4 +1,12 @@
-import { IsUUID, IsOptional, IsString, IsNumber, Min, MaxLength, IsDateString } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsString,
+  IsNumber,
+  Min,
+  MaxLength,
+  IsDateString,
+} from 'class-validator';
 
 export class CreateEmployeeGeofenceDto {
   @IsUUID()

@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { QualityConfigService } from './quality-config.service';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
@@ -37,7 +47,11 @@ export class TemplatesController {
   @Patch(':id')
   @RequirePermission('quality.manage')
   @HttpCode(HttpStatus.OK)
-  update(@Param('id') id: string, @Body() dto: UpdateTemplateDto, @GetTenant() tenant: TenantContext) {
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateTemplateDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.configService.updateTemplate(id, tenant.tenantId, dto);
   }
 }

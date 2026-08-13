@@ -28,10 +28,19 @@ export class ReplenishmentRepository extends ScopedRepository {
     return data;
   }
 
-  async runCheck(tenantId: string, warehouseId: string, createdBy: string | null) {
-    const { data, error } = await this.supabase.rpc('fn_run_replenishment_check', {
-      p_tenant_id: tenantId, p_warehouse_id: warehouseId, p_created_by: createdBy,
-    });
+  async runCheck(
+    tenantId: string,
+    warehouseId: string,
+    createdBy: string | null,
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_run_replenishment_check',
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: warehouseId,
+        p_created_by: createdBy,
+      },
+    );
     if (error) throw error;
     return data;
   }

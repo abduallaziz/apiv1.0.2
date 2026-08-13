@@ -36,7 +36,11 @@ import { QUEUE_NAMES } from '../queue/queue.constants';
     BillingCustomersRepository,
     {
       provide: PAYMENT_PROVIDER,
-      useFactory: (config: ConfigService, stripe: StripePaymentProvider, mock: MockPaymentProvider) => {
+      useFactory: (
+        config: ConfigService,
+        stripe: StripePaymentProvider,
+        mock: MockPaymentProvider,
+      ) => {
         const provider = config.get<string>('PAYMENT_PROVIDER', 'mock');
         return provider === 'stripe' ? stripe : mock;
       },

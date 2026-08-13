@@ -63,7 +63,8 @@ export class UsersService {
   }
 
   async findLinkableSystemUsers(tenant: TenantContext) {
-    const { data, error } = await this.usersRepository.findLinkableSystemUsers(tenant);
+    const { data, error } =
+      await this.usersRepository.findLinkableSystemUsers(tenant);
     if (error) throw new BadRequestException(error.message);
     return data;
   }
@@ -71,19 +72,36 @@ export class UsersService {
   // Real-time wizard validation (Step 1) and a defense-in-depth check at create
   // time — email/phone/employee_number must each be unique per tenant across
   // every row (System User or Employee Profile), since they still share one table.
-  async checkDuplicates(tenant: TenantContext, fields: { email?: string; phone?: string; employee_number?: string }, excludeId?: string) {
-    const result: { email?: boolean; phone?: boolean; employee_number?: boolean } = {}
+  async checkDuplicates(
+    tenant: TenantContext,
+    fields: { email?: string; phone?: string; employee_number?: string },
+    excludeId?: string,
+  ) {
+    const result: {
+      email?: boolean;
+      phone?: boolean;
+      employee_number?: boolean;
+    } = {};
 
     if (fields.email) {
-      const { data } = await this.usersRepository.findByEmail(fields.email, tenant.tenantId);
+      const { data } = await this.usersRepository.findByEmail(
+        fields.email,
+        tenant.tenantId,
+      );
       result.email = !!data && data.id !== excludeId;
     }
     if (fields.phone) {
-      const { data } = await this.usersRepository.findByPhone(fields.phone, tenant.tenantId);
+      const { data } = await this.usersRepository.findByPhone(
+        fields.phone,
+        tenant.tenantId,
+      );
       result.phone = !!data && data.id !== excludeId;
     }
     if (fields.employee_number) {
-      const { data } = await this.usersRepository.findByEmployeeNumber(fields.employee_number, tenant.tenantId);
+      const { data } = await this.usersRepository.findByEmployeeNumber(
+        fields.employee_number,
+        tenant.tenantId,
+      );
       result.employee_number = !!data && data.id !== excludeId;
     }
     return result;
@@ -95,16 +113,32 @@ export class UsersService {
     excludeId?: string,
   ) {
     if (dto.email) {
-      const { data } = await this.usersRepository.findByEmail(dto.email, tenantId);
-      if (data && data.id !== excludeId) throw new ConflictException('Email already exists in this tenant');
+      const { data } = await this.usersRepository.findByEmail(
+        dto.email,
+        tenantId,
+      );
+      if (data && data.id !== excludeId)
+        throw new ConflictException('Email already exists in this tenant');
     }
     if (dto.phone) {
-      const { data } = await this.usersRepository.findByPhone(dto.phone, tenantId);
-      if (data && data.id !== excludeId) throw new ConflictException('Phone number already exists in this tenant');
+      const { data } = await this.usersRepository.findByPhone(
+        dto.phone,
+        tenantId,
+      );
+      if (data && data.id !== excludeId)
+        throw new ConflictException(
+          'Phone number already exists in this tenant',
+        );
     }
     if (dto.employee_number) {
-      const { data } = await this.usersRepository.findByEmployeeNumber(dto.employee_number, tenantId);
-      if (data && data.id !== excludeId) throw new ConflictException('Employee number already exists in this tenant');
+      const { data } = await this.usersRepository.findByEmployeeNumber(
+        dto.employee_number,
+        tenantId,
+      );
+      if (data && data.id !== excludeId)
+        throw new ConflictException(
+          'Employee number already exists in this tenant',
+        );
     }
   }
 
@@ -114,7 +148,10 @@ export class UsersService {
       throw new ConflictException('This user already has an Employee Profile');
     }
 
-    const { data, error } = await this.usersRepository.linkAsEmployee(id, tenant.tenantId);
+    const { data, error } = await this.usersRepository.linkAsEmployee(
+      id,
+      tenant.tenantId,
+    );
     if (error) throw new BadRequestException(error.message);
 
     await this.auditService.log({
@@ -129,7 +166,12 @@ export class UsersService {
     return data;
   }
 
-  async updateEmployee(id: string, dto: UpdateEmployeeDto, tenant: TenantContext, actorId: string) {
+  async updateEmployee(
+    id: string,
+    dto: UpdateEmployeeDto,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
     const existing = await this.findOne(id, tenant);
     if (!(existing as any).is_employee_profile) {
       throw new NotFoundException('Employee profile not found');
@@ -140,32 +182,47 @@ export class UsersService {
     const updates: Record<string, unknown> = {};
     if (dto.name !== undefined) updates.name = dto.name;
     if (dto.avatar_url !== undefined) updates.avatar_url = dto.avatar_url;
-    if (dto.employee_number !== undefined) updates.employee_number = dto.employee_number;
+    if (dto.employee_number !== undefined)
+      updates.employee_number = dto.employee_number;
     if (dto.phone !== undefined) updates.phone = dto.phone;
     if (dto.email !== undefined) updates.email = dto.email;
-    if (dto.identity_number !== undefined) updates.identity_number = dto.identity_number;
+    if (dto.identity_number !== undefined)
+      updates.identity_number = dto.identity_number;
     if (dto.department !== undefined) updates.department = dto.department;
     if (dto.job_title !== undefined) updates.job_title = dto.job_title;
     if (dto.manager_name !== undefined) updates.manager_name = dto.manager_name;
-    if (dto.employment_type !== undefined) updates.employment_type = dto.employment_type;
+    if (dto.employment_type !== undefined)
+      updates.employment_type = dto.employment_type;
     if (dto.join_date !== undefined) updates.join_date = dto.join_date;
     if (dto.city !== undefined) updates.city = dto.city;
     if (dto.address !== undefined) updates.address = dto.address;
-    if (dto.gps_radius_meters !== undefined) updates.gps_radius_meters = dto.gps_radius_meters;
+    if (dto.gps_radius_meters !== undefined)
+      updates.gps_radius_meters = dto.gps_radius_meters;
     if (dto.is_active !== undefined) updates.is_active = dto.is_active;
-    if (dto.attendance_enabled !== undefined) updates.attendance_enabled = dto.attendance_enabled;
+    if (dto.attendance_enabled !== undefined)
+      updates.attendance_enabled = dto.attendance_enabled;
     if (dto.base_salary !== undefined) updates.base_salary = dto.base_salary;
-    if (dto.grace_period_minutes !== undefined) updates.grace_period_minutes = dto.grace_period_minutes;
-    if (dto.late_deduction_mode !== undefined) updates.late_deduction_mode = dto.late_deduction_mode;
-    if (dto.late_deduction_value !== undefined) updates.late_deduction_value = dto.late_deduction_value;
+    if (dto.grace_period_minutes !== undefined)
+      updates.grace_period_minutes = dto.grace_period_minutes;
+    if (dto.late_deduction_mode !== undefined)
+      updates.late_deduction_mode = dto.late_deduction_mode;
+    if (dto.late_deduction_value !== undefined)
+      updates.late_deduction_value = dto.late_deduction_value;
 
-    const { data, error } = await this.usersRepository.update(id, tenant.tenantId, updates);
+    const { data, error } = await this.usersRepository.update(
+      id,
+      tenant.tenantId,
+      updates,
+    );
     if (error) throw new BadRequestException(error.message);
 
     if (dto.is_active === false && existing.is_active !== false) {
       await this.revokeAccess(id, tenant.tenantId);
     }
-    if (dto.attendance_enabled === false && (existing as any).attendance_enabled !== false) {
+    if (
+      dto.attendance_enabled === false &&
+      (existing as any).attendance_enabled !== false
+    ) {
       await this.usersRepository.revokeAttendanceAccess(id, tenant.tenantId);
     }
 
@@ -185,11 +242,17 @@ export class UsersService {
   async create(dto: CreateUserDto, tenant: TenantContext, actorId: string) {
     await this.billingService.checkUserLimit(tenant.tenantId);
 
-    const { data: existing } = await this.usersRepository.findByEmail(dto.email, tenant.tenantId);
-    if (existing) throw new ConflictException('Email already exists in this tenant');
+    const { data: existing } = await this.usersRepository.findByEmail(
+      dto.email,
+      tenant.tenantId,
+    );
+    if (existing)
+      throw new ConflictException('Email already exists in this tenant');
 
     if (dto.role === UserRole.SUPERADMIN) {
-      throw new ForbiddenException('Cannot create superadmin via this endpoint');
+      throw new ForbiddenException(
+        'Cannot create superadmin via this endpoint',
+      );
     }
 
     const password_hash = await bcrypt.hash(dto.password, 12);
@@ -221,7 +284,11 @@ export class UsersService {
   // with role 'none' (zero dashboard permissions, resolves via role_permissions
   // to an empty set) and no password_hash, i.e. no System User account exists
   // for this person unless one is separately created later via create() above.
-  async createEmployee(dto: CreateEmployeeDto, tenant: TenantContext, actorId: string) {
+  async createEmployee(
+    dto: CreateEmployeeDto,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
     await this.billingService.checkUserLimit(tenant.tenantId);
 
     await this.assertNoDuplicates(dto, tenant.tenantId);
@@ -254,7 +321,10 @@ export class UsersService {
     // be tied to a real employeeId + tenantId, never created ahead of the record).
     let attendance_token: string | null = null;
     if (dto.enable_attendance) {
-      const linkResult = await this.usersRepository.generateAttendanceToken(data.id, tenant.tenantId);
+      const linkResult = await this.usersRepository.generateAttendanceToken(
+        data.id,
+        tenant.tenantId,
+      );
       attendance_token = linkResult.attendance_token;
     }
 
@@ -264,41 +334,69 @@ export class UsersService {
       action: 'employee.create',
       resource_type: 'employee',
       resource_id: data.id,
-      after_data: { name: data.name, employee_number: data.employee_number, attendance_enabled: !!dto.enable_attendance },
+      after_data: {
+        name: data.name,
+        employee_number: data.employee_number,
+        attendance_enabled: !!dto.enable_attendance,
+      },
     });
 
-    return { ...data, attendance_token, attendance_enabled: !!dto.enable_attendance };
+    return {
+      ...data,
+      attendance_token,
+      attendance_enabled: !!dto.enable_attendance,
+    };
   }
 
-  async update(id: string, dto: UpdateUserDto, tenant: TenantContext, actorId: string) {
+  async update(
+    id: string,
+    dto: UpdateUserDto,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
     const existing = await this.findOne(id, tenant);
 
     const updates: Record<string, unknown> = {};
     if (dto.name) updates.name = dto.name;
     if (dto.is_active !== undefined) updates.is_active = dto.is_active;
-    if (dto.password) updates.password_hash = await bcrypt.hash(dto.password, 12);
-    if (dto.commission_rate !== undefined) updates.commission_rate = dto.commission_rate;
+    if (dto.password)
+      updates.password_hash = await bcrypt.hash(dto.password, 12);
+    if (dto.commission_rate !== undefined)
+      updates.commission_rate = dto.commission_rate;
     if (dto.base_salary !== undefined) updates.base_salary = dto.base_salary;
-    if (dto.grace_period_minutes !== undefined) updates.grace_period_minutes = dto.grace_period_minutes;
-    if (dto.late_deduction_mode !== undefined) updates.late_deduction_mode = dto.late_deduction_mode;
-    if (dto.late_deduction_value !== undefined) updates.late_deduction_value = dto.late_deduction_value;
+    if (dto.grace_period_minutes !== undefined)
+      updates.grace_period_minutes = dto.grace_period_minutes;
+    if (dto.late_deduction_mode !== undefined)
+      updates.late_deduction_mode = dto.late_deduction_mode;
+    if (dto.late_deduction_value !== undefined)
+      updates.late_deduction_value = dto.late_deduction_value;
     if (dto.department !== undefined) updates.department = dto.department;
     if (dto.job_title !== undefined) updates.job_title = dto.job_title;
     if (dto.avatar_url !== undefined) updates.avatar_url = dto.avatar_url;
-    if (dto.employee_number !== undefined) updates.employee_number = dto.employee_number;
+    if (dto.employee_number !== undefined)
+      updates.employee_number = dto.employee_number;
     if (dto.phone !== undefined) updates.phone = dto.phone;
-    if (dto.identity_number !== undefined) updates.identity_number = dto.identity_number;
+    if (dto.identity_number !== undefined)
+      updates.identity_number = dto.identity_number;
     if (dto.manager_name !== undefined) updates.manager_name = dto.manager_name;
-    if (dto.employment_type !== undefined) updates.employment_type = dto.employment_type;
+    if (dto.employment_type !== undefined)
+      updates.employment_type = dto.employment_type;
     if (dto.join_date !== undefined) updates.join_date = dto.join_date;
     if (dto.city !== undefined) updates.city = dto.city;
     if (dto.address !== undefined) updates.address = dto.address;
-    if (dto.gps_radius_meters !== undefined) updates.gps_radius_meters = dto.gps_radius_meters;
-    if (dto.attendance_enabled !== undefined) updates.attendance_enabled = dto.attendance_enabled;
+    if (dto.gps_radius_meters !== undefined)
+      updates.gps_radius_meters = dto.gps_radius_meters;
+    if (dto.attendance_enabled !== undefined)
+      updates.attendance_enabled = dto.attendance_enabled;
 
-    if (dto.role) throw new BadRequestException('Use PATCH /users/:id/role to change role');
+    if (dto.role)
+      throw new BadRequestException('Use PATCH /users/:id/role to change role');
 
-    const { data, error } = await this.usersRepository.update(id, tenant.tenantId, updates);
+    const { data, error } = await this.usersRepository.update(
+      id,
+      tenant.tenantId,
+      updates,
+    );
     if (error) throw new BadRequestException(error.message);
 
     // Being disabled (active → inactive) must immediately revoke attendance access
@@ -312,7 +410,10 @@ export class UsersService {
     // Turning attendance off (independent of the employee's active/disabled status)
     // must revoke the link/device the same way — attendance is its own on/off
     // switch, not a side effect of the employee lifecycle.
-    if (dto.attendance_enabled === false && (existing as any).attendance_enabled !== false) {
+    if (
+      dto.attendance_enabled === false &&
+      (existing as any).attendance_enabled !== false
+    ) {
       await this.usersRepository.revokeAttendanceAccess(id, tenant.tenantId);
     }
 
@@ -329,7 +430,12 @@ export class UsersService {
     return data;
   }
 
-  async changeRole(id: string, dto: ChangeRoleDto, tenant: TenantContext, actorId: string) {
+  async changeRole(
+    id: string,
+    dto: ChangeRoleDto,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
     const existing = await this.findOne(id, tenant);
 
     if (existing.role === UserRole.SUPERADMIN) {
@@ -347,10 +453,14 @@ export class UsersService {
     // users.role/role_id are kept in sync purely as a legacy mirror —
     // user_roles (synced below) is what guards and
     // PermissionsService.hasPermissionForUser actually read.
-    const { data, error } = await this.usersRepository.update(id, tenant.tenantId, {
-      role: dto.role,
-      role_id: roleId,
-    });
+    const { data, error } = await this.usersRepository.update(
+      id,
+      tenant.tenantId,
+      {
+        role: dto.role,
+        role_id: roleId,
+      },
+    );
     if (error) throw new BadRequestException(error.message);
 
     await this.usersRepository.syncPrimaryRole(id, roleId);
@@ -358,7 +468,10 @@ export class UsersService {
     // only hasPermissionForUser's cache uses this key; hasPermission()'s
     // per-role cache is untouched since that role-wide entry is still valid
     // for every other user still holding it.
-    await this.permissionsService.invalidateUserPermissions(id, tenant.tenantId);
+    await this.permissionsService.invalidateUserPermissions(
+      id,
+      tenant.tenantId,
+    );
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
@@ -388,10 +501,18 @@ export class UsersService {
   // primary if the user somehow had zero roles beforehand (shouldn't happen
   // given register()/086 backfill, but this keeps that edge case sane
   // rather than leaving the user with zero primary role at all).
-  async addRole(id: string, roleId: string, tenant: TenantContext, actorId: string) {
+  async addRole(
+    id: string,
+    roleId: string,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
     await this.findOne(id, tenant);
 
-    const role = await this.usersRepository.findAccessibleRole(roleId, tenant.tenantId);
+    const role = await this.usersRepository.findAccessibleRole(
+      roleId,
+      tenant.tenantId,
+    );
     if (!role) throw new NotFoundException('Role not found');
 
     const currentCount = await this.usersRepository.countUserRoles(id);
@@ -405,7 +526,10 @@ export class UsersService {
       throw err;
     }
 
-    await this.permissionsService.invalidateUserPermissions(id, tenant.tenantId);
+    await this.permissionsService.invalidateUserPermissions(
+      id,
+      tenant.tenantId,
+    );
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
@@ -423,7 +547,12 @@ export class UsersService {
   // intended path for swapping it — this endpoint only manages secondary
   // roles) and rejects removing a user's only remaining role, so a user can
   // never end up with zero roles through this endpoint.
-  async removeRole(id: string, roleId: string, tenant: TenantContext, actorId: string) {
+  async removeRole(
+    id: string,
+    roleId: string,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
     await this.findOne(id, tenant);
 
     const roles = await this.usersRepository.findUserRoles(id);
@@ -431,14 +560,21 @@ export class UsersService {
     if (!target) throw new NotFoundException('User does not have this role');
 
     if (roles.length === 1) {
-      throw new ForbiddenException('Cannot remove a user\'s only remaining role');
+      throw new ForbiddenException(
+        "Cannot remove a user's only remaining role",
+      );
     }
     if (target.is_primary) {
-      throw new ForbiddenException('Cannot remove the primary role directly — change it via PATCH /users/:id/role instead');
+      throw new ForbiddenException(
+        'Cannot remove the primary role directly — change it via PATCH /users/:id/role instead',
+      );
     }
 
     await this.usersRepository.deleteUserRole(id, roleId);
-    await this.permissionsService.invalidateUserPermissions(id, tenant.tenantId);
+    await this.permissionsService.invalidateUserPermissions(
+      id,
+      tenant.tenantId,
+    );
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
@@ -467,7 +603,12 @@ export class UsersService {
     await this.findOne(id, tenant);
 
     try {
-      await this.permissionsService.setOverride(id, permissionKey, action, tenant.tenantId);
+      await this.permissionsService.setOverride(
+        id,
+        permissionKey,
+        action,
+        tenant.tenantId,
+      );
     } catch (err: any) {
       // user_permissions_override.permission_key REFERENCES permissions(name)
       if (err?.code === '23503') {
@@ -496,7 +637,11 @@ export class UsersService {
   ) {
     await this.findOne(id, tenant);
 
-    await this.permissionsService.removeOverride(id, permissionKey, tenant.tenantId);
+    await this.permissionsService.removeOverride(
+      id,
+      permissionKey,
+      tenant.tenantId,
+    );
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
@@ -521,7 +666,11 @@ export class UsersService {
 
   // "Reset to Defaults" — clears every override for this user in one call
   // rather than the frontend looping removePermissionOverride() per row.
-  async resetPermissionOverrides(id: string, tenant: TenantContext, actorId: string) {
+  async resetPermissionOverrides(
+    id: string,
+    tenant: TenantContext,
+    actorId: string,
+  ) {
     await this.findOne(id, tenant);
 
     await this.permissionsService.resetAllOverrides(id, tenant.tenantId);
@@ -542,7 +691,10 @@ export class UsersService {
 
     if (id === actorId) throw new ForbiddenException('Cannot delete yourself');
 
-    const { error } = await this.usersRepository.softDelete(id, tenant.tenantId);
+    const { error } = await this.usersRepository.softDelete(
+      id,
+      tenant.tenantId,
+    );
     if (error) throw new BadRequestException(error.message);
 
     await this.revokeAccess(id, tenant.tenantId);
@@ -567,6 +719,8 @@ export class UsersService {
   async unbindAttendanceDevice(id: string, tenant: TenantContext) {
     await this.findOne(id, tenant);
     await this.usersRepository.unbindAttendanceDevice(id, tenant.tenantId);
-    return { message: 'Device unbound — the link can now be used from a new device.' };
+    return {
+      message: 'Device unbound — the link can now be used from a new device.',
+    };
   }
 }

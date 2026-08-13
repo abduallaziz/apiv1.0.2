@@ -11,10 +11,7 @@ export abstract class ScopedRepository {
   }
 
   protected scopedQuery(table: string, tenant: TenantContext) {
-    const query = this.supabase
-      .from(table)
-      .select('*')
-      .is('deleted_at', null);
+    const query = this.supabase.from(table).select('*').is('deleted_at', null);
 
     if (tenant.tenantId) {
       return query.eq('tenant_id', tenant.tenantId);
@@ -25,9 +22,6 @@ export abstract class ScopedRepository {
   }
 
   protected unscopedQuery(table: string) {
-    return this.supabase
-      .from(table)
-      .select('*')
-      .is('deleted_at', null);
+    return this.supabase.from(table).select('*').is('deleted_at', null);
   }
 }

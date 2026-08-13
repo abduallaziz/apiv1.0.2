@@ -2,11 +2,14 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
-const SELECT = 'id, user_id, name, center_lat, center_lng, radius_m, valid_from, valid_to, created_at';
+const SELECT =
+  'id, user_id, name, center_lat, center_lng, radius_m, valid_from, valid_to, created_at';
 
 @Injectable()
 export class EmployeeGeofencesRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async findAllForUser(tenantId: string, userId: string) {
     const { data, error } = await this.supabase
@@ -38,7 +41,10 @@ export class EmployeeGeofencesRepository {
     if (error) throw error;
   }
 
-  async userBelongsToTenant(userId: string, tenantId: string): Promise<boolean> {
+  async userBelongsToTenant(
+    userId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('users')
       .select('id')

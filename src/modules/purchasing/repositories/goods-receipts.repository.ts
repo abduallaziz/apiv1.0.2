@@ -9,13 +9,20 @@ export class GoodsReceiptsRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, status?: string, pagination: PaginationDto = new PaginationDto()) {
-    const { data, error } = await this.supabase.rpc('fn_goods_receipts_list_enriched', {
-      p_tenant_id: tenantId,
-      p_status: status ?? null,
-      p_limit: pagination.perPage,
-      p_offset: pagination.offset,
-    });
+  async findAll(
+    tenantId: string,
+    status?: string,
+    pagination: PaginationDto = new PaginationDto(),
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_goods_receipts_list_enriched',
+      {
+        p_tenant_id: tenantId,
+        p_status: status ?? null,
+        p_limit: pagination.perPage,
+        p_offset: pagination.offset,
+      },
+    );
     if (error) throw error;
     return data;
   }
@@ -33,17 +40,28 @@ export class GoodsReceiptsRepository extends ScopedRepository {
     return data;
   }
 
-  async convertToStorageUnit(itemId: string, quantity: number, unitId: string | null) {
-    const { data, error } = await this.supabase.rpc('fn_convert_to_storage_unit', {
-      p_item_id: itemId,
-      p_quantity: quantity,
-      p_unit_id: unitId,
-    });
+  async convertToStorageUnit(
+    itemId: string,
+    quantity: number,
+    unitId: string | null,
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_convert_to_storage_unit',
+      {
+        p_item_id: itemId,
+        p_quantity: quantity,
+        p_unit_id: unitId,
+      },
+    );
     if (error) throw error;
     return data as number;
   }
 
-  async create(tenantId: string, payload: Record<string, unknown>, items: Record<string, unknown>[]) {
+  async create(
+    tenantId: string,
+    payload: Record<string, unknown>,
+    items: Record<string, unknown>[],
+  ) {
     const { data: receipt, error } = await this.supabase
       .from('goods_receipts')
       .insert({ ...payload, tenant_id: tenantId, status: 'draft' })
@@ -53,7 +71,13 @@ export class GoodsReceiptsRepository extends ScopedRepository {
 
     const { error: itemsError } = await this.supabase
       .from('goods_receipt_items')
-      .insert(items.map((i) => ({ ...i, tenant_id: tenantId, goods_receipt_id: receipt.id })));
+      .insert(
+        items.map((i) => ({
+          ...i,
+          tenant_id: tenantId,
+          goods_receipt_id: receipt.id,
+        })),
+      );
     if (itemsError) throw itemsError;
 
     return this.findById(receipt.id, tenantId);
@@ -65,10 +89,13 @@ export class GoodsReceiptsRepository extends ScopedRepository {
   // byte-for-byte identical to calling fn_post_goods_receipt directly for
   // every receipt that doesn't use ownership fields.
   async post(id: string, actorId: string) {
-    const { data, error } = await this.supabase.rpc('fn_post_goods_receipt_with_ownership', {
-      p_goods_receipt_id: id,
-      p_actor_id: actorId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_post_goods_receipt_with_ownership',
+      {
+        p_goods_receipt_id: id,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }

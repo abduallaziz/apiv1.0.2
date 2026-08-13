@@ -94,7 +94,11 @@ export class SupplierCatalogService {
         });
         results.push({ row: rowNum, status: 'created' });
       } catch (error) {
-        results.push({ row: rowNum, status: 'error', message: errorMessage(error) });
+        results.push({
+          row: rowNum,
+          status: 'error',
+          message: errorMessage(error),
+        });
       }
     }
 

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
@@ -17,7 +21,9 @@ export class KitchenService {
   async getActiveOrders(tenant: TenantContext, branchId?: string) {
     let q = this.supabase
       .from('orders')
-      .select('id, table_id, branch_id, created_at, tables(name), order_items(id, item_name, qty, kitchen_status, created_at)')
+      .select(
+        'id, table_id, branch_id, created_at, tables(name), order_items(id, item_name, qty, kitchen_status, created_at)',
+      )
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'pending')
       .not('table_id', 'is', null)
@@ -44,11 +50,21 @@ export class KitchenService {
     }));
   }
 
-  async updateItemStatus(tenant: TenantContext, itemId: string, status: string) {
+  async updateItemStatus(
+    tenant: TenantContext,
+    itemId: string,
+    status: string,
+  ) {
     if (!VALID_STATUSES.includes(status)) {
-      throw new BadRequestException(`status must be one of: ${VALID_STATUSES.join(', ')}`);
+      throw new BadRequestException(
+        `status must be one of: ${VALID_STATUSES.join(', ')}`,
+      );
     }
-    const updated = await this.dineInRepo.updateItemKitchenStatus(itemId, tenant.tenantId, status);
+    const updated = await this.dineInRepo.updateItemKitchenStatus(
+      itemId,
+      tenant.tenantId,
+      status,
+    );
     if (!updated) throw new NotFoundException('Order item not found');
     return updated;
   }

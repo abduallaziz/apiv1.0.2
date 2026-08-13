@@ -8,12 +8,22 @@ export class WarehouseTasksRepository extends ScopedRepository {
     super(supabase);
   }
 
-  async findAll(tenantId: string, taskType?: string, status?: string, assignedTo?: string) {
-    let query = this.supabase.from('warehouse_tasks').select('*, items(name), warehouses(name)').eq('tenant_id', tenantId);
+  async findAll(
+    tenantId: string,
+    taskType?: string,
+    status?: string,
+    assignedTo?: string,
+  ) {
+    let query = this.supabase
+      .from('warehouse_tasks')
+      .select('*, items(name), warehouses(name)')
+      .eq('tenant_id', tenantId);
     if (taskType) query = query.eq('task_type', taskType);
     if (status) query = query.eq('status', status);
     if (assignedTo) query = query.eq('assigned_to', assignedTo);
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await query.order('created_at', {
+      ascending: false,
+    });
     if (error) throw error;
     return data;
   }
@@ -48,31 +58,64 @@ export class WarehouseTasksRepository extends ScopedRepository {
       .single();
     if (error) throw error;
     await this.supabase.from('warehouse_task_history').insert({
-      tenant_id: tenantId, task_id: data.id, old_status: null, new_status: 'pending', actor_id: payload.created_by,
+      tenant_id: tenantId,
+      task_id: data.id,
+      old_status: null,
+      new_status: 'pending',
+      actor_id: payload.created_by,
     });
     return data;
   }
 
-  async assign(taskId: string, tenantId: string, assignedTo: string, actorId: string) {
-    const { data, error } = await this.supabase.rpc('fn_assign_warehouse_task', {
-      p_task_id: taskId, p_tenant_id: tenantId, p_assigned_to: assignedTo, p_actor_id: actorId,
-    });
+  async assign(
+    taskId: string,
+    tenantId: string,
+    assignedTo: string,
+    actorId: string,
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_assign_warehouse_task',
+      {
+        p_task_id: taskId,
+        p_tenant_id: tenantId,
+        p_assigned_to: assignedTo,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }
 
-  async confirm(taskId: string, tenantId: string, quantity: number, confirmedLocationId: string, actorId: string) {
-    const { data, error } = await this.supabase.rpc('fn_confirm_warehouse_task', {
-      p_task_id: taskId, p_tenant_id: tenantId, p_quantity: quantity, p_confirmed_location_id: confirmedLocationId, p_actor_id: actorId,
-    });
+  async confirm(
+    taskId: string,
+    tenantId: string,
+    quantity: number,
+    confirmedLocationId: string,
+    actorId: string,
+  ) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_confirm_warehouse_task',
+      {
+        p_task_id: taskId,
+        p_tenant_id: tenantId,
+        p_quantity: quantity,
+        p_confirmed_location_id: confirmedLocationId,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }
 
   async cancel(taskId: string, tenantId: string, actorId: string) {
-    const { data, error } = await this.supabase.rpc('fn_cancel_warehouse_task', {
-      p_task_id: taskId, p_tenant_id: tenantId, p_actor_id: actorId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_cancel_warehouse_task',
+      {
+        p_task_id: taskId,
+        p_tenant_id: tenantId,
+        p_actor_id: actorId,
+      },
+    );
     if (error) throw error;
     return data;
   }

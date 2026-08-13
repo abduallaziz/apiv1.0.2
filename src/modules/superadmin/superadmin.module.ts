@@ -21,7 +21,14 @@ import { HealthService } from './health/health.service';
 import { PublicHealthController } from './health/public-health.controller';
 
 @Module({
-  imports: [TenantManagementModule, AnalyticsModule, PermissionsModule, SupabaseModule, QueueModule, BillingModule],
+  imports: [
+    TenantManagementModule,
+    AnalyticsModule,
+    PermissionsModule,
+    SupabaseModule,
+    QueueModule,
+    BillingModule,
+  ],
   controllers: [
     SuperAdminController,
     AnalyticsController,

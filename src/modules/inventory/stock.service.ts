@@ -22,7 +22,10 @@ export class StockService {
   async findLevels(tenantId: string, filter: StockLevelFilter) {
     const key = `${stockCachePrefix(tenantId)}levels:wh:${filter.warehouseId ?? 'all'}:item:${filter.itemId ?? 'all'}:variant:${filter.variantId ?? 'all'}`;
 
-    const cached = await this.cache.get<Awaited<ReturnType<StockRepository['findLevels']>>>(key);
+    const cached =
+      await this.cache.get<Awaited<ReturnType<StockRepository['findLevels']>>>(
+        key,
+      );
     if (cached) return cached;
 
     const data = await this.stockRepo.findLevels(tenantId, filter);
@@ -30,14 +33,22 @@ export class StockService {
     return data;
   }
 
-  async findAtp(tenantId: string, warehouseId: string, itemId: string, variantId?: string) {
+  async findAtp(
+    tenantId: string,
+    warehouseId: string,
+    itemId: string,
+    variantId?: string,
+  ) {
     return this.stockRepo.findAtp(tenantId, warehouseId, itemId, variantId);
   }
 
   // Migration 13.15-fix — read-only cost layer visibility, no caching (same
   // reasoning as ATP: this reflects live costing state, not something to
   // serve stale from Redis).
-  async findCostLayers(tenantId: string, filter: { itemId?: string; warehouseId?: string }) {
+  async findCostLayers(
+    tenantId: string,
+    filter: { itemId?: string; warehouseId?: string },
+  ) {
     return this.stockRepo.findCostLayers(tenantId, filter);
   }
 
@@ -47,7 +58,10 @@ export class StockService {
       `:category:${filter.categoryId ?? 'all'}:location:${filter.locationId ?? 'all'}:batch:${filter.batchId ?? 'all'}` +
       `:supplier:${filter.supplierId ?? 'all'}:status:${filter.status ?? 'all'}`;
 
-    const cached = await this.cache.get<Awaited<ReturnType<StockRepository['findLevelsEnriched']>>>(key);
+    const cached =
+      await this.cache.get<
+        Awaited<ReturnType<StockRepository['findLevelsEnriched']>>
+      >(key);
     if (cached) return cached;
 
     const data = await this.stockRepo.findLevelsEnriched(tenantId, filter);
@@ -55,16 +69,29 @@ export class StockService {
     return data;
   }
 
-  async findMovementsLedger(tenantId: string, filter: MovementsLedgerFilter, page = 1, perPage = 50) {
+  async findMovementsLedger(
+    tenantId: string,
+    filter: MovementsLedgerFilter,
+    page = 1,
+    perPage = 50,
+  ) {
     const key =
       `${stockCachePrefix(tenantId)}movements-ledger:wh:${filter.warehouseId ?? 'all'}:item:${filter.itemId ?? 'all'}` +
       `:type:${filter.movementType ?? 'all'}:refType:${filter.referenceType ?? 'all'}:refId:${filter.referenceId ?? 'all'}` +
       `:createdBy:${filter.createdBy ?? 'all'}:from:${filter.dateFrom ?? 'any'}:to:${filter.dateTo ?? 'any'}:page:${page}:perPage:${perPage}`;
 
-    const cached = await this.cache.get<Awaited<ReturnType<StockRepository['findMovementsLedger']>>>(key);
+    const cached =
+      await this.cache.get<
+        Awaited<ReturnType<StockRepository['findMovementsLedger']>>
+      >(key);
     if (cached) return cached;
 
-    const data = await this.stockRepo.findMovementsLedger(tenantId, filter, page, perPage);
+    const data = await this.stockRepo.findMovementsLedger(
+      tenantId,
+      filter,
+      page,
+      perPage,
+    );
     await this.cache.set(key, data, STOCK_CACHE_TTL);
     return data;
   }
@@ -80,19 +107,31 @@ export class StockService {
       `:variant:${filter.variantId ?? 'all'}:refType:${filter.referenceType ?? 'all'}:refId:${filter.referenceId ?? 'all'}` +
       `:page:${page}:perPage:${perPage}`;
 
-    const cached = await this.cache.get<Awaited<ReturnType<StockRepository['findMovements']>>>(key);
+    const cached =
+      await this.cache.get<
+        Awaited<ReturnType<StockRepository['findMovements']>>
+      >(key);
     if (cached) return cached;
 
-    const data = await this.stockRepo.findMovements(tenantId, filter, page, perPage);
+    const data = await this.stockRepo.findMovements(
+      tenantId,
+      filter,
+      page,
+      perPage,
+    );
     await this.cache.set(key, data, STOCK_CACHE_TTL);
     return data;
   }
 
-  async applyStockMovement(params: Parameters<StockRepository['callApplyStockMovement']>[0]) {
+  async applyStockMovement(
+    params: Parameters<StockRepository['callApplyStockMovement']>[0],
+  ) {
     // Same gating pattern as InvoicesService.create() — default false, no
     // change to existing behavior until DATABASE_URL + migration 076 are live.
     // See STATUS.md §78/§79/§80, TASKS.md "SAFETY & SCALE INITIATIVE".
-    const usePooledWrite = this.config.get<boolean>('POOLED_STOCK_WRITES_ENABLED');
+    const usePooledWrite = this.config.get<boolean>(
+      'POOLED_STOCK_WRITES_ENABLED',
+    );
     const result = usePooledWrite
       ? await this.stockRepo.callApplyStockMovementPooled(params)
       : await this.stockRepo.callApplyStockMovement(params);

@@ -1,4 +1,12 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsIn, IsNumber, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsUUID,
+  IsIn,
+  IsNumber,
+  IsBoolean,
+} from 'class-validator';
 
 export class CreatePutawayRuleDto {
   @IsString()
@@ -17,7 +25,15 @@ export class CreatePutawayRuleDto {
   @IsOptional()
   applies_to_category_id?: string;
 
-  @IsIn(['receiving', 'storage', 'picking', 'packing', 'quality_hold', 'damaged', 'shipping'])
+  @IsIn([
+    'receiving',
+    'storage',
+    'picking',
+    'packing',
+    'quality_hold',
+    'damaged',
+    'shipping',
+  ])
   @IsOptional()
   target_location_purpose?: string;
 

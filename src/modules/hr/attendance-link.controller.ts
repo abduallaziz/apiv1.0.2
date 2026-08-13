@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { AttendanceLinkService } from './attendance-link.service';
 import { AttendanceCheckDto } from './dto/attendance-check.dto';
 import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
@@ -28,7 +37,10 @@ export class AttendanceLinkController {
   }
 
   @Post(':token/leaves')
-  createLeaveRequest(@Param('token') token: string, @Body() dto: CreateLeaveRequestDto) {
+  createLeaveRequest(
+    @Param('token') token: string,
+    @Body() dto: CreateLeaveRequestDto,
+  ) {
     return this.service.createLeaveRequest(token, dto);
   }
 
@@ -38,6 +50,10 @@ export class AttendanceLinkController {
     @Query('range') range: 'day' | 'week' | 'month' = 'week',
     @Query('date') date?: string,
   ) {
-    return this.service.getLog(token, range, date ?? new Date().toISOString().substring(0, 10));
+    return this.service.getLog(
+      token,
+      range,
+      date ?? new Date().toISOString().substring(0, 10),
+    );
   }
 }

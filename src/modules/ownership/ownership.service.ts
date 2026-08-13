@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { OwnershipRepository } from './repositories/ownership.repository';
 import { WarehousesService } from '../inventory/warehouses.service';
 import { ItemsService } from '../items/items.service';
@@ -14,7 +18,15 @@ export class OwnershipService {
     private readonly itemsService: ItemsService,
   ) {}
 
-  findAll(tenantId: string, filters: { status?: string; warehouse_id?: string; item_id?: string; ownership_type?: string }) {
+  findAll(
+    tenantId: string,
+    filters: {
+      status?: string;
+      warehouse_id?: string;
+      item_id?: string;
+      ownership_type?: string;
+    },
+  ) {
     return this.ownershipRepo.findAll(tenantId, filters);
   }
 
@@ -24,15 +36,23 @@ export class OwnershipService {
     return layer;
   }
 
-  async create(tenantId: string, dto: CreateOwnershipLayerDto, createdBy: string) {
+  async create(
+    tenantId: string,
+    dto: CreateOwnershipLayerDto,
+    createdBy: string,
+  ) {
     await this.warehousesService.findById(dto.warehouse_id, tenantId); // throws NotFoundException if missing
     await this.itemsService.findById(dto.item_id, tenantId); // throws NotFoundException if missing
 
     if (dto.ownership_type === 'consignment' && !dto.owner_supplier_id) {
-      throw new BadRequestException('owner_supplier_id is required for consignment ownership');
+      throw new BadRequestException(
+        'owner_supplier_id is required for consignment ownership',
+      );
     }
     if (dto.ownership_type === 'customer' && !dto.owner_customer_id) {
-      throw new BadRequestException('owner_customer_id is required for customer ownership');
+      throw new BadRequestException(
+        'owner_customer_id is required for customer ownership',
+      );
     }
 
     return this.ownershipRepo.create(tenantId, {

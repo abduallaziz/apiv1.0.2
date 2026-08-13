@@ -48,7 +48,9 @@ export class BillingInvoiceService {
     @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: PaymentProvider,
   ) {}
 
-  async generateInvoice(input: GenerateInvoiceInput): Promise<GenerateInvoiceResult> {
+  async generateInvoice(
+    input: GenerateInvoiceInput,
+  ): Promise<GenerateInvoiceResult> {
     const dueAt = new Date(input.periodEnd);
     dueAt.setDate(dueAt.getDate() + 7);
 
@@ -74,7 +76,9 @@ export class BillingInvoiceService {
       ],
     });
 
-    this.logger.log(`Invoice generated: ${invoice.invoice_number} for tenant: ${input.tenantId}`);
+    this.logger.log(
+      `Invoice generated: ${invoice.invoice_number} for tenant: ${input.tenantId}`,
+    );
 
     return {
       invoiceId: invoice.id,
@@ -84,8 +88,13 @@ export class BillingInvoiceService {
     };
   }
 
-  async processPayment(input: ProcessPaymentInput): Promise<ProcessPaymentResult> {
-    const invoice = await this.invoicesRepo.findById(input.invoiceId, input.tenantId);
+  async processPayment(
+    input: ProcessPaymentInput,
+  ): Promise<ProcessPaymentResult> {
+    const invoice = await this.invoicesRepo.findById(
+      input.invoiceId,
+      input.tenantId,
+    );
     if (!invoice) throw new Error(`Invoice not found: ${input.invoiceId}`);
 
     let billingCustomer = await this.billingCustomersRepo.findByTenant(
@@ -133,9 +142,13 @@ export class BillingInvoiceService {
 
     if (result.status === 'succeeded') {
       await this.invoicesRepo.markPaid(invoice.id);
-      this.logger.log(`Payment succeeded for invoice: ${invoice.invoice_number}`);
+      this.logger.log(
+        `Payment succeeded for invoice: ${invoice.invoice_number}`,
+      );
     } else {
-      this.logger.warn(`Payment failed for invoice: ${invoice.invoice_number} — ${result.failureReason}`);
+      this.logger.warn(
+        `Payment failed for invoice: ${invoice.invoice_number} — ${result.failureReason}`,
+      );
     }
 
     return {
@@ -146,7 +159,11 @@ export class BillingInvoiceService {
   }
 
   async getInvoicesWithPayments(tenantId: string, limit = 20, offset = 0) {
-    const { data: invoices, count } = await this.invoicesRepo.findByTenant(tenantId, limit, offset);
+    const { data: invoices, count } = await this.invoicesRepo.findByTenant(
+      tenantId,
+      limit,
+      offset,
+    );
 
     const enriched = await Promise.all(
       invoices.map(async (invoice) => {

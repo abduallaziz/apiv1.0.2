@@ -9,10 +9,13 @@ export class QueueRegistry {
 
   constructor(
     @InjectQueue(QUEUE_NAMES.DUNNING) private readonly dunningQueue: Queue,
-    @InjectQueue(QUEUE_NAMES.AUDIT_CLEANUP) private readonly auditCleanupQueue: Queue,
-    @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS) private readonly domainEventsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.AUDIT_CLEANUP)
+    private readonly auditCleanupQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS)
+    private readonly domainEventsQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AI) private readonly aiQueue: Queue,
-    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS)
+    private readonly notificationsQueue: Queue,
     @InjectQueue(QUEUE_NAMES.ANALYTICS) private readonly analyticsQueue: Queue,
   ) {
     this.map = {

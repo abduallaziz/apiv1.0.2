@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  UseGuards,
+} from '@nestjs/common';
 import { WorkCentersService } from './work-centers.service';
 import { CreateWorkCenterDto } from './dto/create-work-center.dto';
 import { UpdateWorkCenterDto } from './dto/update-work-center.dto';

@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Param, Body, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { TransfersService } from './transfers.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
@@ -23,7 +33,12 @@ export class TransfersController {
     @Query('page') page?: string,
     @Query('per_page') perPage?: string,
   ) {
-    return this.transfersService.findAll(tenant.tenantId, status, page, perPage);
+    return this.transfersService.findAll(
+      tenant.tenantId,
+      status,
+      page,
+      perPage,
+    );
   }
 
   @Get(':id')

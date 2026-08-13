@@ -28,7 +28,7 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
       return true;
     }
 
-    const req = context.switchToHttp().getRequest() as Record<string, unknown>;
+    const req = context.switchToHttp().getRequest();
     const tenantId = decodeTenantId(req);
     return !!tenantId && UNTHROTTLED_TEST_TENANT_IDS.includes(tenantId);
   }

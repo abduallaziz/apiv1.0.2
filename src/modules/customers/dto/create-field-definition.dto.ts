@@ -1,9 +1,20 @@
-import { IsString, IsOptional, IsBoolean, IsIn, IsArray, IsInt, MaxLength, Matches } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  IsInt,
+  MaxLength,
+  Matches,
+} from 'class-validator';
 
 export class CreateFieldDefinitionDto {
   @IsString()
   @MaxLength(50)
-  @Matches(/^[a-z][a-z0-9_]*$/, { message: 'field_key must be lowercase snake_case (e.g. national_id)' })
+  @Matches(/^[a-z][a-z0-9_]*$/, {
+    message: 'field_key must be lowercase snake_case (e.g. national_id)',
+  })
   field_key: string;
 
   @IsString()

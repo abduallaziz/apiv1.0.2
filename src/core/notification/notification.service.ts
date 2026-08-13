@@ -2,11 +2,17 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { NOTIFICATION_QUEUE, NOTIFICATION_PREFERENCE_KEYS } from './notification.constants';
+import {
+  NOTIFICATION_QUEUE,
+  NOTIFICATION_PREFERENCE_KEYS,
+} from './notification.constants';
 import { SendNotificationDto } from './dto/send-notification.dto';
 import { ChannelRegistry } from './channel-registry.service';
 import { buildNotificationTemplate } from './templates/notification-templates';
-import { NotificationType, NotificationChannel } from './notification.constants';
+import {
+  NotificationType,
+  NotificationChannel,
+} from './notification.constants';
 import { I18nService } from '../i18n/i18n.service';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 
@@ -32,7 +38,10 @@ export class NotificationService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  private async isEmailEnabled(tenantId: string, type: NotificationType): Promise<boolean> {
+  private async isEmailEnabled(
+    tenantId: string,
+    type: NotificationType,
+  ): Promise<boolean> {
     const preferenceKey = NOTIFICATION_PREFERENCE_KEYS[type];
     if (!preferenceKey) return true; // security-critical types are always sent
 
@@ -43,14 +52,20 @@ export class NotificationService {
       .single();
 
     if (error || !data) return true;
-    const preferences = (data.notification_preferences ?? {}) as Record<string, boolean>;
+    const preferences = (data.notification_preferences ?? {}) as Record<
+      string,
+      boolean
+    >;
     return preferences[preferenceKey] !== false;
   }
 
   async notify(options: NotifyOptions): Promise<void> {
     let channels = options.channels;
     if (options.tenantId && channels.includes('email')) {
-      const emailEnabled = await this.isEmailEnabled(options.tenantId, options.type);
+      const emailEnabled = await this.isEmailEnabled(
+        options.tenantId,
+        options.type,
+      );
       if (!emailEnabled) {
         channels = channels.filter((c) => c !== 'email');
       }
@@ -81,12 +96,20 @@ export class NotificationService {
 
   async processJob(dto: SendNotificationDto): Promise<void> {
     const lang = this.i18n.resolveLanguage(dto.lang ?? null, null);
-    const template = buildNotificationTemplate(dto.type, dto.data ?? {}, this.i18n, lang);
+    const template = buildNotificationTemplate(
+      dto.type,
+      dto.data ?? {},
+      this.i18n,
+      lang,
+    );
 
     const channel = this.channelRegistry.get(dto.channel);
 
     await channel.send({
-      to: dto.channel === 'in_app' ? dto.userId : (dto.recipientEmail ?? dto.userId),
+      to:
+        dto.channel === 'in_app'
+          ? dto.userId
+          : (dto.recipientEmail ?? dto.userId),
       title: template.title,
       body: template.body,
       data: {

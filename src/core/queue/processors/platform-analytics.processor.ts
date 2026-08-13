@@ -37,7 +37,11 @@ export class PlatformAnalyticsProcessor extends WorkerHost {
     }
 
     const cohort = await this.repo.getCohortAnalysis();
-    await this.cache.set(COHORT_ANALYSIS_CACHE_KEY, cohort, WARMED_CACHE_TTL_SECONDS);
+    await this.cache.set(
+      COHORT_ANALYSIS_CACHE_KEY,
+      cohort,
+      WARMED_CACHE_TTL_SECONDS,
+    );
 
     for (const period of WARMED_USAGE_PERIODS) {
       const usage = await this.repo.getUsageAnalytics(period);

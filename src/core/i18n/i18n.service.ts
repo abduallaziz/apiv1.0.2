@@ -5,9 +5,12 @@ import * as en_notifications from './locales/en/notifications.json';
 type LocaleNamespace = 'notifications';
 type Lang = 'ar' | 'en';
 
-const locales: Record<Lang, Record<LocaleNamespace, Record<string, unknown>>> = {
-  ar: { notifications: ar_notifications as Record<string, unknown> },
-  en: { notifications: en_notifications as Record<string, unknown> },
+const locales: Record<
+  Lang,
+  Record<LocaleNamespace, Record<string, unknown>>
+> = {
+  ar: { notifications: ar_notifications },
+  en: { notifications: en_notifications },
 };
 
 @Injectable()
@@ -57,14 +60,21 @@ export class I18nService {
     data: Record<string, unknown> = {},
     lang: Lang = 'en',
   ): { title: string; body: string } {
-    const title = this.interpolate(this.t('notifications', `${type}.title`, lang), data);
-    const body = this.interpolate(this.t('notifications', `${type}.body`, lang), data);
+    const title = this.interpolate(
+      this.t('notifications', `${type}.title`, lang),
+      data,
+    );
+    const body = this.interpolate(
+      this.t('notifications', `${type}.body`, lang),
+      data,
+    );
     return { title, body };
   }
 
   private resolvePath(obj: Record<string, unknown>, path: string): unknown {
     return path.split('.').reduce<unknown>((acc, key) => {
-      if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[key];
+      if (acc && typeof acc === 'object')
+        return (acc as Record<string, unknown>)[key];
       return undefined;
     }, obj);
   }

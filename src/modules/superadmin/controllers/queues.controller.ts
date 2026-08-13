@@ -40,7 +40,12 @@ export class QueuesController {
       dto.page ?? 1,
       dto.limit ?? 20,
     );
-    return { queue: name, ...result, page: dto.page ?? 1, limit: dto.limit ?? 20 };
+    return {
+      queue: name,
+      ...result,
+      page: dto.page ?? 1,
+      limit: dto.limit ?? 20,
+    };
   }
 
   @Get(':name/jobs/:jobId')
@@ -96,6 +101,11 @@ export class QueuesController {
       dto.grace ?? 0,
       dto.status ?? 'completed',
     );
-    return { success: true, queue: name, removed, status: dto.status ?? 'completed' };
+    return {
+      success: true,
+      queue: name,
+      removed,
+      status: dto.status ?? 'completed',
+    };
   }
 }

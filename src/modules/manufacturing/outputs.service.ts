@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { OutputsRepository } from './repositories/outputs.repository';
 import { ProductionOrdersRepository } from './repositories/production-orders.repository';
 import { CreateOutputDto } from './dto/create-output.dto';
@@ -13,16 +17,23 @@ export class OutputsService {
   ) {}
 
   private async findOrder(productionOrderId: string, tenantId: string) {
-    const order = await this.productionOrdersRepo.findById(productionOrderId, tenantId);
+    const order = await this.productionOrdersRepo.findById(
+      productionOrderId,
+      tenantId,
+    );
     if (!order) throw new NotFoundException('Production order not found');
-    return order as any;
+    return order;
   }
 
   findByProductionOrder(productionOrderId: string, tenantId: string) {
     return this.outputsRepo.findByProductionOrder(productionOrderId, tenantId);
   }
 
-  async create(productionOrderId: string, tenantId: string, dto: CreateOutputDto) {
+  async create(
+    productionOrderId: string,
+    tenantId: string,
+    dto: CreateOutputDto,
+  ) {
     await this.findOrder(productionOrderId, tenantId);
     return this.outputsRepo.create(productionOrderId, tenantId, {
       item_id: dto.item_id,
@@ -33,16 +44,25 @@ export class OutputsService {
     });
   }
 
-  async update(outputId: string, productionOrderId: string, tenantId: string, dto: UpdateOutputDto) {
+  async update(
+    outputId: string,
+    productionOrderId: string,
+    tenantId: string,
+    dto: UpdateOutputDto,
+  ) {
     await this.findOrder(productionOrderId, tenantId);
     const existing: any = await this.outputsRepo.findById(outputId, tenantId);
     if (!existing || existing.production_order_id !== productionOrderId) {
       throw new NotFoundException('Output not found on this production order');
     }
     if (existing.movement_id) {
-      throw new BadRequestException('Cannot edit an output that has already been received — the receipt is part of the immutable stock ledger');
+      throw new BadRequestException(
+        'Cannot edit an output that has already been received — the receipt is part of the immutable stock ledger',
+      );
     }
-    const updated = await this.outputsRepo.update(outputId, tenantId, { ...dto });
+    const updated = await this.outputsRepo.update(outputId, tenantId, {
+      ...dto,
+    });
     if (!updated) throw new NotFoundException('Output not found');
     return updated;
   }
@@ -51,11 +71,24 @@ export class OutputsService {
   // fn_post_production_order succeeds. A no-op when no by_product rows
   // were ever created for this order — existing production orders (and
   // any tenant who never uses by-products) are completely unaffected.
-  async receiveAllUnposted(productionOrderId: string, tenantId: string, warehouseId: string, actorId: string | null) {
-    const unposted = await this.outputsRepo.findUnpostedByProducts(productionOrderId, tenantId);
+  async receiveAllUnposted(
+    productionOrderId: string,
+    tenantId: string,
+    warehouseId: string,
+    actorId: string | null,
+  ) {
+    const unposted = await this.outputsRepo.findUnpostedByProducts(
+      productionOrderId,
+      tenantId,
+    );
     for (const output of unposted) {
       try {
-        await this.outputsRepo.receive(tenantId, warehouseId, output.id, actorId);
+        await this.outputsRepo.receive(
+          tenantId,
+          warehouseId,
+          output.id,
+          actorId,
+        );
       } catch (error) {
         throwFromRpcError(error as { message: string; code?: string });
       }

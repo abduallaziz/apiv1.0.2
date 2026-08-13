@@ -9,17 +9,23 @@ export class ReportsRepository extends ScopedRepository {
   }
 
   async purchaseOrdersSummary(tenantId: string) {
-    const { data, error } = await this.supabase.rpc('fn_purchase_orders_summary', {
-      p_tenant_id: tenantId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_purchase_orders_summary',
+      {
+        p_tenant_id: tenantId,
+      },
+    );
     if (error) throw error;
     return data;
   }
 
   async goodsReceiptsSummary(tenantId: string) {
-    const { data, error } = await this.supabase.rpc('fn_goods_receipts_summary', {
-      p_tenant_id: tenantId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_goods_receipts_summary',
+      {
+        p_tenant_id: tenantId,
+      },
+    );
     if (error) throw error;
     return data;
   }
@@ -41,34 +47,46 @@ export class ReportsRepository extends ScopedRepository {
   }
 
   async stockCountsVarianceSummary(tenantId: string) {
-    const { data, error } = await this.supabase.rpc('fn_stock_counts_variance_summary', {
-      p_tenant_id: tenantId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_stock_counts_variance_summary',
+      {
+        p_tenant_id: tenantId,
+      },
+    );
     if (error) throw error;
     return data;
   }
 
   async warehouseValuation(tenantId: string) {
-    const { data, error } = await this.supabase.rpc('fn_inventory_warehouse_summary', {
-      p_tenant_id: tenantId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_inventory_warehouse_summary',
+      {
+        p_tenant_id: tenantId,
+      },
+    );
     if (error) throw error;
     return data;
   }
 
   async lowStockBelowReorder(tenantId: string) {
-    const { data, error } = await this.supabase.rpc('fn_items_below_reorder_point', {
-      p_tenant_id: tenantId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_items_below_reorder_point',
+      {
+        p_tenant_id: tenantId,
+      },
+    );
     if (error) throw error;
     return data;
   }
 
   async batchesExpiringSoon(tenantId: string, daysAhead = 30) {
-    const { data, error } = await this.supabase.rpc('fn_batches_expiring_soon', {
-      p_tenant_id: tenantId,
-      p_days_ahead: daysAhead,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_batches_expiring_soon',
+      {
+        p_tenant_id: tenantId,
+        p_days_ahead: daysAhead,
+      },
+    );
     if (error) throw error;
     return data;
   }

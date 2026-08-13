@@ -15,10 +15,14 @@ export class SubscriptionsService {
   ) {}
 
   async getCurrent(tenant: TenantContext) {
-    const sub = await this.billingService.getActiveSubscription(tenant.tenantId);
+    const sub = await this.billingService.getActiveSubscription(
+      tenant.tenantId,
+    );
     if (!sub) return { status: 'none', subscription: null };
 
-    const isActive = await this.billingService.isSubscriptionActive(tenant.tenantId);
+    const isActive = await this.billingService.isSubscriptionActive(
+      tenant.tenantId,
+    );
     const limits = await this.billingService.getPlanLimits(tenant.tenantId);
 
     return { subscription: sub, isActive, limits };
@@ -43,7 +47,9 @@ export class SubscriptionsService {
     return { success: true };
   }
 
-  private async getTenantData(tenantId: string): Promise<{ email: string; name: string }> {
+  private async getTenantData(
+    tenantId: string,
+  ): Promise<{ email: string; name: string }> {
     const { data, error } = await this.supabase
       .from('tenants')
       .select('name')
@@ -61,7 +67,8 @@ export class SubscriptionsService {
       .limit(1)
       .single();
 
-    if (ownerError || !owner) throw new NotFoundException('Tenant owner not found');
+    if (ownerError || !owner)
+      throw new NotFoundException('Tenant owner not found');
 
     return { email: owner.email, name: data.name };
   }

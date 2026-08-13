@@ -51,7 +51,9 @@ export class AiProcessor extends WorkerHost {
     const userId = job.data.user_id;
     const start = Date.now();
 
-    this.logger.log(`AI job started: ${job.name} [${job.id}] priority=${job.opts.priority ?? 'none'} tenant=${tenantId}`);
+    this.logger.log(
+      `AI job started: ${job.name} [${job.id}] priority=${job.opts.priority ?? 'none'} tenant=${tenantId}`,
+    );
 
     this.aiUsage.trackStart({
       jobId: job.id ?? 'unknown',
@@ -105,7 +107,9 @@ export class AiProcessor extends WorkerHost {
       outputTokens: result?.output_tokens,
     });
 
-    this.logger.log(`AI job completed: ${job.name} [${job.id}] duration=${durationMs}ms`);
+    this.logger.log(
+      `AI job completed: ${job.name} [${job.id}] duration=${durationMs}ms`,
+    );
     return result;
   }
 

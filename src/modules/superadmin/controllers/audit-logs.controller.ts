@@ -43,13 +43,19 @@ export class AuditLogsController {
       const csv = await this.auditLogsService.exportToCsv(query);
       const filename = `audit-logs-${Date.now()}.csv`;
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`,
+      );
       return res.send(csv);
     }
 
     const buffer = await this.auditLogsService.exportToExcel(query);
     const filename = `audit-logs-${Date.now()}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return res.send(buffer);
   }

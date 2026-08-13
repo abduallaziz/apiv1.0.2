@@ -35,23 +35,26 @@ export class TenantsRepository {
     return data.tax_rate ?? 0;
   }
 
-  async updateProfile(tenantId: string, updates: {
-    name?: string;
-    business_type?: string;
-    currency_code?: string;
-    currency_symbol?: string;
-    tax_rate?: number;
-    customer_capture_enabled?: boolean;
-    name_field_enabled?: boolean;
-    logo_url?: string;
-    tax_number?: string;
-    invoice_footer?: string;
-    printer_settings?: object;
-    notification_preferences?: object;
-    loyalty_points_per_currency?: number;
-    loyalty_redemption_value?: number;
-    loyalty_enabled?: boolean;
-  }) {
+  async updateProfile(
+    tenantId: string,
+    updates: {
+      name?: string;
+      business_type?: string;
+      currency_code?: string;
+      currency_symbol?: string;
+      tax_rate?: number;
+      customer_capture_enabled?: boolean;
+      name_field_enabled?: boolean;
+      logo_url?: string;
+      tax_number?: string;
+      invoice_footer?: string;
+      printer_settings?: object;
+      notification_preferences?: object;
+      loyalty_points_per_currency?: number;
+      loyalty_redemption_value?: number;
+      loyalty_enabled?: boolean;
+    },
+  ) {
     const { data, error } = await this.supabase
       .from('tenants')
       .update(updates)
@@ -67,7 +70,8 @@ export class TenantsRepository {
   async getSubscription(tenantId: string) {
     const { data, error } = await this.supabase
       .from('subscriptions')
-      .select(`
+      .select(
+        `
         id,
         status,
         plan_id,
@@ -78,7 +82,8 @@ export class TenantsRepository {
         billing_cycle,
         current_period_start,
         plans(max_users, max_branches, name, price_monthly, price_yearly)
-      `)
+      `,
+      )
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1)

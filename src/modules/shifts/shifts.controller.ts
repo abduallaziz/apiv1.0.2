@@ -32,7 +32,10 @@ export class ShiftsController {
     @Req() req: Request,
   ) {
     const user = (req as any).user;
-    const ip = req.headers['x-forwarded-for'] as string ?? req.socket.remoteAddress ?? '';
+    const ip =
+      (req.headers['x-forwarded-for'] as string) ??
+      req.socket.remoteAddress ??
+      '';
     const device = req.headers['user-agent'] ?? '';
     return this.service.openShift(dto, tenant, user.sub, user.role, ip, device);
   }
@@ -46,19 +49,30 @@ export class ShiftsController {
     @Req() req: Request,
   ) {
     const user = (req as any).user;
-    const ip = req.headers['x-forwarded-for'] as string ?? req.socket.remoteAddress ?? '';
+    const ip =
+      (req.headers['x-forwarded-for'] as string) ??
+      req.socket.remoteAddress ??
+      '';
     const device = req.headers['user-agent'] ?? '';
-    return this.service.closeShift(id, dto, tenant, user.sub, user.role, ip, device);
+    return this.service.closeShift(
+      id,
+      dto,
+      tenant,
+      user.sub,
+      user.role,
+      ip,
+      device,
+    );
   }
 
   @Post('drawer-open')
   @RequirePermission('shift.open')
-  drawerOpen(
-    @GetTenant() tenant: TenantContext,
-    @Req() req: Request,
-  ) {
+  drawerOpen(@GetTenant() tenant: TenantContext, @Req() req: Request) {
     const user = (req as any).user;
-    const ip = req.headers['x-forwarded-for'] as string ?? req.socket.remoteAddress ?? '';
+    const ip =
+      (req.headers['x-forwarded-for'] as string) ??
+      req.socket.remoteAddress ??
+      '';
     const device = req.headers['user-agent'] ?? '';
     return this.service.logDrawerOpen(tenant, user.sub, user.role, ip, device);
   }
@@ -73,23 +87,24 @@ export class ShiftsController {
   }
 
   @Get('current')
-@RequirePermission('shift.view.own')
-async getCurrentShift(
-  @GetTenant() tenant: TenantContext,
-  @Req() req: Request,
-  @Query('branch_id') branchId?: string,
-) {
-  const user = (req as any).user;
-  const shift = await this.service.getCurrentShift(tenant, user.sub, branchId);
-  return shift ?? null;
-}
+  @RequirePermission('shift.view.own')
+  async getCurrentShift(
+    @GetTenant() tenant: TenantContext,
+    @Req() req: Request,
+    @Query('branch_id') branchId?: string,
+  ) {
+    const user = (req as any).user;
+    const shift = await this.service.getCurrentShift(
+      tenant,
+      user.sub,
+      branchId,
+    );
+    return shift ?? null;
+  }
 
   @Get(':id/summary')
   @RequirePermission('shift.view.own')
-  getShiftSummary(
-    @Param('id') id: string,
-    @GetTenant() tenant: TenantContext,
-  ) {
+  getShiftSummary(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
     return this.service.getShiftSummary(id, tenant);
   }
 }

@@ -85,14 +85,16 @@ describe('manufacturing location integration regression (migration 140)', () => 
     if (grErr) throw grErr;
     cleanup.push({ table: 'goods_receipts', id: gr.id });
 
-    const { error: lineErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID,
-      goods_receipt_id: gr.id,
-      item_id: componentItemId,
-      quantity_received: qty,
-      unit_cost: unitCost,
-      location_id: locationId,
-    });
+    const { error: lineErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: componentItemId,
+        quantity_received: qty,
+        unit_cost: unitCost,
+        location_id: locationId,
+      });
     if (lineErr) throw lineErr;
 
     const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
@@ -102,7 +104,11 @@ describe('manufacturing location integration regression (migration 140)', () => 
     if (postErr) throw postErr;
   };
 
-  const createBom = async (finishedItemId: string, componentItemId: string, qtyPerUnit: number) => {
+  const createBom = async (
+    finishedItemId: string,
+    componentItemId: string,
+    qtyPerUnit: number,
+  ) => {
     const { data: bom, error: bomErr } = await supabase
       .from('bill_of_materials')
       .insert({
@@ -159,7 +165,10 @@ describe('manufacturing location integration regression (migration 140)', () => 
       .from('stock_levels')
       .select('quantity_on_hand')
       .eq('item_id', itemId);
-    q = locationId === null ? q.is('location_id', null) : q.eq('location_id', locationId);
+    q =
+      locationId === null
+        ? q.is('location_id', null)
+        : q.eq('location_id', locationId);
     const { data } = await q.maybeSingle();
     return data ? Number(data.quantity_on_hand) : 0;
   };
@@ -169,11 +178,17 @@ describe('manufacturing location integration regression (migration 140)', () => 
       .from('cost_layers')
       .select('quantity_remaining, unit_cost')
       .eq('item_id', itemId);
-    return (data ?? []).reduce((s, r) => s + Number(r.quantity_remaining) * Number(r.unit_cost), 0);
+    return (data ?? []).reduce(
+      (s, r) => s + Number(r.quantity_remaining) * Number(r.unit_cost),
+      0,
+    );
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
 
     const { data: wh, error } = await supabase
       .from('warehouses')
@@ -181,7 +196,7 @@ describe('manufacturing location integration regression (migration 140)', () => 
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1);
     if (error) throw error;
-    warehouseId = wh![0].id;
+    warehouseId = wh[0].id;
   }, 30_000);
 
   afterAll(async () => {
@@ -197,7 +212,10 @@ describe('manufacturing location integration regression (migration 140)', () => 
       await supabase.from('stock_levels').delete().eq('item_id', itemId);
     }
     for (const c of cleanup) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', c.id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', c.id);
       await supabase.from(c.table).delete().eq('id', c.id);
     }
     for (const itemId of itemIds) {
@@ -217,10 +235,13 @@ describe('manufacturing location integration regression (migration 140)', () => 
     const bomId = await createBom(finishedId, componentId, 2);
     const orderId = await createOrder(bomId, 10); // no location fields set -> all NULL
 
-    const { data: posted, error } = await supabase.rpc('fn_post_production_order', {
-      p_production_order_id: orderId,
-      p_actor_id: null,
-    });
+    const { data: posted, error } = await supabase.rpc(
+      'fn_post_production_order',
+      {
+        p_production_order_id: orderId,
+        p_actor_id: null,
+      },
+    );
     expect(error).toBeNull();
     expect(posted.status).toBe('completed');
     expect(Number(posted.quantity_produced)).toBe(10);
@@ -240,12 +261,17 @@ describe('manufacturing location integration regression (migration 140)', () => 
     await seedStock(componentId, 50, 3, sourceLoc);
 
     const bomId = await createBom(finishedId, componentId, 5);
-    const orderId = await createOrder(bomId, 4, { source_location_id: sourceLoc });
-
-    const { data: posted, error } = await supabase.rpc('fn_post_production_order', {
-      p_production_order_id: orderId,
-      p_actor_id: null,
+    const orderId = await createOrder(bomId, 4, {
+      source_location_id: sourceLoc,
     });
+
+    const { data: posted, error } = await supabase.rpc(
+      'fn_post_production_order',
+      {
+        p_production_order_id: orderId,
+        p_actor_id: null,
+      },
+    );
     expect(error).toBeNull();
     expect(posted.status).toBe('completed');
 
@@ -261,12 +287,17 @@ describe('manufacturing location integration regression (migration 140)', () => 
     await seedStock(componentId, 60, 2, null);
 
     const bomId = await createBom(finishedId, componentId, 3);
-    const orderId = await createOrder(bomId, 5, { output_location_id: outputLoc });
-
-    const { data: posted, error } = await supabase.rpc('fn_post_production_order', {
-      p_production_order_id: orderId,
-      p_actor_id: null,
+    const orderId = await createOrder(bomId, 5, {
+      output_location_id: outputLoc,
     });
+
+    const { data: posted, error } = await supabase.rpc(
+      'fn_post_production_order',
+      {
+        p_production_order_id: orderId,
+        p_actor_id: null,
+      },
+    );
     expect(error).toBeNull();
     expect(posted.status).toBe('completed');
 
@@ -290,11 +321,20 @@ describe('manufacturing location integration regression (migration 140)', () => 
     const outB = await createLocation(`MFG-COST-OUT-${Date.now()}`);
     await seedStock(componentB, 40, 10, srcB);
     const bomB = await createBom(finishedB, componentB, 4);
-    const orderB = await createOrder(bomB, 5, { source_location_id: srcB, output_location_id: outB });
+    const orderB = await createOrder(bomB, 5, {
+      source_location_id: srcB,
+      output_location_id: outB,
+    });
 
     const [resA, resB] = await Promise.all([
-      supabase.rpc('fn_post_production_order', { p_production_order_id: orderA, p_actor_id: null }),
-      supabase.rpc('fn_post_production_order', { p_production_order_id: orderB, p_actor_id: null }),
+      supabase.rpc('fn_post_production_order', {
+        p_production_order_id: orderA,
+        p_actor_id: null,
+      }),
+      supabase.rpc('fn_post_production_order', {
+        p_production_order_id: orderB,
+        p_actor_id: null,
+      }),
     ]);
     expect(resA.error).toBeNull();
     expect(resB.error).toBeNull();

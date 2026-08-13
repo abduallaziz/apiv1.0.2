@@ -1,4 +1,11 @@
-import { IsUUID, IsIn, IsNumber, Min, IsOptional, IsString } from 'class-validator';
+import {
+  IsUUID,
+  IsIn,
+  IsNumber,
+  Min,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class ManualPaymentDto {
   @IsUUID()

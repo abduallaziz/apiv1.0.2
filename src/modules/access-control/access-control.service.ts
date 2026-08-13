@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AccessControlRepository, RoleRow } from './access-control.repository';
 import { HARDCODED_PLATFORM_ONLY_KEYS } from './platform-only-permissions.const';
 import { PermissionsService } from '../../core/permissions/permissions.service';
@@ -14,7 +18,9 @@ const PROTECTED_ROLE_NAMES = new Set(['owner', 'superadmin']);
 
 type PermissionState = 'granted' | 'denied' | 'inherited_default';
 
-function stateFromOverride(override: { is_granted: boolean } | null): PermissionState {
+function stateFromOverride(
+  override: { is_granted: boolean } | null,
+): PermissionState {
   if (!override) return 'inherited_default';
   return override.is_granted ? 'granted' : 'denied';
 }
@@ -70,7 +76,12 @@ export class AccessControlService {
     return this.repo.getUsersByRole(roleId, tenantId);
   }
 
-  async createRole(name: string, description: string | null, tenant: TenantContext, actor: JwtPayload) {
+  async createRole(
+    name: string,
+    description: string | null,
+    tenant: TenantContext,
+    actor: JwtPayload,
+  ) {
     const tenantId = this.requireTenantId(tenant);
     const trimmed = name.trim();
     if (!trimmed) throw new ForbiddenException('Role name is required');
@@ -80,7 +91,9 @@ export class AccessControlService {
       role = await this.repo.createRole(tenantId, trimmed, description);
     } catch (err) {
       if (err instanceof Error && err.message === 'DUPLICATE_ROLE_NAME') {
-        throw new ForbiddenException(`A role named "${trimmed}" already exists for this tenant`);
+        throw new ForbiddenException(
+          `A role named "${trimmed}" already exists for this tenant`,
+        );
       }
       throw err;
     }
@@ -149,7 +162,11 @@ export class AccessControlService {
     return { role_id: roleId, deleted: true };
   }
 
-  async getRolePermissions(roleId: string, tenant: TenantContext, actor: JwtPayload) {
+  async getRolePermissions(
+    roleId: string,
+    tenant: TenantContext,
+    actor: JwtPayload,
+  ) {
     const tenantId = this.requireTenantId(tenant);
     const role = await this.getAccessibleRoleOrThrow(roleId, tenantId);
 
@@ -163,7 +180,9 @@ export class AccessControlService {
       group_code: permission.group_code,
       description: permission.description,
       granted: detail.grantedKeys.has(permission.name),
-      source: detail.overrides.has(permission.name) ? 'tenant_override' : 'global',
+      source: detail.overrides.has(permission.name)
+        ? 'tenant_override'
+        : 'global',
     }));
   }
 
@@ -196,7 +215,12 @@ export class AccessControlService {
       afterState,
     });
 
-    return { role_id: roleId, permission_key: permissionKey, granted: isGranted, source: 'tenant_override' as const };
+    return {
+      role_id: roleId,
+      permission_key: permissionKey,
+      granted: isGranted,
+      source: 'tenant_override' as const,
+    };
   }
 
   async resetPermission(
@@ -227,8 +251,17 @@ export class AccessControlService {
       afterState: 'inherited_default',
     });
 
-    const grantedNow = await this.permissionsService.hasPermission(role.name, permissionKey, tenantId);
-    return { role_id: roleId, permission_key: permissionKey, granted: grantedNow, source: 'global' as const };
+    const grantedNow = await this.permissionsService.hasPermission(
+      role.name,
+      permissionKey,
+      tenantId,
+    );
+    return {
+      role_id: roleId,
+      permission_key: permissionKey,
+      granted: grantedNow,
+      source: 'global' as const,
+    };
   }
 
   async resetRole(roleId: string, tenant: TenantContext, actor: JwtPayload) {
@@ -261,18 +294,23 @@ export class AccessControlService {
 
   private requireTenantId(tenant: TenantContext): string {
     if (!tenant.tenantId) {
-      throw new ForbiddenException('Tenant context required for access-control management');
+      throw new ForbiddenException(
+        'Tenant context required for access-control management',
+      );
     }
     return tenant.tenantId;
   }
 
-  private async getAccessibleRoleOrThrow(roleId: string, tenantId: string): Promise<RoleRow> {
+  private async getAccessibleRoleOrThrow(
+    roleId: string,
+    tenantId: string,
+  ): Promise<RoleRow> {
     const role = await this.repo.getRoleById(roleId);
     if (!role) throw new NotFoundException('Role not found');
 
     // System role (usable by every tenant) or this tenant's own custom role.
     if (role.tenant_id !== null && role.tenant_id !== tenantId) {
-      throw new ForbiddenException('Cannot access another tenant\'s role');
+      throw new ForbiddenException("Cannot access another tenant's role");
     }
 
     return role;
@@ -288,11 +326,16 @@ export class AccessControlService {
   // report reappears, check the frontend's readOnly wiring first
   // (ConfigureRoleSheet sets it from mode==='view', which is only ever true
   // for is_system roles) before assuming this guard changed.
-  private async getEditableRoleOrThrow(roleId: string, tenantId: string): Promise<RoleRow> {
+  private async getEditableRoleOrThrow(
+    roleId: string,
+    tenantId: string,
+  ): Promise<RoleRow> {
     const role = await this.getAccessibleRoleOrThrow(roleId, tenantId);
 
     if (PROTECTED_ROLE_NAMES.has(role.name)) {
-      throw new ForbiddenException(`Role "${role.name}" is protected and cannot be modified`);
+      throw new ForbiddenException(
+        `Role "${role.name}" is protected and cannot be modified`,
+      );
     }
 
     return role;
@@ -318,7 +361,9 @@ export class AccessControlService {
   // tab — PATCH .../analytics.view.all -> 403 "Platform-level permissions
   // cannot be granted to a tenant role"). Single source now — both sides
   // stay in sync going forward.
-  private async assertPermissionIsCustomizable(permissionKey: string): Promise<void> {
+  private async assertPermissionIsCustomizable(
+    permissionKey: string,
+  ): Promise<void> {
     const permission = await this.repo.getPermissionByKey(permissionKey);
     if (!permission) throw new NotFoundException('Permission not found');
 
@@ -326,7 +371,9 @@ export class AccessControlService {
       permission.resource === 'superadmin' ||
       HARDCODED_PLATFORM_ONLY_KEYS.has(permissionKey)
     ) {
-      throw new ForbiddenException('Platform-level permissions cannot be granted to a tenant role');
+      throw new ForbiddenException(
+        'Platform-level permissions cannot be granted to a tenant role',
+      );
     }
   }
 
@@ -350,8 +397,14 @@ export class AccessControlService {
         action: entry.action,
         resource_type: 'role_permission',
         resource_id: `${entry.roleId}:${entry.permissionKey}`,
-        before_data: { permission_key: entry.permissionKey, state: entry.beforeState },
-        after_data: { permission_key: entry.permissionKey, state: entry.afterState },
+        before_data: {
+          permission_key: entry.permissionKey,
+          state: entry.beforeState,
+        },
+        after_data: {
+          permission_key: entry.permissionKey,
+          state: entry.afterState,
+        },
       })
       .catch(() => {});
   }

@@ -37,7 +37,14 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
   const createItem = async (name: string) => {
     const { data, error } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name, type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name,
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -48,29 +55,55 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
   const seedStock = async (itemId: string, qty: number, unitCost: number) => {
     const { data: gr, error: grErr } = await supabase
       .from('goods_receipts')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, receipt_number: `MFG1316A-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, status: 'draft' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        receipt_number: `MFG1316A-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        status: 'draft',
+      })
       .select()
       .single();
     if (grErr) throw grErr;
     grIds.push(gr.id);
-    const { error: lineErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID, goods_receipt_id: gr.id, item_id: itemId, quantity_received: qty, unit_cost: unitCost,
-    });
+    const { error: lineErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: itemId,
+        quantity_received: qty,
+        unit_cost: unitCost,
+      });
     if (lineErr) throw lineErr;
-    const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', { p_goods_receipt_id: gr.id, p_actor_id: null });
+    const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
+      p_goods_receipt_id: gr.id,
+      p_actor_id: null,
+    });
     if (postErr) throw postErr;
   };
 
-  const createBom = async (finishedItemId: string, componentItemId: string, qtyPerUnit: number) => {
+  const createBom = async (
+    finishedItemId: string,
+    componentItemId: string,
+    qtyPerUnit: number,
+  ) => {
     const { data: bom, error: bomErr } = await supabase
       .from('bill_of_materials')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: finishedItemId, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: finishedItemId,
+        is_active: true,
+      })
       .select()
       .single();
     if (bomErr) throw bomErr;
     bomIds.push(bom.id);
     const { error: lineErr } = await supabase.from('bom_lines').insert({
-      tenant_id: TEST_TENANT_ID, bom_id: bom.id, component_item_id: componentItemId, quantity_per_unit: qtyPerUnit, scrap_percentage: 0,
+      tenant_id: TEST_TENANT_ID,
+      bom_id: bom.id,
+      component_item_id: componentItemId,
+      quantity_per_unit: qtyPerUnit,
+      scrap_percentage: 0,
     });
     if (lineErr) throw lineErr;
     return bom.id;
@@ -80,9 +113,13 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     const { data, error } = await supabase
       .from('production_orders')
       .insert({
-        tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, bom_id: bomId,
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        bom_id: bomId,
         order_number: `MFG1316A-PO-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        quantity_planned: quantityPlanned, status: 'in_progress', started_at: new Date().toISOString(),
+        quantity_planned: quantityPlanned,
+        status: 'in_progress',
+        started_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -92,9 +129,17 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
 
-    const { data: wh, error: whErr } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1).single();
+    const { data: wh, error: whErr } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1)
+      .single();
     if (whErr) throw whErr;
     warehouseId = wh.id;
 
@@ -104,9 +149,15 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     const operationsRepo = new OperationsRepository(supabase);
     const scrapRepo = new ScrapRepository(supabase);
     const outputsRepo = new OutputsRepository(supabase);
-    operationsService = new OperationsService(operationsRepo, productionOrdersRepo);
+    operationsService = new OperationsService(
+      operationsRepo,
+      productionOrdersRepo,
+    );
     scrapService = new ScrapService(scrapRepo, productionOrdersRepo);
-    const outputsService = new OutputsService(outputsRepo, productionOrdersRepo);
+    const outputsService = new OutputsService(
+      outputsRepo,
+      productionOrdersRepo,
+    );
 
     // warehousesService/locationsService/itemsService are never touched by
     // complete() itself (only by create()/update(), which this suite
@@ -134,9 +185,18 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
 
   afterAll(async () => {
     for (const id of orderIds) {
-      await supabase.from('production_order_scraps').delete().eq('production_order_id', id);
-      await supabase.from('production_order_operations').delete().eq('production_order_id', id);
-      await supabase.from('production_order_outputs').delete().eq('production_order_id', id);
+      await supabase
+        .from('production_order_scraps')
+        .delete()
+        .eq('production_order_id', id);
+      await supabase
+        .from('production_order_operations')
+        .delete()
+        .eq('production_order_id', id);
+      await supabase
+        .from('production_order_outputs')
+        .delete()
+        .eq('production_order_id', id);
     }
     await supabase.from('stock_movements').delete().in('item_id', itemIds);
     await supabase.from('cost_layers').delete().in('item_id', itemIds);
@@ -149,7 +209,10 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
       await supabase.from('bill_of_materials').delete().eq('id', id);
     }
     for (const id of grIds) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', id);
       await supabase.from('goods_receipts').delete().eq('id', id);
     }
     for (const id of itemIds) {
@@ -164,7 +227,12 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     const bomId = await createBom(finished, component, 2);
     const orderId = await createOrder(bomId, 10);
 
-    const result: any = await productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {});
+    const result: any = await productionOrdersService.complete(
+      orderId,
+      TEST_TENANT_ID,
+      null,
+      {},
+    );
     expect(result.status).toBe('completed');
     expect(Number(result.quantity_produced)).toBe(10);
 
@@ -174,8 +242,8 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
       .eq('reference_id', orderId)
       .eq('movement_type', 'production_receipt')
       .single();
-    expect(Number(receiptMovement!.quantity)).toBe(10);
-    expect(Number(receiptMovement!.unit_cost)).toBe(6); // 2 components * 3 unit_cost
+    expect(Number(receiptMovement.quantity)).toBe(10);
+    expect(Number(receiptMovement.unit_cost)).toBe(6); // 2 components * 3 unit_cost
   }, 30_000);
 
   it('Test 2 & 3: operations can be added to a production order, and sequence is maintained', async () => {
@@ -185,13 +253,29 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     const bomId = await createBom(finished, component, 1);
     const orderId = await createOrder(bomId, 5);
 
-    await operationsService.create(orderId, TEST_TENANT_ID, { sequence: 2, operation_name: 'Assembly' } as any);
-    await operationsService.create(orderId, TEST_TENANT_ID, { sequence: 1, operation_name: 'Cutting' } as any);
-    await operationsService.create(orderId, TEST_TENANT_ID, { sequence: 3, operation_name: 'Finishing' } as any);
+    await operationsService.create(orderId, TEST_TENANT_ID, {
+      sequence: 2,
+      operation_name: 'Assembly',
+    });
+    await operationsService.create(orderId, TEST_TENANT_ID, {
+      sequence: 1,
+      operation_name: 'Cutting',
+    });
+    await operationsService.create(orderId, TEST_TENANT_ID, {
+      sequence: 3,
+      operation_name: 'Finishing',
+    });
 
-    const ops: any[] = await operationsService.findByProductionOrder(orderId, TEST_TENANT_ID);
+    const ops: any[] = await operationsService.findByProductionOrder(
+      orderId,
+      TEST_TENANT_ID,
+    );
     expect(ops.length).toBe(3);
-    expect(ops.map((o) => o.operation_name)).toEqual(['Cutting', 'Assembly', 'Finishing']); // ordered by sequence, not insertion order
+    expect(ops.map((o) => o.operation_name)).toEqual([
+      'Cutting',
+      'Assembly',
+      'Finishing',
+    ]); // ordered by sequence, not insertion order
   }, 30_000);
 
   it('Test: routing gate blocks completion until all operations are completed, then allows it', async () => {
@@ -201,19 +285,41 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     const bomId = await createBom(finished, component, 1);
     const orderId = await createOrder(bomId, 3);
 
-    const op1: any = await operationsService.create(orderId, TEST_TENANT_ID, { sequence: 1, operation_name: 'Step 1' } as any);
-    await operationsService.create(orderId, TEST_TENANT_ID, { sequence: 2, operation_name: 'Step 2' } as any);
+    const op1: any = await operationsService.create(orderId, TEST_TENANT_ID, {
+      sequence: 1,
+      operation_name: 'Step 1',
+    });
+    await operationsService.create(orderId, TEST_TENANT_ID, {
+      sequence: 2,
+      operation_name: 'Step 2',
+    });
 
-    await expect(productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {})).rejects.toThrow('not yet completed');
+    await expect(
+      productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {}),
+    ).rejects.toThrow('not yet completed');
 
-    await operationsService.update(op1.id, orderId, TEST_TENANT_ID, { status: 'completed' } as any);
-    await expect(productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {})).rejects.toThrow('not yet completed'); // Step 2 still pending
+    await operationsService.update(op1.id, orderId, TEST_TENANT_ID, {
+      status: 'completed',
+    } as any);
+    await expect(
+      productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {}),
+    ).rejects.toThrow('not yet completed'); // Step 2 still pending
 
-    const allOps: any[] = await operationsService.findByProductionOrder(orderId, TEST_TENANT_ID);
+    const allOps: any[] = await operationsService.findByProductionOrder(
+      orderId,
+      TEST_TENANT_ID,
+    );
     const op2 = allOps.find((o) => o.operation_name === 'Step 2');
-    await operationsService.update(op2.id, orderId, TEST_TENANT_ID, { status: 'completed' } as any);
+    await operationsService.update(op2.id, orderId, TEST_TENANT_ID, {
+      status: 'completed',
+    } as any);
 
-    const result: any = await productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {});
+    const result: any = await productionOrdersService.complete(
+      orderId,
+      TEST_TENANT_ID,
+      null,
+      {},
+    );
     expect(result.status).toBe('completed');
   }, 30_000);
 
@@ -223,9 +329,15 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     await seedStock(component, 10, 1);
     const bomId = await createBom(finished, component, 1);
     const orderId = await createOrder(bomId, 1);
-    await operationsService.create(orderId, TEST_TENANT_ID, { sequence: 1, operation_name: 'Solo Step' } as any);
+    await operationsService.create(orderId, TEST_TENANT_ID, {
+      sequence: 1,
+      operation_name: 'Solo Step',
+    });
 
-    const crossTenantOps = await operationsService.findByProductionOrder(orderId, OTHER_TENANT_ID);
+    const crossTenantOps = await operationsService.findByProductionOrder(
+      orderId,
+      OTHER_TENANT_ID,
+    );
     expect(crossTenantOps).toEqual([]);
   }, 20_000);
 
@@ -236,9 +348,21 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     const bomId = await createBom(finished, component, 1);
     const orderId = await createOrder(bomId, 1);
 
-    const before = await supabase.from('stock_levels').select('quantity_on_hand').eq('tenant_id', TEST_TENANT_ID).eq('item_id', finished).eq('warehouse_id', warehouseId).is('location_id', null).single();
+    const before = await supabase
+      .from('stock_levels')
+      .select('quantity_on_hand')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .eq('item_id', finished)
+      .eq('warehouse_id', warehouseId)
+      .is('location_id', null)
+      .single();
 
-    const scrap: any = await scrapService.record(orderId, TEST_TENANT_ID, null, { item_id: finished, quantity: 5, reason: 'Defective units' } as any);
+    const scrap: any = await scrapService.record(
+      orderId,
+      TEST_TENANT_ID,
+      null,
+      { item_id: finished, quantity: 5, reason: 'Defective units' },
+    );
     expect(Number(scrap.quantity)).toBe(5);
     expect(Number(scrap.unit_cost)).toBe(10);
     expect(scrap.reason).toBe('Defective units');
@@ -246,25 +370,46 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     // Test 6: a real, distinct stock_movements row — not consumption, not receipt.
     const { data: movement } = await supabase
       .from('stock_movements')
-      .select('movement_type, direction, quantity, reference_type, reference_id')
+      .select(
+        'movement_type, direction, quantity, reference_type, reference_id',
+      )
       .eq('id', scrap.movement_id)
       .single();
-    expect(movement!.movement_type).toBe('production_scrap');
-    expect(movement!.direction).toBe('out');
-    expect(Number(movement!.quantity)).toBe(5);
-    expect(movement!.reference_type).toBe('production_order');
-    expect(movement!.reference_id).toBe(orderId);
+    expect(movement.movement_type).toBe('production_scrap');
+    expect(movement.direction).toBe('out');
+    expect(Number(movement.quantity)).toBe(5);
+    expect(movement.reference_type).toBe('production_order');
+    expect(movement.reference_id).toBe(orderId);
 
     // Test 9: cost_layers were really drawn from (quantity_remaining decreased) — scrap has real cost impact.
-    const { data: layers } = await supabase.from('cost_layers').select('quantity_remaining').eq('tenant_id', TEST_TENANT_ID).eq('item_id', finished);
-    const totalRemaining = layers!.reduce((s, l) => s + Number(l.quantity_remaining), 0);
+    const { data: layers } = await supabase
+      .from('cost_layers')
+      .select('quantity_remaining')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .eq('item_id', finished);
+    const totalRemaining = layers.reduce(
+      (s, l) => s + Number(l.quantity_remaining),
+      0,
+    );
     expect(totalRemaining).toBe(45); // 50 seeded - 5 scrapped
 
     // Test 10: stock_levels reflects the same reduction — ledger is internally consistent.
-    const after = await supabase.from('stock_levels').select('quantity_on_hand').eq('tenant_id', TEST_TENANT_ID).eq('item_id', finished).eq('warehouse_id', warehouseId).is('location_id', null).single();
-    expect(Number(after.data!.quantity_on_hand)).toBe(Number(before.data!.quantity_on_hand) - 5);
+    const after = await supabase
+      .from('stock_levels')
+      .select('quantity_on_hand')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .eq('item_id', finished)
+      .eq('warehouse_id', warehouseId)
+      .is('location_id', null)
+      .single();
+    expect(Number(after.data.quantity_on_hand)).toBe(
+      Number(before.data.quantity_on_hand) - 5,
+    );
 
-    const list = await scrapService.findByProductionOrder(orderId, TEST_TENANT_ID);
+    const list = await scrapService.findByProductionOrder(
+      orderId,
+      TEST_TENANT_ID,
+    );
     expect(list.length).toBe(1);
   }, 30_000);
 
@@ -275,12 +420,26 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
     const bomId = await createBom(finished, component, 1);
     const orderId = await createOrder(bomId, 4);
 
-    const result: any = await productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {
-      scrap: [{ item_id: finished, quantity: 1, reason: 'Damaged on completion' } as any],
-    });
+    const result: any = await productionOrdersService.complete(
+      orderId,
+      TEST_TENANT_ID,
+      null,
+      {
+        scrap: [
+          {
+            item_id: finished,
+            quantity: 1,
+            reason: 'Damaged on completion',
+          },
+        ],
+      },
+    );
     expect(result.status).toBe('completed');
 
-    const scrapRows = await scrapService.findByProductionOrder(orderId, TEST_TENANT_ID);
+    const scrapRows = await scrapService.findByProductionOrder(
+      orderId,
+      TEST_TENANT_ID,
+    );
     expect(scrapRows.length).toBe(1);
     expect(Number((scrapRows[0] as any).quantity)).toBe(1);
 

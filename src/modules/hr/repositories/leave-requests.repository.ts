@@ -3,12 +3,16 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { calculateLeaveDays } from '../leave-balance.util';
 
-const SELECT = 'id, leave_type, date_from, date_to, days_count, status, reason, created_at';
-const SELECT_WITH_USER = 'id, leave_type, date_from, date_to, days_count, status, reason, created_at, user_id, users(name, job_title, department)';
+const SELECT =
+  'id, leave_type, date_from, date_to, days_count, status, reason, created_at';
+const SELECT_WITH_USER =
+  'id, leave_type, date_from, date_to, days_count, status, reason, created_at, user_id, users(name, job_title, department)';
 
 @Injectable()
 export class LeaveRequestsRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   async findRecentForUser(tenantId: string, userId: string, limit = 3) {
     const { data, error } = await this.supabase
@@ -25,7 +29,12 @@ export class LeaveRequestsRepository {
   async create(
     tenantId: string,
     userId: string,
-    data: { leave_type: string; date_from: string; date_to: string; reason?: string },
+    data: {
+      leave_type: string;
+      date_from: string;
+      date_to: string;
+      reason?: string;
+    },
   ) {
     const daysCount = calculateLeaveDays(data.date_from, data.date_to);
     const { data: row, error } = await this.supabase
@@ -46,7 +55,11 @@ export class LeaveRequestsRepository {
     return row;
   }
 
-  async findAllForTenant(tenantId: string, status?: 'pending' | 'approved' | 'rejected', userId?: string) {
+  async findAllForTenant(
+    tenantId: string,
+    status?: 'pending' | 'approved' | 'rejected',
+    userId?: string,
+  ) {
     let query = this.supabase
       .from('leave_requests')
       .select(SELECT_WITH_USER)
@@ -59,7 +72,11 @@ export class LeaveRequestsRepository {
     return data ?? [];
   }
 
-  async updateStatus(id: string, tenantId: string, status: 'approved' | 'rejected') {
+  async updateStatus(
+    id: string,
+    tenantId: string,
+    status: 'approved' | 'rejected',
+  ) {
     const { data, error } = await this.supabase
       .from('leave_requests')
       .update({ status })
@@ -71,7 +88,10 @@ export class LeaveRequestsRepository {
     return data;
   }
 
-  async sumApprovedDaysThisYear(tenantId: string, userId: string): Promise<number> {
+  async sumApprovedDaysThisYear(
+    tenantId: string,
+    userId: string,
+  ): Promise<number> {
     const yearStart = `${new Date().getFullYear()}-01-01`;
     const { data, error } = await this.supabase
       .from('leave_requests')

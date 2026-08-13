@@ -27,7 +27,14 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
   const createItem = async (name: string) => {
     const { data, error } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name, type: 'product', operation_type: 'sell', price: 10, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name,
+        type: 'product',
+        operation_type: 'sell',
+        price: 10,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -49,13 +56,15 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
     if (grErr) throw grErr;
     grIds.push(gr.id);
 
-    const { error: lineErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID,
-      goods_receipt_id: gr.id,
-      item_id: itemId,
-      quantity_received: qty,
-      unit_cost: unitCost,
-    });
+    const { error: lineErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: itemId,
+        quantity_received: qty,
+        unit_cost: unitCost,
+      });
     if (lineErr) throw lineErr;
 
     const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
@@ -66,13 +75,16 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
   };
 
   const recordSale = async (itemId: string, qty: number) => {
-    const { data: unitCost, error: consumeErr } = await supabase.rpc('fn_consume_cost_layers', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_warehouse_id: warehouseId,
-      p_item_id: itemId,
-      p_variant_id: null,
-      p_quantity: qty,
-    });
+    const { data: unitCost, error: consumeErr } = await supabase.rpc(
+      'fn_consume_cost_layers',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_warehouse_id: warehouseId,
+        p_item_id: itemId,
+        p_variant_id: null,
+        p_quantity: qty,
+      },
+    );
     if (consumeErr) throw consumeErr;
 
     const { error: moveErr } = await supabase.rpc('fn_apply_stock_movement', {
@@ -112,20 +124,31 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
-    const { data: wh, error } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
+    const { data: wh, error } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1);
     if (error) throw error;
-    warehouseId = wh![0].id;
+    warehouseId = wh[0].id;
   }, 30_000);
 
   afterAll(async () => {
-    for (const id of reorderPointIds) await supabase.from('inventory_reorder_points').delete().eq('id', id);
+    for (const id of reorderPointIds)
+      await supabase.from('inventory_reorder_points').delete().eq('id', id);
     for (const itemId of itemIds) {
       await supabase.from('cost_layers').delete().eq('item_id', itemId);
       await supabase.from('stock_levels').delete().eq('item_id', itemId);
     }
     for (const id of grIds) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', id);
       await supabase.from('goods_receipts').delete().eq('id', id);
     }
     // items.id has stock_movements.item_id ON DELETE RESTRICT — any item
@@ -136,7 +159,10 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
     for (const itemId of itemIds) {
       const { error } = await supabase.from('items').delete().eq('id', itemId);
       if (error) {
-        await supabase.from('items').update({ is_active: false, deleted_at: new Date().toISOString() }).eq('id', itemId);
+        await supabase
+          .from('items')
+          .update({ is_active: false, deleted_at: new Date().toISOString() })
+          .eq('id', itemId);
       }
     }
   }, 60_000);
@@ -200,11 +226,14 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
     await seedStock(activeItem, 20, 3);
     await recordSale(activeItem, 5); // sold just now -> not dead
 
-    const { data, error } = await supabase.rpc('fn_inventory_dead_stock_report', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_lookback_days: 90,
-      p_warehouse_id: warehouseId,
-    });
+    const { data, error } = await supabase.rpc(
+      'fn_inventory_dead_stock_report',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_lookback_days: 90,
+        p_warehouse_id: warehouseId,
+      },
+    );
     expect(error).toBeNull();
     const ids = (data as any[]).map((r) => r.item_id);
     expect(ids).toContain(deadItem);
@@ -223,12 +252,15 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
     await recordSale(lowItem, 3);
     await recordSale(highItem, 50);
 
-    const { data, error } = await supabase.rpc('fn_inventory_slow_moving_report', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_lookback_days: 90,
-      p_max_units_sold: 5,
-      p_warehouse_id: warehouseId,
-    });
+    const { data, error } = await supabase.rpc(
+      'fn_inventory_slow_moving_report',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_lookback_days: 90,
+        p_max_units_sold: 5,
+        p_warehouse_id: warehouseId,
+      },
+    );
     expect(error).toBeNull();
     const ids = (data as any[]).map((r) => r.item_id);
     expect(ids).toContain(lowItem);
@@ -237,19 +269,28 @@ describe('advanced analytics phase 2 regression (Migration 7.2)', () => {
   }, 30_000);
 
   it('overstock: item above max_quantity returns correct excess; item without reorder point returns has_reorder_point=false', async () => {
-    const overstockedItem = await createItem('AA72 Overstock Item (80 on hand, max 50)');
-    const unconfiguredItem = await createItem('AA72 Overstock Item (no reorder point)');
+    const overstockedItem = await createItem(
+      'AA72 Overstock Item (80 on hand, max 50)',
+    );
+    const unconfiguredItem = await createItem(
+      'AA72 Overstock Item (no reorder point)',
+    );
     await seedStock(overstockedItem, 80, 4);
     await seedStock(unconfiguredItem, 30, 4);
     await createReorderPoint(overstockedItem, 50);
 
-    const { data, error } = await supabase.rpc('fn_inventory_overstock_report', {
-      p_tenant_id: TEST_TENANT_ID,
-      p_warehouse_id: warehouseId,
-    });
+    const { data, error } = await supabase.rpc(
+      'fn_inventory_overstock_report',
+      {
+        p_tenant_id: TEST_TENANT_ID,
+        p_warehouse_id: warehouseId,
+      },
+    );
     expect(error).toBeNull();
     const overRow = (data as any[]).find((r) => r.item_id === overstockedItem);
-    const unconfRow = (data as any[]).find((r) => r.item_id === unconfiguredItem);
+    const unconfRow = (data as any[]).find(
+      (r) => r.item_id === unconfiguredItem,
+    );
 
     expect(overRow.has_reorder_point).toBe(true);
     expect(Number(overRow.excess_quantity)).toBe(30); // 80 - 50

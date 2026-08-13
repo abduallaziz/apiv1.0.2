@@ -1,4 +1,14 @@
-import { IsUUID, IsOptional, IsArray, ArrayMinSize, IsInt, Min, Max, IsDateString, ValidateNested } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsArray,
+  ArrayMinSize,
+  IsInt,
+  Min,
+  Max,
+  IsDateString,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { DayOverrideDto } from './bulk-create-schedule.dto';
 import { ShiftDto } from './shift.dto';

@@ -9,11 +9,42 @@ import { JwtPayload } from '../../shared/types/jwt-payload.type';
 const TENANT_A = 'tenant-a';
 const TENANT_B = 'tenant-b';
 
-const TIMESTAMPS = { created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
-const OWNER_ROLE: RoleRow = { id: 'role-owner', name: 'owner', description: null, tenant_id: null, is_system: true, ...TIMESTAMPS };
-const SUPERADMIN_ROLE: RoleRow = { id: 'role-superadmin', name: 'superadmin', description: null, tenant_id: null, is_system: true, ...TIMESTAMPS };
-const MANAGER_ROLE: RoleRow = { id: 'role-manager', name: 'manager', description: null, tenant_id: null, is_system: true, ...TIMESTAMPS };
-const TENANT_B_ROLE: RoleRow = { id: 'role-tenant-b-custom', name: 'Custom B Role', description: null, tenant_id: TENANT_B, is_system: false, ...TIMESTAMPS };
+const TIMESTAMPS = {
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
+};
+const OWNER_ROLE: RoleRow = {
+  id: 'role-owner',
+  name: 'owner',
+  description: null,
+  tenant_id: null,
+  is_system: true,
+  ...TIMESTAMPS,
+};
+const SUPERADMIN_ROLE: RoleRow = {
+  id: 'role-superadmin',
+  name: 'superadmin',
+  description: null,
+  tenant_id: null,
+  is_system: true,
+  ...TIMESTAMPS,
+};
+const MANAGER_ROLE: RoleRow = {
+  id: 'role-manager',
+  name: 'manager',
+  description: null,
+  tenant_id: null,
+  is_system: true,
+  ...TIMESTAMPS,
+};
+const TENANT_B_ROLE: RoleRow = {
+  id: 'role-tenant-b-custom',
+  name: 'Custom B Role',
+  description: null,
+  tenant_id: TENANT_B,
+  is_system: false,
+  ...TIMESTAMPS,
+};
 
 function actor(overrides: Partial<JwtPayload> = {}): JwtPayload {
   return {
@@ -32,24 +63,32 @@ function tenantCtx(tenantId: string | null = TENANT_A): TenantContext {
   return new TenantContext(tenantId, null);
 }
 
-function buildService(overrides: {
-  roles?: Record<string, RoleRow>;
-  permission?: { name: string; resource: string } | null;
-  override?: { is_granted: boolean } | null;
-  overridesForRole?: { permission_key: string; is_granted: boolean }[];
-} = {}) {
+function buildService(
+  overrides: {
+    roles?: Record<string, RoleRow>;
+    permission?: { name: string; resource: string } | null;
+    override?: { is_granted: boolean } | null;
+    overridesForRole?: { permission_key: string; is_granted: boolean }[];
+  } = {},
+) {
   const repo = {
     listPermissionGroups: jest.fn(),
     listPermissionsCatalog: jest.fn().mockResolvedValue([]),
     listRolesForTenant: jest.fn(),
     getRoleById: jest.fn(async (id: string) => overrides.roles?.[id] ?? null),
-    getPermissionByKey: jest.fn().mockResolvedValue(
-      overrides.permission !== undefined ? overrides.permission : { name: 'expenses.approve', resource: 'expenses' },
-    ),
+    getPermissionByKey: jest
+      .fn()
+      .mockResolvedValue(
+        overrides.permission !== undefined
+          ? overrides.permission
+          : { name: 'expenses.approve', resource: 'expenses' },
+      ),
     countUsersForRole: jest.fn().mockResolvedValue(0),
     countCustomizedPermissions: jest.fn().mockResolvedValue(0),
     getOverride: jest.fn().mockResolvedValue(overrides.override ?? null),
-    listOverridesForRole: jest.fn().mockResolvedValue(overrides.overridesForRole ?? []),
+    listOverridesForRole: jest
+      .fn()
+      .mockResolvedValue(overrides.overridesForRole ?? []),
     upsertOverride: jest.fn().mockResolvedValue(undefined),
     deleteOverride: jest.fn().mockResolvedValue(undefined),
     deleteAllOverridesForRole: jest.fn().mockResolvedValue(undefined),
@@ -57,7 +96,9 @@ function buildService(overrides: {
 
   const permissionsService = {
     getRolePermissions: jest.fn().mockResolvedValue([]),
-    getResolutionDetail: jest.fn().mockResolvedValue({ grantedKeys: new Set(), overrides: new Map() }),
+    getResolutionDetail: jest
+      .fn()
+      .mockResolvedValue({ grantedKeys: new Set(), overrides: new Map() }),
     hasPermission: jest.fn().mockResolvedValue(false),
     invalidateRole: jest.fn().mockResolvedValue(undefined),
   } as unknown as PermissionsService;
@@ -79,49 +120,101 @@ describe('AccessControlService — S5 Stage C', () => {
       const { service } = buildService({ roles: { [role.id]: role } });
 
       await expect(
-        service.updatePermission(role.id, 'expenses.approve', true, tenantCtx(), actor()),
+        service.updatePermission(
+          role.id,
+          'expenses.approve',
+          true,
+          tenantCtx(),
+          actor(),
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('rejects resetRole for the owner role', async () => {
-      const { service } = buildService({ roles: { [OWNER_ROLE.id]: OWNER_ROLE } });
+      const { service } = buildService({
+        roles: { [OWNER_ROLE.id]: OWNER_ROLE },
+      });
 
-      await expect(service.resetRole(OWNER_ROLE.id, tenantCtx(), actor())).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.resetRole(OWNER_ROLE.id, tenantCtx(), actor()),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('allows updatePermission for an editable role (manager)', async () => {
-      const { service, repo } = buildService({ roles: { [MANAGER_ROLE.id]: MANAGER_ROLE } });
+      const { service, repo } = buildService({
+        roles: { [MANAGER_ROLE.id]: MANAGER_ROLE },
+      });
 
       await expect(
-        service.updatePermission(MANAGER_ROLE.id, 'expenses.approve', false, tenantCtx(), actor()),
+        service.updatePermission(
+          MANAGER_ROLE.id,
+          'expenses.approve',
+          false,
+          tenantCtx(),
+          actor(),
+        ),
       ).resolves.toBeDefined();
-      expect(repo.upsertOverride).toHaveBeenCalledWith(TENANT_A, MANAGER_ROLE.id, 'expenses.approve', false);
+      expect(repo.upsertOverride).toHaveBeenCalledWith(
+        TENANT_A,
+        MANAGER_ROLE.id,
+        'expenses.approve',
+        false,
+      );
     });
   });
 
   describe('tenant isolation', () => {
     it('rejects access to a role owned by a different tenant', async () => {
-      const { service } = buildService({ roles: { [TENANT_B_ROLE.id]: TENANT_B_ROLE } });
+      const { service } = buildService({
+        roles: { [TENANT_B_ROLE.id]: TENANT_B_ROLE },
+      });
 
       await expect(
-        service.updatePermission(TENANT_B_ROLE.id, 'expenses.approve', true, tenantCtx(TENANT_A), actor()),
+        service.updatePermission(
+          TENANT_B_ROLE.id,
+          'expenses.approve',
+          true,
+          tenantCtx(TENANT_A),
+          actor(),
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('allows a tenant to manage its own custom role', async () => {
-      const { service, repo } = buildService({ roles: { [TENANT_B_ROLE.id]: TENANT_B_ROLE } });
+      const { service, repo } = buildService({
+        roles: { [TENANT_B_ROLE.id]: TENANT_B_ROLE },
+      });
 
       await expect(
-        service.updatePermission(TENANT_B_ROLE.id, 'expenses.approve', true, tenantCtx(TENANT_B), actor({ tenant_id: TENANT_B })),
+        service.updatePermission(
+          TENANT_B_ROLE.id,
+          'expenses.approve',
+          true,
+          tenantCtx(TENANT_B),
+          actor({ tenant_id: TENANT_B }),
+        ),
       ).resolves.toBeDefined();
-      expect(repo.upsertOverride).toHaveBeenCalledWith(TENANT_B, TENANT_B_ROLE.id, 'expenses.approve', true);
+      expect(repo.upsertOverride).toHaveBeenCalledWith(
+        TENANT_B,
+        TENANT_B_ROLE.id,
+        'expenses.approve',
+        true,
+      );
     });
 
     it('allows access to system roles from any tenant', async () => {
-      const { service } = buildService({ roles: { [MANAGER_ROLE.id]: MANAGER_ROLE } });
+      const { service } = buildService({
+        roles: { [MANAGER_ROLE.id]: MANAGER_ROLE },
+      });
 
       await expect(
-        service.updatePermission(MANAGER_ROLE.id, 'expenses.approve', true, tenantCtx(TENANT_B), actor({ tenant_id: TENANT_B })),
+        service.updatePermission(
+          MANAGER_ROLE.id,
+          'expenses.approve',
+          true,
+          tenantCtx(TENANT_B),
+          actor({ tenant_id: TENANT_B }),
+        ),
       ).resolves.toBeDefined();
     });
   });
@@ -134,7 +227,13 @@ describe('AccessControlService — S5 Stage C', () => {
       });
 
       await expect(
-        service.updatePermission(MANAGER_ROLE.id, 'superadmin.queue.manage', true, tenantCtx(), actor()),
+        service.updatePermission(
+          MANAGER_ROLE.id,
+          'superadmin.queue.manage',
+          true,
+          tenantCtx(),
+          actor(),
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -145,7 +244,13 @@ describe('AccessControlService — S5 Stage C', () => {
       });
 
       await expect(
-        service.updatePermission(MANAGER_ROLE.id, 'expenses.approve', true, tenantCtx(), actor()),
+        service.updatePermission(
+          MANAGER_ROLE.id,
+          'expenses.approve',
+          true,
+          tenantCtx(),
+          actor(),
+        ),
       ).resolves.toBeDefined();
     });
   });
@@ -157,11 +262,23 @@ describe('AccessControlService — S5 Stage C', () => {
         override: { is_granted: false },
       });
 
-      await service.resetPermission(MANAGER_ROLE.id, 'expenses.approve', tenantCtx(), actor());
+      await service.resetPermission(
+        MANAGER_ROLE.id,
+        'expenses.approve',
+        tenantCtx(),
+        actor(),
+      );
 
-      expect(repo.deleteOverride).toHaveBeenCalledWith(TENANT_A, MANAGER_ROLE.id, 'expenses.approve');
+      expect(repo.deleteOverride).toHaveBeenCalledWith(
+        TENANT_A,
+        MANAGER_ROLE.id,
+        'expenses.approve',
+      );
       expect(repo.upsertOverride).not.toHaveBeenCalled();
-      expect(permissionsService.invalidateRole).toHaveBeenCalledWith('manager', TENANT_A);
+      expect(permissionsService.invalidateRole).toHaveBeenCalledWith(
+        'manager',
+        TENANT_A,
+      );
     });
 
     it('resetRole deletes all overrides for the role and never re-writes them', async () => {
@@ -174,9 +291,16 @@ describe('AccessControlService — S5 Stage C', () => {
         overridesForRole,
       });
 
-      const result = await service.resetRole(MANAGER_ROLE.id, tenantCtx(), actor());
+      const result = await service.resetRole(
+        MANAGER_ROLE.id,
+        tenantCtx(),
+        actor(),
+      );
 
-      expect(repo.deleteAllOverridesForRole).toHaveBeenCalledWith(TENANT_A, MANAGER_ROLE.id);
+      expect(repo.deleteAllOverridesForRole).toHaveBeenCalledWith(
+        TENANT_A,
+        MANAGER_ROLE.id,
+      );
       expect(repo.upsertOverride).not.toHaveBeenCalled();
       expect(result.reset_count).toBe(2);
     });
@@ -189,7 +313,13 @@ describe('AccessControlService — S5 Stage C', () => {
         override: null,
       });
 
-      await service.updatePermission(MANAGER_ROLE.id, 'expenses.approve', true, tenantCtx(), actor());
+      await service.updatePermission(
+        MANAGER_ROLE.id,
+        'expenses.approve',
+        true,
+        tenantCtx(),
+        actor(),
+      );
 
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -198,7 +328,10 @@ describe('AccessControlService — S5 Stage C', () => {
           actor_role: 'owner',
           action: 'role_permission.granted',
           resource_type: 'role_permission',
-          before_data: { permission_key: 'expenses.approve', state: 'inherited_default' },
+          before_data: {
+            permission_key: 'expenses.approve',
+            state: 'inherited_default',
+          },
           after_data: { permission_key: 'expenses.approve', state: 'granted' },
         }),
       );
@@ -210,7 +343,13 @@ describe('AccessControlService — S5 Stage C', () => {
         override: { is_granted: true },
       });
 
-      await service.updatePermission(MANAGER_ROLE.id, 'expenses.approve', false, tenantCtx(), actor());
+      await service.updatePermission(
+        MANAGER_ROLE.id,
+        'expenses.approve',
+        false,
+        tenantCtx(),
+        actor(),
+      );
 
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -237,23 +376,37 @@ describe('AccessControlService — S5 Stage C', () => {
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({
           before_data: { permission_key: 'expenses.approve', state: 'denied' },
-          after_data: { permission_key: 'expenses.approve', state: 'inherited_default' },
+          after_data: {
+            permission_key: 'expenses.approve',
+            state: 'inherited_default',
+          },
         }),
       );
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({
           before_data: { permission_key: 'payroll.view', state: 'granted' },
-          after_data: { permission_key: 'payroll.view', state: 'inherited_default' },
+          after_data: {
+            permission_key: 'payroll.view',
+            state: 'inherited_default',
+          },
         }),
       );
     });
 
     it('audit failures never throw (fire-and-forget)', async () => {
-      const { service, audit } = buildService({ roles: { [MANAGER_ROLE.id]: MANAGER_ROLE } });
+      const { service, audit } = buildService({
+        roles: { [MANAGER_ROLE.id]: MANAGER_ROLE },
+      });
       (audit.log as jest.Mock).mockRejectedValue(new Error('audit db down'));
 
       await expect(
-        service.updatePermission(MANAGER_ROLE.id, 'expenses.approve', true, tenantCtx(), actor()),
+        service.updatePermission(
+          MANAGER_ROLE.id,
+          'expenses.approve',
+          true,
+          tenantCtx(),
+          actor(),
+        ),
       ).resolves.toBeDefined();
     });
   });
@@ -286,12 +439,15 @@ describe('AccessControlService — S5 Stage C', () => {
               calls.eqCalls.push([col, val]);
               return builder;
             },
-            then: (resolve: (v: unknown) => unknown) => resolve({ data: [], error: null }),
+            then: (resolve: (v: unknown) => unknown) =>
+              resolve({ data: [], error: null }),
           };
           return builder;
         },
       };
-      const { AccessControlRepository } = require('./access-control.repository');
+      const {
+        AccessControlRepository,
+      } = require('./access-control.repository');
       const repoInstance = new AccessControlRepository(fakeSupabase as any);
 
       await repoInstance.listPermissionsCatalog(false);
@@ -305,11 +461,22 @@ describe('AccessControlService — S5 Stage C', () => {
 
   describe('cache invalidation', () => {
     it('invalidates the tenant-scoped role cache after a grant/revoke', async () => {
-      const { service, permissionsService } = buildService({ roles: { [MANAGER_ROLE.id]: MANAGER_ROLE } });
+      const { service, permissionsService } = buildService({
+        roles: { [MANAGER_ROLE.id]: MANAGER_ROLE },
+      });
 
-      await service.updatePermission(MANAGER_ROLE.id, 'expenses.approve', true, tenantCtx(), actor());
+      await service.updatePermission(
+        MANAGER_ROLE.id,
+        'expenses.approve',
+        true,
+        tenantCtx(),
+        actor(),
+      );
 
-      expect(permissionsService.invalidateRole).toHaveBeenCalledWith('manager', TENANT_A);
+      expect(permissionsService.invalidateRole).toHaveBeenCalledWith(
+        'manager',
+        TENANT_A,
+      );
     });
   });
 });

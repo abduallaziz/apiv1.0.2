@@ -1,5 +1,13 @@
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
@@ -25,7 +33,10 @@ export class CustomersController {
 
   @Get()
   @RequirePermission('customers.view')
-  findAll(@GetTenant() tenant: TenantContext, @Query() query: CustomerQueryDto) {
+  findAll(
+    @GetTenant() tenant: TenantContext,
+    @Query() query: CustomerQueryDto,
+  ) {
     return this.service.findAll(tenant, query);
   }
 

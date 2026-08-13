@@ -1,4 +1,11 @@
-import { IsUUID, IsString, IsNotEmpty, IsOptional, IsIn, IsDateString } from 'class-validator';
+import {
+  IsUUID,
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsIn,
+  IsDateString,
+} from 'class-validator';
 
 export class CreateCorrectiveActionDto {
   @IsUUID()

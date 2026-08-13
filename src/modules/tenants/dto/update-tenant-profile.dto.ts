@@ -1,4 +1,17 @@
-import { IsString, IsOptional, MinLength, MaxLength, IsEnum, IsIn, IsBoolean, IsNumber, Min, Max, IsUrl, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  MinLength,
+  MaxLength,
+  IsEnum,
+  IsIn,
+  IsBoolean,
+  IsNumber,
+  Min,
+  Max,
+  IsUrl,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { BusinessType } from '../../../shared/types/enums';
 

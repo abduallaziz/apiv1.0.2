@@ -3,11 +3,14 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { TenantContext } from '../../../core/tenant/tenant-context';
 
-const SELECT = 'id, user_id, branch_id, scheduled_date, start_time, end_time, notes, created_at, users(name)';
+const SELECT =
+  'id, user_id, branch_id, scheduled_date, start_time, end_time, notes, created_at, users(name)';
 
 @Injectable()
 export class SchedulesRepository {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   private map(row: any) {
     return {
@@ -76,7 +79,16 @@ export class SchedulesRepository {
     return this.map(data);
   }
 
-  async bulkCreate(tenantId: string, rows: { user_id: string; branch_id?: string; scheduled_date: string; start_time: string; end_time: string }[]) {
+  async bulkCreate(
+    tenantId: string,
+    rows: {
+      user_id: string;
+      branch_id?: string;
+      scheduled_date: string;
+      start_time: string;
+      end_time: string;
+    }[],
+  ) {
     const { data, error } = await this.supabase
       .from('work_schedules')
       .insert(rows.map((r) => ({ ...r, tenant_id: tenantId })))
@@ -107,7 +119,10 @@ export class SchedulesRepository {
     if (error) throw error;
   }
 
-  async userBelongsToTenant(userId: string, tenantId: string): Promise<boolean> {
+  async userBelongsToTenant(
+    userId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('users')
       .select('id')
@@ -119,7 +134,10 @@ export class SchedulesRepository {
     return !!data;
   }
 
-  async branchBelongsToTenant(branchId: string, tenantId: string): Promise<boolean> {
+  async branchBelongsToTenant(
+    branchId: string,
+    tenantId: string,
+  ): Promise<boolean> {
     const { data, error } = await this.supabase
       .from('branches')
       .select('id')

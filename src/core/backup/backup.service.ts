@@ -42,7 +42,9 @@ export class BackupService {
   }
 
   async runDailyIntegrityCheck(): Promise<void> {
-    this.logger.info('backup.integrity_check.start', { module: 'BackupService' });
+    this.logger.info('backup.integrity_check.start', {
+      module: 'BackupService',
+    });
 
     try {
       const report = await this.getBackupStatus();
@@ -172,7 +174,9 @@ export class BackupService {
     }
 
     if (db.canConnect && !db.tablesReachable) {
-      recs.push('WARNING: Some tables are unreachable. Run pending migrations.');
+      recs.push(
+        'WARNING: Some tables are unreachable. Run pending migrations.',
+      );
     }
 
     if (!redis.canConnect) {
@@ -182,8 +186,12 @@ export class BackupService {
     }
 
     if (db.status === 'healthy' && redis.status === 'healthy') {
-      recs.push('All systems healthy. Verify Supabase backup retention in dashboard.');
-      recs.push('Ensure PITR (Point-in-Time Recovery) is enabled on Supabase Pro plan.');
+      recs.push(
+        'All systems healthy. Verify Supabase backup retention in dashboard.',
+      );
+      recs.push(
+        'Ensure PITR (Point-in-Time Recovery) is enabled on Supabase Pro plan.',
+      );
     }
 
     return recs;

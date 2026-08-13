@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { WaitlistRepository } from './repositories/waitlist.repository';
 import { DineInService } from './dine-in.service';
 import { CreateWaitlistEntryDto } from './dto/create-waitlist-entry.dto';
@@ -16,16 +20,26 @@ export class WaitlistService {
   }
 
   async create(tenant: TenantContext, dto: CreateWaitlistEntryDto) {
-    const branchOk = await this.repo.branchBelongsToTenant(dto.branch_id, tenant.tenantId);
+    const branchOk = await this.repo.branchBelongsToTenant(
+      dto.branch_id,
+      tenant.tenantId,
+    );
     if (!branchOk) throw new BadRequestException('Branch not found');
     return this.repo.create(tenant.tenantId, dto);
   }
 
-  async seat(tenant: TenantContext, id: string, tableId: string, actorId: string) {
+  async seat(
+    tenant: TenantContext,
+    id: string,
+    tableId: string,
+    actorId: string,
+  ) {
     const entry = await this.repo.findById(id, tenant.tenantId);
     if (!entry) throw new NotFoundException('Waitlist entry not found');
     if (entry.status !== 'waiting') {
-      throw new BadRequestException(`Cannot seat an entry with status: ${entry.status}`);
+      throw new BadRequestException(
+        `Cannot seat an entry with status: ${entry.status}`,
+      );
     }
 
     // كان يضبط حالة الطاولة "مشغولة" مباشرة (بعد تحقق يدوي مكرَّر) بدون إنشاء أي طلب —

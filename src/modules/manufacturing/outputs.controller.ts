@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
 import { OutputsService } from './outputs.service';
 import { CreateOutputDto } from './dto/create-output.dto';
 import { UpdateOutputDto } from './dto/update-output.dto';
@@ -21,8 +29,14 @@ export class OutputsController {
 
   @Get()
   @RequirePermission('manufacturing.view')
-  findAll(@Param('id') productionOrderId: string, @GetTenant() tenant: TenantContext) {
-    return this.outputsService.findByProductionOrder(productionOrderId, tenant.tenantId);
+  findAll(
+    @Param('id') productionOrderId: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.outputsService.findByProductionOrder(
+      productionOrderId,
+      tenant.tenantId,
+    );
   }
 
   @Post()
@@ -43,6 +57,11 @@ export class OutputsController {
     @Body() dto: UpdateOutputDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.outputsService.update(outputId, productionOrderId, tenant.tenantId, dto);
+    return this.outputsService.update(
+      outputId,
+      productionOrderId,
+      tenant.tenantId,
+      dto,
+    );
   }
 }

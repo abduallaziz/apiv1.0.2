@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { HoldsRepository } from './repositories/holds.repository';
 import { WarehousesService } from '../inventory/warehouses.service';
 import { ItemsService } from '../items/items.service';
@@ -58,14 +62,26 @@ export class HoldsService {
   // separate write-off). Both are real, audited outcomes — not a "release
   // request" ApprovalEngine flow with only one real end state, per the
   // approved hard-block design.
-  async release(id: string, tenantId: string, actorId: string, dto: ReleaseHoldDto) {
+  async release(
+    id: string,
+    tenantId: string,
+    actorId: string,
+    dto: ReleaseHoldDto,
+  ) {
     const hold: any = await this.findById(id, tenantId);
     if (hold.status !== 'active') {
-      throw new BadRequestException(`Hold ${id} is not active (status=${hold.status})`);
+      throw new BadRequestException(
+        `Hold ${id} is not active (status=${hold.status})`,
+      );
     }
 
     if (dto.approved) {
-      const released = await this.holdsRepo.release(id, tenantId, actorId, dto.reason);
+      const released = await this.holdsRepo.release(
+        id,
+        tenantId,
+        actorId,
+        dto.reason,
+      );
       await this.auditService
         .log({
           tenant_id: tenantId,
@@ -74,16 +90,24 @@ export class HoldsService {
           resource_type: 'quality_hold',
           resource_id: id,
           before_data: hold,
-          after_data: released as unknown as Record<string, unknown>,
+          after_data: released,
         })
         .catch(() => {});
       return released;
     }
 
     if (!dto.disposition) {
-      throw new BadRequestException('disposition is required when rejecting a quality hold');
+      throw new BadRequestException(
+        'disposition is required when rejecting a quality hold',
+      );
     }
-    const rejected = await this.holdsRepo.reject(id, tenantId, actorId, dto.disposition, dto.reason);
+    const rejected = await this.holdsRepo.reject(
+      id,
+      tenantId,
+      actorId,
+      dto.disposition,
+      dto.reason,
+    );
     await this.auditService
       .log({
         tenant_id: tenantId,
@@ -92,7 +116,7 @@ export class HoldsService {
         resource_type: 'quality_hold',
         resource_id: id,
         before_data: hold,
-        after_data: rejected as unknown as Record<string, unknown>,
+        after_data: rejected,
       })
       .catch(() => {});
     return rejected;

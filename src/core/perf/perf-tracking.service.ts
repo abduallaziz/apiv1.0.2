@@ -64,8 +64,20 @@ export class PerfTrackingService {
       await pipeline.exec();
 
       // Atomic min/max via Lua — two separate evals, still fast (each ~0.1 ms on local Redis)
-      await this.redis.eval(SET_MIN_SCRIPT, 1, hashKey, 'minDurationMs', durationMs);
-      await this.redis.eval(SET_MAX_SCRIPT, 1, hashKey, 'maxDurationMs', durationMs);
+      await this.redis.eval(
+        SET_MIN_SCRIPT,
+        1,
+        hashKey,
+        'minDurationMs',
+        durationMs,
+      );
+      await this.redis.eval(
+        SET_MAX_SCRIPT,
+        1,
+        hashKey,
+        'maxDurationMs',
+        durationMs,
+      );
     } catch {
       // Best-effort — perf tracking must never break the request
     }
@@ -95,10 +107,14 @@ export class PerfTrackingService {
             method,
             route: routeParts.join(' '),
             count,
-            avgDurationMs: count ? Math.round((totalDurationMs / count) * 100) / 100 : 0,
+            avgDurationMs: count
+              ? Math.round((totalDurationMs / count) * 100) / 100
+              : 0,
             minDurationMs: Number(hash.minDurationMs ?? 0),
             maxDurationMs: Number(hash.maxDurationMs ?? 0),
-            avgDbQueries: count ? Math.round((totalDbQueries / count) * 100) / 100 : 0,
+            avgDbQueries: count
+              ? Math.round((totalDbQueries / count) * 100) / 100
+              : 0,
             statusCodes,
           };
         }),

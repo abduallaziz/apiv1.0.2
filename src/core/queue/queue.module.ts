@@ -67,6 +67,12 @@ import { AnalyticsModule } from '../../modules/shared/analytics/analytics.module
     PlatformAnalyticsProcessor,
     PlatformAnalyticsScheduler,
   ],
-  exports: [BullModule, QueueRegistry, QueueService, QueueExistsPipe, AiQueueService],
+  exports: [
+    BullModule,
+    QueueRegistry,
+    QueueService,
+    QueueExistsPipe,
+    AiQueueService,
+  ],
 })
 export class QueueModule {}

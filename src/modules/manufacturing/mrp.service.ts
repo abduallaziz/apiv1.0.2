@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { MrpRepository } from './repositories/mrp.repository';
 import { ProductionOrdersService } from './production-orders.service';
 import { PurchaseRequestsService } from '../purchasing/purchase-requests.service';
@@ -22,9 +27,9 @@ export class MrpService {
 
   async run(tenantId: string, warehouseId: string) {
     const mrpRunId = await this.mrpRepo.runMrp(tenantId, warehouseId);
-    return this.mrpRepo.findPlannedOrders(tenantId).then((rows) =>
-      rows.filter((r: any) => r.mrp_run_id === mrpRunId),
-    );
+    return this.mrpRepo
+      .findPlannedOrders(tenantId)
+      .then((rows) => rows.filter((r: any) => r.mrp_run_id === mrpRunId));
   }
 
   findAll(tenantId: string, status?: string, orderType?: string) {
@@ -40,7 +45,9 @@ export class MrpService {
   async approve(id: string, tenantId: string) {
     const order = await this.findById(id, tenantId);
     if (order.status !== 'proposed') {
-      throw new BadRequestException(`Cannot approve a planned order with status: ${order.status}`);
+      throw new BadRequestException(
+        `Cannot approve a planned order with status: ${order.status}`,
+      );
     }
     return this.mrpRepo.updateStatus(id, tenantId, 'approved');
   }
@@ -48,7 +55,9 @@ export class MrpService {
   async cancel(id: string, tenantId: string) {
     const order = await this.findById(id, tenantId);
     if (order.status === 'converted') {
-      throw new BadRequestException('Cannot cancel a planned order that has already been converted');
+      throw new BadRequestException(
+        'Cannot cancel a planned order that has already been converted',
+      );
     }
     return this.mrpRepo.updateStatus(id, tenantId, 'cancelled');
   }
@@ -67,15 +76,26 @@ export class MrpService {
     }
 
     if (order.order_type === 'purchase') {
-      const allowed = await this.permissionsService.hasPermission(userRole, 'purchasing.manage', tenantId);
-      if (!allowed) throw new ForbiddenException('Permission denied: purchasing.manage');
+      const allowed = await this.permissionsService.hasPermission(
+        userRole,
+        'purchasing.manage',
+        tenantId,
+      );
+      if (!allowed)
+        throw new ForbiddenException('Permission denied: purchasing.manage');
 
       const pr = await this.purchaseRequestsService.createFromSuggestions(
         tenantId,
         {
           warehouse_id: order.warehouse_id,
           notes: 'Generated from MRP planned order',
-          items: [{ item_id: order.item_id, variant_id: order.variant_id ?? undefined, quantity_requested: Number(order.quantity) }],
+          items: [
+            {
+              item_id: order.item_id,
+              variant_id: order.variant_id ?? undefined,
+              quantity_requested: Number(order.quantity),
+            },
+          ],
         },
         requestedBy,
       );
@@ -86,8 +106,13 @@ export class MrpService {
     }
 
     // production
-    const allowed = await this.permissionsService.hasPermission(userRole, 'manufacturing.manage', tenantId);
-    if (!allowed) throw new ForbiddenException('Permission denied: manufacturing.manage');
+    const allowed = await this.permissionsService.hasPermission(
+      userRole,
+      'manufacturing.manage',
+      tenantId,
+    );
+    if (!allowed)
+      throw new ForbiddenException('Permission denied: manufacturing.manage');
 
     const po = await this.productionOrdersService.create(tenantId, {
       warehouse_id: order.warehouse_id,

@@ -20,7 +20,9 @@ export class BranchValidatorService {
       .maybeSingle();
 
     if (error || !data) {
-      throw new ForbiddenException('Branch not found or does not belong to tenant');
+      throw new ForbiddenException(
+        'Branch not found or does not belong to tenant',
+      );
     }
   }
 }

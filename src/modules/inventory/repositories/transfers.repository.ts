@@ -53,7 +53,11 @@ export class TransfersRepository extends ScopedRepository {
     return data;
   }
 
-  async create(tenantId: string, payload: Record<string, unknown>, items: Record<string, unknown>[]) {
+  async create(
+    tenantId: string,
+    payload: Record<string, unknown>,
+    items: Record<string, unknown>[],
+  ) {
     const { data: transfer, error } = await this.supabase
       .from('stock_transfers')
       .insert({ ...payload, tenant_id: tenantId })
@@ -63,7 +67,13 @@ export class TransfersRepository extends ScopedRepository {
 
     const { error: itemsError } = await this.supabase
       .from('stock_transfer_items')
-      .insert(items.map((i) => ({ ...i, tenant_id: tenantId, stock_transfer_id: transfer.id })));
+      .insert(
+        items.map((i) => ({
+          ...i,
+          tenant_id: tenantId,
+          stock_transfer_id: transfer.id,
+        })),
+      );
     if (itemsError) throw itemsError;
 
     return this.findById(transfer.id, tenantId);

@@ -1,4 +1,14 @@
-import { IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 // Employee Core editing — deliberately excludes email/password/role/login
 // status. Those belong to the System User side (PATCH /users/:id) even when
@@ -85,7 +95,11 @@ export class UpdateEmployeeDto {
 
   @IsIn(['fixed', 'per_minute', 'percentage_of_daily_rate'])
   @IsOptional()
-  late_deduction_mode?: 'fixed' | 'per_minute' | 'percentage_of_daily_rate' | null;
+  late_deduction_mode?:
+    | 'fixed'
+    | 'per_minute'
+    | 'percentage_of_daily_rate'
+    | null;
 
   @IsNumber()
   @Min(0)

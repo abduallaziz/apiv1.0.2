@@ -15,7 +15,9 @@ export class ReorderPointsRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
     if (warehouseId) query = query.eq('warehouse_id', warehouseId);
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await query.order('created_at', {
+      ascending: false,
+    });
     if (error) throw error;
     return data;
   }
@@ -67,9 +69,12 @@ export class ReorderPointsRepository extends ScopedRepository {
 
   // Items whose on-hand quantity (per stock_levels) is at/below min_quantity.
   async findBelowMinimum(tenantId: string) {
-    const { data, error } = await this.supabase.rpc('fn_items_below_reorder_point', {
-      p_tenant_id: tenantId,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_items_below_reorder_point',
+      {
+        p_tenant_id: tenantId,
+      },
+    );
     if (error) throw error;
     return data;
   }

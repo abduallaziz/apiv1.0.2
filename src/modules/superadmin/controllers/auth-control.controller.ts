@@ -1,4 +1,12 @@
-import { Controller, Get, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../../core/auth/jwt-auth.guard';
 import { SuperAdminGuard } from '../guards/superadmin.guard';
 import { Audit } from '../../../core/audit/audit.decorator';
@@ -42,7 +50,10 @@ export class AuthControlController {
   }
 
   @Get('sessions')
-  getSessions(@Query('tenantId') tenantId?: string, @Query('userId') userId?: string) {
+  getSessions(
+    @Query('tenantId') tenantId?: string,
+    @Query('userId') userId?: string,
+  ) {
     return this.authControlService.getSessions({ tenantId, userId });
   }
 

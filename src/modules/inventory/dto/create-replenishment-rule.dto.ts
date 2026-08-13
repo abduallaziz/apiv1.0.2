@@ -1,4 +1,12 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, Min, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsUUID,
+  IsNumber,
+  Min,
+  IsBoolean,
+} from 'class-validator';
 
 export class CreateReplenishmentRuleDto {
   @IsUUID()

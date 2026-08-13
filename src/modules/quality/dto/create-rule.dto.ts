@@ -1,4 +1,13 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsIn, IsNumber, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsUUID,
+  IsIn,
+  IsNumber,
+  Min,
+  Max,
+} from 'class-validator';
 
 export class CreateRuleDto {
   @IsString()
@@ -25,8 +34,17 @@ export class CreateRuleDto {
   @IsOptional()
   transaction_type?: 'goods_receipt' | 'production_output' | 'stock_count';
 
-  @IsIn(['require_inspection', 'create_hold', 'require_approval', 'apply_sampling'])
-  action: 'require_inspection' | 'create_hold' | 'require_approval' | 'apply_sampling';
+  @IsIn([
+    'require_inspection',
+    'create_hold',
+    'require_approval',
+    'apply_sampling',
+  ])
+  action:
+    | 'require_inspection'
+    | 'create_hold'
+    | 'require_approval'
+    | 'apply_sampling';
 
   @IsUUID()
   @IsOptional()

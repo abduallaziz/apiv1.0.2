@@ -14,13 +14,19 @@ export class SuppliersRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string) {
-    const { data, error } = await this.scopedQuery('suppliers', this.ctx(tenantId)).order('name');
+    const { data, error } = await this.scopedQuery(
+      'suppliers',
+      this.ctx(tenantId),
+    ).order('name');
     if (error) throw error;
     return data;
   }
 
   async findById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery('suppliers', this.ctx(tenantId))
+    const { data, error } = await this.scopedQuery(
+      'suppliers',
+      this.ctx(tenantId),
+    )
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
@@ -30,7 +36,11 @@ export class SuppliersRepository extends ScopedRepository {
   async create(tenantId: string, payload: Record<string, unknown>) {
     const { data, error } = await this.supabase
       .from('suppliers')
-      .insert({ ...payload, tenant_id: tenantId, is_active: payload.is_active ?? true })
+      .insert({
+        ...payload,
+        tenant_id: tenantId,
+        is_active: payload.is_active ?? true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -59,10 +69,13 @@ export class SuppliersRepository extends ScopedRepository {
   }
 
   async findProfileStats(id: string, tenantId: string) {
-    const { data, error } = await this.supabase.rpc('fn_supplier_profile_stats', {
-      p_tenant_id: tenantId,
-      p_supplier_id: id,
-    });
+    const { data, error } = await this.supabase.rpc(
+      'fn_supplier_profile_stats',
+      {
+        p_tenant_id: tenantId,
+        p_supplier_id: id,
+      },
+    );
     if (error) throw error;
     return data?.[0] ?? null;
   }

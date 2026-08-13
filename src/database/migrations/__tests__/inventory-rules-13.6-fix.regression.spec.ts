@@ -54,7 +54,10 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
 
     const { data: branch, error: branchErr } = await supabase
       .from('branches')
@@ -76,7 +79,14 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
 
     const { data: item, error: itemErr } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name: 'Regr 13.6-fix Item', type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name: 'Regr 13.6-fix Item',
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     if (itemErr) throw itemErr;
@@ -95,7 +105,10 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
     for (const id of warehouseIds) {
       const { error } = await supabase.from('warehouses').delete().eq('id', id);
       if (error) {
-        await supabase.from('warehouses').update({ deleted_at: new Date().toISOString(), is_active: false }).eq('id', id);
+        await supabase
+          .from('warehouses')
+          .update({ deleted_at: new Date().toISOString(), is_active: false })
+          .eq('id', id);
       }
     }
   }, 60_000);
@@ -105,7 +118,11 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
       // Defensive: a failed assertion above would skip the in-test cleanup and
       // leave a stock_levels row behind, breaking the unique (tenant,warehouse,item)
       // point index for the next test. Clear it unconditionally between tests.
-      await supabase.from('stock_levels').delete().eq('item_id', itemId).eq('warehouse_id', warehouseId);
+      await supabase
+        .from('stock_levels')
+        .delete()
+        .eq('item_id', itemId)
+        .eq('warehouse_id', warehouseId);
     });
 
     it('Test 1: normal available stock can still be reserved', async () => {
@@ -130,18 +147,21 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
 
     it('Test 2: reserved quantity reduces availability for subsequent reservations', async () => {
       const level = await seedStockLevel(warehouseId, 10);
-      const { data: r1, error: e1 } = await supabase.rpc('fn_create_reservation', {
-        p_tenant_id: TEST_TENANT_ID,
-        p_warehouse_id: warehouseId,
-        p_item_id: itemId,
-        p_variant_id: null,
-        p_batch_id: null,
-        p_quantity: 10,
-        p_reference_type: 'test_13_6_fix',
-        p_reference_id: randomUUID(),
-        p_created_by: null,
-        p_expires_at: null,
-      });
+      const { data: r1, error: e1 } = await supabase.rpc(
+        'fn_create_reservation',
+        {
+          p_tenant_id: TEST_TENANT_ID,
+          p_warehouse_id: warehouseId,
+          p_item_id: itemId,
+          p_variant_id: null,
+          p_batch_id: null,
+          p_quantity: 10,
+          p_reference_type: 'test_13_6_fix',
+          p_reference_id: randomUUID(),
+          p_created_by: null,
+          p_expires_at: null,
+        },
+      );
       expect(e1).toBeNull();
       reservationIds.push(r1.id);
 
@@ -203,18 +223,21 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
 
     it('Test 5: partially damaged stock only allows reserving the sellable remainder', async () => {
       const level = await seedStockLevel(warehouseId, 10, 4, 0); // 6 available
-      const { error: okErr, data: okData } = await supabase.rpc('fn_create_reservation', {
-        p_tenant_id: TEST_TENANT_ID,
-        p_warehouse_id: warehouseId,
-        p_item_id: itemId,
-        p_variant_id: null,
-        p_batch_id: null,
-        p_quantity: 6,
-        p_reference_type: 'test_13_6_fix',
-        p_reference_id: randomUUID(),
-        p_created_by: null,
-        p_expires_at: null,
-      });
+      const { error: okErr, data: okData } = await supabase.rpc(
+        'fn_create_reservation',
+        {
+          p_tenant_id: TEST_TENANT_ID,
+          p_warehouse_id: warehouseId,
+          p_item_id: itemId,
+          p_variant_id: null,
+          p_batch_id: null,
+          p_quantity: 6,
+          p_reference_type: 'test_13_6_fix',
+          p_reference_id: randomUUID(),
+          p_created_by: null,
+          p_expires_at: null,
+        },
+      );
       expect(okErr).toBeNull();
       reservationIds.push(okData.id);
 
@@ -247,7 +270,12 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
     beforeAll(async () => {
       const { data: a, error: aErr } = await supabase
         .from('warehouses')
-        .insert({ tenant_id: TEST_TENANT_ID, branch_id: mainBranchId, name: `Regr 13.6-fix WH A ${Date.now()}`, code: `R6FA${Date.now() % 100000}` })
+        .insert({
+          tenant_id: TEST_TENANT_ID,
+          branch_id: mainBranchId,
+          name: `Regr 13.6-fix WH A ${Date.now()}`,
+          code: `R6FA${Date.now() % 100000}`,
+        })
         .select()
         .single();
       if (aErr) throw aErr;
@@ -256,7 +284,12 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
 
       const { data: b, error: bErr } = await supabase
         .from('warehouses')
-        .insert({ tenant_id: TEST_TENANT_ID, branch_id: mainBranchId, name: `Regr 13.6-fix WH B ${Date.now()}`, code: `R6FB${Date.now() % 100000}` })
+        .insert({
+          tenant_id: TEST_TENANT_ID,
+          branch_id: mainBranchId,
+          name: `Regr 13.6-fix WH B ${Date.now()}`,
+          code: `R6FB${Date.now() % 100000}`,
+        })
         .select()
         .single();
       if (bErr) throw bErr;
@@ -265,7 +298,13 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
 
       const { data: locA, error: locAErr } = await supabase
         .from('warehouse_locations')
-        .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: whA, code: `R6F-LOC-A-${Date.now()}`, name: 'Loc A', location_type: 'zone' })
+        .insert({
+          tenant_id: TEST_TENANT_ID,
+          warehouse_id: whA,
+          code: `R6F-LOC-A-${Date.now()}`,
+          name: 'Loc A',
+          location_type: 'zone',
+        })
         .select()
         .single();
       if (locAErr) throw locAErr;
@@ -274,7 +313,13 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
 
       const { data: locB, error: locBErr } = await supabase
         .from('warehouse_locations')
-        .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: whB, code: `R6F-LOC-B-${Date.now()}`, name: 'Loc B', location_type: 'zone' })
+        .insert({
+          tenant_id: TEST_TENANT_ID,
+          warehouse_id: whB,
+          code: `R6F-LOC-B-${Date.now()}`,
+          name: 'Loc B',
+          location_type: 'zone',
+        })
         .select()
         .single();
       if (locBErr) throw locBErr;
@@ -284,11 +329,18 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
       const warehousesRepo = new WarehousesRepository(supabase);
       const warehousesService = new WarehousesService(warehousesRepo);
       const locationsRepo = new LocationsRepository(supabase);
-      const locationsService = new LocationsService(locationsRepo, warehousesService);
+      const locationsService = new LocationsService(
+        locationsRepo,
+        warehousesService,
+      );
       const transfersRepo = new TransfersRepository(supabase);
       // create() never touches stockService — a stub is sufficient here.
       const stubStockService = {} as never;
-      transfersService = new TransfersService(transfersRepo, locationsService, stubStockService);
+      transfersService = new TransfersService(
+        transfersRepo,
+        locationsService,
+        stubStockService,
+      );
     }, 30_000);
 
     it('Test 1: valid warehouse/location transfer succeeds', async () => {
@@ -304,10 +356,16 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
             to_location_id: locInB,
           },
         ],
-      } as never);
+      });
       expect(result).toBeTruthy();
-      await supabase.from('stock_transfer_items').delete().eq('stock_transfer_id', (result as { id: string }).id);
-      await supabase.from('stock_transfers').delete().eq('id', (result as { id: string }).id);
+      await supabase
+        .from('stock_transfer_items')
+        .delete()
+        .eq('stock_transfer_id', (result as { id: string }).id);
+      await supabase
+        .from('stock_transfers')
+        .delete()
+        .eq('id', (result as { id: string }).id);
     }, 30_000);
 
     it('Test 2: invalid source location (belongs to a different warehouse) is rejected', async () => {
@@ -324,7 +382,7 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
               to_location_id: locInB,
             },
           ],
-        } as never),
+        }),
       ).rejects.toThrow('Location not found');
     }, 30_000);
 
@@ -342,7 +400,7 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
               to_location_id: locInA, // wrong: belongs to whA, not whB
             },
           ],
-        } as never),
+        }),
       ).rejects.toThrow('Location not found');
     }, 30_000);
   });

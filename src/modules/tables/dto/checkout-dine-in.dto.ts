@@ -1,8 +1,27 @@
 import { IsEnum, IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
 
 export class CheckoutDineInDto {
-  @IsEnum(['cash', 'card', 'split', 'wallet', 'mada', 'visa', 'mastercard', 'stc_pay', 'apple_pay'])
-  payment_method: 'cash' | 'card' | 'split' | 'wallet' | 'mada' | 'visa' | 'mastercard' | 'stc_pay' | 'apple_pay';
+  @IsEnum([
+    'cash',
+    'card',
+    'split',
+    'wallet',
+    'mada',
+    'visa',
+    'mastercard',
+    'stc_pay',
+    'apple_pay',
+  ])
+  payment_method:
+    | 'cash'
+    | 'card'
+    | 'split'
+    | 'wallet'
+    | 'mada'
+    | 'visa'
+    | 'mastercard'
+    | 'stc_pay'
+    | 'apple_pay';
 
   @IsOptional()
   @IsNumber()

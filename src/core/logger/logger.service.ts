@@ -13,10 +13,7 @@ export class LoggerService implements ILoggerService {
   constructor(private readonly asyncContext: AsyncContextService) {
     this.winston = winston.createLogger({
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-      transports: [
-        createConsoleTransport(),
-        ...createFileTransports(),
-      ],
+      transports: [createConsoleTransport(), ...createFileTransports()],
     });
   }
 
@@ -64,7 +61,10 @@ export class LoggerService implements ILoggerService {
   }
 
   error(message: string, error?: Error, context?: LogContext): void {
-    this.winston.error(message, this.buildEntry('error', message, context, error));
+    this.winston.error(
+      message,
+      this.buildEntry('error', message, context, error),
+    );
   }
 
   debug(message: string, context?: LogContext): void {

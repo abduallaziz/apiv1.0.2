@@ -37,7 +37,10 @@ export class WaitlistController {
 
   @Post()
   @RequirePermission('tables.manage')
-  create(@GetTenant() tenant: TenantContext, @Body() dto: CreateWaitlistEntryDto) {
+  create(
+    @GetTenant() tenant: TenantContext,
+    @Body() dto: CreateWaitlistEntryDto,
+  ) {
     return this.service.create(tenant, dto);
   }
 
@@ -55,7 +58,10 @@ export class WaitlistController {
 
   @Patch(':id/cancel')
   @RequirePermission('tables.manage')
-  cancel(@Param('id', ParseUUIDPipe) id: string, @GetTenant() tenant: TenantContext) {
+  cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.service.cancel(tenant, id);
   }
 }

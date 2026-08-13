@@ -21,7 +21,12 @@ import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { CoreAuthModule } from '../../core/auth/auth.module';
 
 @Module({
-  imports: [PosEngineModule, PaymentEngineModule, PermissionsModule, CoreAuthModule],
+  imports: [
+    PosEngineModule,
+    PaymentEngineModule,
+    PermissionsModule,
+    CoreAuthModule,
+  ],
   controllers: [
     TablesController,
     DineInController,

@@ -28,10 +28,15 @@ export class TenantGuard implements CanActivate {
 
     // Phase 2 of the multi-role migration — user.roles may be absent on a
     // JWT signed before this field existed, so fall back to [user.role].
-    const roles: string[] = Array.isArray(user?.roles) ? user.roles : (user?.role ? [user.role] : []);
+    const roles: string[] = Array.isArray(user?.roles)
+      ? user.roles
+      : user?.role
+        ? [user.role]
+        : [];
 
     if (roles.includes('superadmin')) {
-      const superadminTenantId: string | null = request.headers['x-tenant-id'] ?? null;
+      const superadminTenantId: string | null =
+        request.headers['x-tenant-id'] ?? null;
       const branchId: string | null = request.headers['x-branch-id'] ?? null;
       request.tenantContext = new TenantContext(superadminTenantId, branchId);
       return true;

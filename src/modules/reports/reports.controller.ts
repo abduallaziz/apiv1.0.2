@@ -1,4 +1,11 @@
-import { Controller, Get, Query, Res, UseGuards, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  Res,
+  UseGuards,
+  BadRequestException,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto, ExportFormat } from './dto/report-query.dto';
@@ -25,9 +32,10 @@ export class ReportsController {
     const data = await this.reportsService.getRevenueReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('revenue', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('revenue', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="revenue-report.xlsx"',
       });
       res.send(buffer);
@@ -47,9 +55,10 @@ export class ReportsController {
     const data = await this.reportsService.getShiftsReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('shifts', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('shifts', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="shifts-report.xlsx"',
       });
       res.send(buffer);
@@ -69,9 +78,10 @@ export class ReportsController {
     const data = await this.reportsService.getExpensesReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('expenses', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('expenses', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="expenses-report.xlsx"',
       });
       res.send(buffer);
@@ -91,9 +101,10 @@ export class ReportsController {
     const data = await this.reportsService.getPaymentsReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('payments', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('payments', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="payments-report.xlsx"',
       });
       res.send(buffer);
@@ -112,9 +123,10 @@ export class ReportsController {
     const data = await this.reportsService.getEmployeesReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('employees', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('employees', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="employees-report.xlsx"',
       });
       res.send(buffer);
@@ -134,9 +146,10 @@ export class ReportsController {
     const data = await this.reportsService.getCustomersReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('customers', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('customers', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="customers-report.xlsx"',
       });
       res.send(buffer);
@@ -156,9 +169,10 @@ export class ReportsController {
     const data = await this.reportsService.getTaxReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('tax', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('tax', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="tax-report.xlsx"',
       });
       res.send(buffer);
@@ -176,12 +190,16 @@ export class ReportsController {
     @Query('format') format: ExportFormat,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const data = await this.reportsService.getInventoryReport(tenant, warehouseId);
+    const data = await this.reportsService.getInventoryReport(
+      tenant,
+      warehouseId,
+    );
 
     if (format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('inventory', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('inventory', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="inventory-report.xlsx"',
       });
       res.send(buffer);
@@ -201,9 +219,10 @@ export class ReportsController {
     const data = await this.reportsService.getCogsReport(tenant, query);
 
     if (query.format === ExportFormat.EXCEL) {
-      const buffer = await this.reportsService.exportToExcel('cogs', data as Record<string, unknown>);
+      const buffer = await this.reportsService.exportToExcel('cogs', data);
       res.set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="cogs-report.xlsx"',
       });
       res.send(buffer);

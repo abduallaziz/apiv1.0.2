@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  BadRequestException,
+} from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
@@ -38,13 +42,19 @@ export class WarehousesRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string) {
-    const { data, error } = await this.scopedQuery('warehouses', this.ctx(tenantId)).order('name');
+    const { data, error } = await this.scopedQuery(
+      'warehouses',
+      this.ctx(tenantId),
+    ).order('name');
     if (error) throw error;
     return data;
   }
 
   async findById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery('warehouses', this.ctx(tenantId))
+    const { data, error } = await this.scopedQuery(
+      'warehouses',
+      this.ctx(tenantId),
+    )
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
@@ -54,7 +64,11 @@ export class WarehousesRepository extends ScopedRepository {
   async create(tenantId: string, payload: Record<string, unknown>) {
     const { data, error } = await this.supabase
       .from('warehouses')
-      .insert({ ...payload, tenant_id: tenantId, is_active: payload.is_active ?? true })
+      .insert({
+        ...payload,
+        tenant_id: tenantId,
+        is_active: payload.is_active ?? true,
+      })
       .select()
       .single();
     if (error) throw toHttpError(error);

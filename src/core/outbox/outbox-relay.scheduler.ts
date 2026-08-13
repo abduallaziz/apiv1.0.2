@@ -14,7 +14,8 @@ export class OutboxRelayScheduler {
 
   constructor(
     private readonly outboxRepository: OutboxRepository,
-    @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS) private readonly domainEventsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.DOMAIN_EVENTS)
+    private readonly domainEventsQueue: Queue,
   ) {}
 
   // كل 15 ثانية: يلتقط الأحداث المعلقة من صندوق الصادر ويضعها في طابور المعالجة

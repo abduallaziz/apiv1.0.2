@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { BomRepository } from './repositories/bom.repository';
 import { ItemsService } from '../items/items.service';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
@@ -13,13 +17,23 @@ export class BomService {
     private readonly itemsService: ItemsService,
   ) {}
 
-  async findAll(tenantId: string, page?: string, perPage?: string, itemId?: string, isActive?: string) {
+  async findAll(
+    tenantId: string,
+    page?: string,
+    perPage?: string,
+    itemId?: string,
+    isActive?: string,
+  ) {
     const pagination = new PaginationDto(page, perPage);
     const filters = {
       item_id: itemId,
       is_active: isActive === undefined ? undefined : isActive === 'true',
     };
-    const { data, total } = await this.bomRepo.findAll(tenantId, pagination, filters);
+    const { data, total } = await this.bomRepo.findAll(
+      tenantId,
+      pagination,
+      filters,
+    );
     return { data, total, page: pagination.page, perPage: pagination.perPage };
   }
 
@@ -30,10 +44,16 @@ export class BomService {
     return { ...bom, lines };
   }
 
-  private async validateLines(tenantId: string, itemId: string, lines: { component_item_id: string }[]) {
+  private async validateLines(
+    tenantId: string,
+    itemId: string,
+    lines: { component_item_id: string }[],
+  ) {
     for (const line of lines) {
       if (line.component_item_id === itemId) {
-        throw new BadRequestException('A BOM cannot include its own finished item as a component');
+        throw new BadRequestException(
+          'A BOM cannot include its own finished item as a component',
+        );
       }
       await this.itemsService.findById(line.component_item_id, tenantId); // throws NotFoundException if missing
     }
@@ -45,7 +65,11 @@ export class BomService {
 
     const isActive = dto.is_active ?? true;
     if (isActive) {
-      await this.bomRepo.deactivateOthersForItem(tenantId, dto.item_id, dto.variant_id ?? null);
+      await this.bomRepo.deactivateOthersForItem(
+        tenantId,
+        dto.item_id,
+        dto.variant_id ?? null,
+      );
     }
 
     const bom = await this.bomRepo.create(
@@ -94,7 +118,12 @@ export class BomService {
   async activate(id: string, tenantId: string) {
     const bom = await this.findById(id, tenantId);
     if (!bom.is_active) {
-      await this.bomRepo.deactivateOthersForItem(tenantId, bom.item_id, bom.variant_id, id);
+      await this.bomRepo.deactivateOthersForItem(
+        tenantId,
+        bom.item_id,
+        bom.variant_id,
+        id,
+      );
       await this.bomRepo.setActive(id, tenantId, true);
     }
     return this.findById(id, tenantId);

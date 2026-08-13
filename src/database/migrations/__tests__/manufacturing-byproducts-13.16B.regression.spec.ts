@@ -35,7 +35,14 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
   const createItem = async (name: string) => {
     const { data, error } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name, type: 'product', operation_type: 'sell', price: 5, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name,
+        type: 'product',
+        operation_type: 'sell',
+        price: 5,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -46,29 +53,55 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
   const seedStock = async (itemId: string, qty: number, unitCost: number) => {
     const { data: gr, error: grErr } = await supabase
       .from('goods_receipts')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, receipt_number: `MFG1316B-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, status: 'draft' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        receipt_number: `MFG1316B-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        status: 'draft',
+      })
       .select()
       .single();
     if (grErr) throw grErr;
     grIds.push(gr.id);
-    const { error: lineErr } = await supabase.from('goods_receipt_items').insert({
-      tenant_id: TEST_TENANT_ID, goods_receipt_id: gr.id, item_id: itemId, quantity_received: qty, unit_cost: unitCost,
-    });
+    const { error: lineErr } = await supabase
+      .from('goods_receipt_items')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        goods_receipt_id: gr.id,
+        item_id: itemId,
+        quantity_received: qty,
+        unit_cost: unitCost,
+      });
     if (lineErr) throw lineErr;
-    const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', { p_goods_receipt_id: gr.id, p_actor_id: null });
+    const { error: postErr } = await supabase.rpc('fn_post_goods_receipt', {
+      p_goods_receipt_id: gr.id,
+      p_actor_id: null,
+    });
     if (postErr) throw postErr;
   };
 
-  const createBom = async (finishedItemId: string, componentItemId: string, qtyPerUnit: number) => {
+  const createBom = async (
+    finishedItemId: string,
+    componentItemId: string,
+    qtyPerUnit: number,
+  ) => {
     const { data: bom, error: bomErr } = await supabase
       .from('bill_of_materials')
-      .insert({ tenant_id: TEST_TENANT_ID, item_id: finishedItemId, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        item_id: finishedItemId,
+        is_active: true,
+      })
       .select()
       .single();
     if (bomErr) throw bomErr;
     bomIds.push(bom.id);
     const { error: lineErr } = await supabase.from('bom_lines').insert({
-      tenant_id: TEST_TENANT_ID, bom_id: bom.id, component_item_id: componentItemId, quantity_per_unit: qtyPerUnit, scrap_percentage: 0,
+      tenant_id: TEST_TENANT_ID,
+      bom_id: bom.id,
+      component_item_id: componentItemId,
+      quantity_per_unit: qtyPerUnit,
+      scrap_percentage: 0,
     });
     if (lineErr) throw lineErr;
     return bom.id;
@@ -78,9 +111,13 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
     const { data, error } = await supabase
       .from('production_orders')
       .insert({
-        tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, bom_id: bomId,
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        bom_id: bomId,
         order_number: `MFG1316B-PO-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        quantity_planned: quantityPlanned, status: 'in_progress', started_at: new Date().toISOString(),
+        quantity_planned: quantityPlanned,
+        status: 'in_progress',
+        started_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -90,17 +127,31 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
 
-    const { data: wh, error: whErr } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1).single();
+    const { data: wh, error: whErr } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1)
+      .single();
     if (whErr) throw whErr;
     warehouseId = wh.id;
 
     const productionOrdersRepo = new ProductionOrdersRepository(supabase);
     const bomRepo = new BomRepository(supabase);
     const ownershipRepo = new OwnershipRepository(supabase);
-    const operationsService = new OperationsService(new OperationsRepository(supabase), productionOrdersRepo);
-    const scrapService = new ScrapService(new ScrapRepository(supabase), productionOrdersRepo);
+    const operationsService = new OperationsService(
+      new OperationsRepository(supabase),
+      productionOrdersRepo,
+    );
+    const scrapService = new ScrapService(
+      new ScrapRepository(supabase),
+      productionOrdersRepo,
+    );
     const outputsRepo = new OutputsRepository(supabase);
     outputsService = new OutputsService(outputsRepo, productionOrdersRepo);
 
@@ -123,7 +174,10 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
 
   afterAll(async () => {
     for (const id of orderIds) {
-      await supabase.from('production_order_outputs').delete().eq('production_order_id', id);
+      await supabase
+        .from('production_order_outputs')
+        .delete()
+        .eq('production_order_id', id);
     }
     await supabase.from('stock_movements').delete().in('item_id', itemIds);
     await supabase.from('cost_layers').delete().in('item_id', itemIds);
@@ -136,7 +190,10 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
       await supabase.from('bill_of_materials').delete().eq('id', id);
     }
     for (const id of grIds) {
-      await supabase.from('goods_receipt_items').delete().eq('goods_receipt_id', id);
+      await supabase
+        .from('goods_receipt_items')
+        .delete()
+        .eq('goods_receipt_id', id);
       await supabase.from('goods_receipts').delete().eq('id', id);
     }
     for (const id of itemIds) {
@@ -151,14 +208,22 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
     const bomId = await createBom(finished, component, 2);
     const orderId = await createOrder(bomId, 10);
 
-    const result: any = await productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {});
+    const result: any = await productionOrdersService.complete(
+      orderId,
+      TEST_TENANT_ID,
+      null,
+      {},
+    );
     expect(result.status).toBe('completed');
     expect(Number(result.quantity_produced)).toBe(10);
 
     // The main-product output row is still recorded (informational only —
     // Migration 13.16B's own visibility feature), but there must be zero
     // by_product rows since none were ever created.
-    const outputs: any[] = await outputsService.findByProductionOrder(orderId, TEST_TENANT_ID);
+    const outputs: any[] = await outputsService.findByProductionOrder(
+      orderId,
+      TEST_TENANT_ID,
+    );
     expect(outputs.length).toBe(1);
     expect(outputs[0].output_type).toBe('main_product');
   }, 30_000);
@@ -172,8 +237,10 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
     const orderId = await createOrder(bomId, 5);
 
     const output: any = await outputsService.create(orderId, TEST_TENANT_ID, {
-      item_id: byProduct, quantity: 2, unit_cost: 1.5,
-    } as any);
+      item_id: byProduct,
+      quantity: 2,
+      unit_cost: 1.5,
+    });
     expect(output.output_type).toBe('by_product');
     expect(output.movement_id).toBeNull();
   }, 20_000);
@@ -186,9 +253,18 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
     const bomId = await createBom(finished, component, 1);
     const orderId = await createOrder(bomId, 4);
 
-    await outputsService.create(orderId, TEST_TENANT_ID, { item_id: byProduct, quantity: 3, unit_cost: 2 } as any);
+    await outputsService.create(orderId, TEST_TENANT_ID, {
+      item_id: byProduct,
+      quantity: 3,
+      unit_cost: 2,
+    });
 
-    const result: any = await productionOrdersService.complete(orderId, TEST_TENANT_ID, null, {});
+    const result: any = await productionOrdersService.complete(
+      orderId,
+      TEST_TENANT_ID,
+      null,
+      {},
+    );
     expect(result.status).toBe('completed');
 
     // Test 4: both receipts exist as real stock_movements rows.
@@ -198,33 +274,58 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
       .eq('reference_type', 'production_order')
       .eq('reference_id', orderId)
       .eq('movement_type', 'production_receipt');
-    expect(movements!.length).toBe(2); // main product + by-product
-    const mainReceipt = movements!.find((m) => m.item_id === finished);
-    const byProductReceipt = movements!.find((m) => m.item_id === byProduct);
+    expect(movements.length).toBe(2); // main product + by-product
+    const mainReceipt = movements.find((m) => m.item_id === finished);
+    const byProductReceipt = movements.find((m) => m.item_id === byProduct);
     expect(mainReceipt).toBeTruthy();
-    expect(Number(mainReceipt!.quantity)).toBe(4);
-    expect(Number(mainReceipt!.unit_cost)).toBe(5); // unaffected by the by-product — main cost calc untouched
+    expect(Number(mainReceipt.quantity)).toBe(4);
+    expect(Number(mainReceipt.unit_cost)).toBe(5); // unaffected by the by-product — main cost calc untouched
     expect(byProductReceipt).toBeTruthy();
-    expect(Number(byProductReceipt!.quantity)).toBe(3);
-    expect(Number(byProductReceipt!.unit_cost)).toBe(2); // its own independently-specified cost
+    expect(Number(byProductReceipt.quantity)).toBe(3);
+    expect(Number(byProductReceipt.unit_cost)).toBe(2); // its own independently-specified cost
 
     // Test 5: cost layers exist for both outputs.
-    const { data: mainLayers } = await supabase.from('cost_layers').select('quantity_remaining, unit_cost').eq('tenant_id', TEST_TENANT_ID).eq('item_id', finished);
-    expect(mainLayers!.length).toBe(1);
-    expect(Number(mainLayers![0].quantity_remaining)).toBe(4);
-    const { data: byProductLayers } = await supabase.from('cost_layers').select('quantity_remaining, unit_cost').eq('tenant_id', TEST_TENANT_ID).eq('item_id', byProduct);
-    expect(byProductLayers!.length).toBe(1);
-    expect(Number(byProductLayers![0].quantity_remaining)).toBe(3);
-    expect(Number(byProductLayers![0].unit_cost)).toBe(2);
+    const { data: mainLayers } = await supabase
+      .from('cost_layers')
+      .select('quantity_remaining, unit_cost')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .eq('item_id', finished);
+    expect(mainLayers.length).toBe(1);
+    expect(Number(mainLayers[0].quantity_remaining)).toBe(4);
+    const { data: byProductLayers } = await supabase
+      .from('cost_layers')
+      .select('quantity_remaining, unit_cost')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .eq('item_id', byProduct);
+    expect(byProductLayers.length).toBe(1);
+    expect(Number(byProductLayers[0].quantity_remaining)).toBe(3);
+    expect(Number(byProductLayers[0].unit_cost)).toBe(2);
 
     // Test 6: stock_levels reflect both receipts correctly (ledger integrity).
-    const { data: mainLevel } = await supabase.from('stock_levels').select('quantity_on_hand').eq('tenant_id', TEST_TENANT_ID).eq('item_id', finished).eq('warehouse_id', warehouseId).is('location_id', null).single();
-    expect(Number(mainLevel!.quantity_on_hand)).toBe(4);
-    const { data: byProductLevel } = await supabase.from('stock_levels').select('quantity_on_hand').eq('tenant_id', TEST_TENANT_ID).eq('item_id', byProduct).eq('warehouse_id', warehouseId).is('location_id', null).single();
-    expect(Number(byProductLevel!.quantity_on_hand)).toBe(3);
+    const { data: mainLevel } = await supabase
+      .from('stock_levels')
+      .select('quantity_on_hand')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .eq('item_id', finished)
+      .eq('warehouse_id', warehouseId)
+      .is('location_id', null)
+      .single();
+    expect(Number(mainLevel.quantity_on_hand)).toBe(4);
+    const { data: byProductLevel } = await supabase
+      .from('stock_levels')
+      .select('quantity_on_hand')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .eq('item_id', byProduct)
+      .eq('warehouse_id', warehouseId)
+      .is('location_id', null)
+      .single();
+    expect(Number(byProductLevel.quantity_on_hand)).toBe(3);
 
     // The output rows themselves are now both marked posted (movement_id set).
-    const outputs: any[] = await outputsService.findByProductionOrder(orderId, TEST_TENANT_ID);
+    const outputs: any[] = await outputsService.findByProductionOrder(
+      orderId,
+      TEST_TENANT_ID,
+    );
     expect(outputs.length).toBe(2);
     expect(outputs.every((o) => o.movement_id !== null)).toBe(true);
   }, 30_000);
@@ -235,9 +336,16 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
     await seedStock(component, 10, 1);
     const bomId = await createBom(finished, component, 1);
     const orderId = await createOrder(bomId, 1);
-    await outputsService.create(orderId, TEST_TENANT_ID, { item_id: finished, quantity: 1, unit_cost: 1 } as any);
+    await outputsService.create(orderId, TEST_TENANT_ID, {
+      item_id: finished,
+      quantity: 1,
+      unit_cost: 1,
+    });
 
-    const crossTenantOutputs = await outputsService.findByProductionOrder(orderId, OTHER_TENANT_ID);
+    const crossTenantOutputs = await outputsService.findByProductionOrder(
+      orderId,
+      OTHER_TENANT_ID,
+    );
     expect(crossTenantOutputs).toEqual([]);
   }, 20_000);
 });

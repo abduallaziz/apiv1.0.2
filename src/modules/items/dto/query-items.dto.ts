@@ -1,9 +1,23 @@
-import { IsOptional, IsUUID, IsIn, IsString, IsInt, Min, Max, IsEnum } from 'class-validator';
+import {
+  IsOptional,
+  IsUUID,
+  IsIn,
+  IsString,
+  IsInt,
+  Min,
+  Max,
+  IsEnum,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ItemType } from './create-item.dto';
 
 /** Whitelisted sort columns. Raw input must never reach .order(). */
-export const ITEM_SORT_COLUMNS = ['name', 'price', 'created_at', 'sku'] as const;
+export const ITEM_SORT_COLUMNS = [
+  'name',
+  'price',
+  'created_at',
+  'sku',
+] as const;
 export type ItemSortColumn = (typeof ITEM_SORT_COLUMNS)[number];
 
 export class QueryItemsDto {
@@ -42,7 +56,7 @@ export class QueryItemsDto {
   is_active?: 'true' | 'false' | 'all' = 'true';
 
   @IsOptional()
-  @IsIn(ITEM_SORT_COLUMNS as unknown as string[])
+  @IsIn(ITEM_SORT_COLUMNS)
   sort?: ItemSortColumn = 'name';
 
   @IsOptional()

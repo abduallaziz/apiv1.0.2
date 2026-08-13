@@ -20,7 +20,10 @@ export class MrpController {
 
   @Post('run')
   @RequirePermission('manufacturing.plan')
-  run(@GetTenant() tenant: TenantContext, @Query('warehouse_id') warehouseId: string) {
+  run(
+    @GetTenant() tenant: TenantContext,
+    @Query('warehouse_id') warehouseId: string,
+  ) {
     return this.mrpService.run(tenant.tenantId, warehouseId);
   }
 

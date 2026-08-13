@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ItemsRepository } from './repositories/items.repository';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
@@ -89,7 +94,10 @@ export class ItemsService {
     costingMethod: CostingMethod | string | undefined,
     standardCost: number | null | undefined,
   ): void {
-    if (costingMethod === CostingMethod.STANDARD && (standardCost === null || standardCost === undefined)) {
+    if (
+      costingMethod === CostingMethod.STANDARD &&
+      (standardCost === null || standardCost === undefined)
+    ) {
       throw new BadRequestException(
         'standard_cost is required when costing_method is "standard"',
       );
@@ -137,7 +145,10 @@ export class ItemsService {
     );
   }
 
-  private attachAutoBarcode(tenantId: string, item: { id: string; has_variants: boolean }) {
+  private attachAutoBarcode(
+    tenantId: string,
+    item: { id: string; has_variants: boolean },
+  ) {
     // Best-effort: a new item gets an auto-generated primary barcode
     // (create-item DTO has no barcode field, so this always applies) —
     // UNLESS it has_variants, in which case the parent item is never
@@ -160,10 +171,16 @@ export class ItemsService {
 
   async update(id: string, tenantId: string, dto: UpdateItemDto) {
     const existing: any = await this.findById(id, tenantId);
-    const effectiveCostingMethod = dto.costing_method ?? existing.costing_method;
+    const effectiveCostingMethod =
+      dto.costing_method ?? existing.costing_method;
     const effectiveStandardCost =
-      dto.standard_cost !== undefined ? dto.standard_cost : existing.standard_cost;
-    this.assertStandardCostPresent(effectiveCostingMethod, effectiveStandardCost);
+      dto.standard_cost !== undefined
+        ? dto.standard_cost
+        : existing.standard_cost;
+    this.assertStandardCostPresent(
+      effectiveCostingMethod,
+      effectiveStandardCost,
+    );
     // Presence of `sku` in the request body — not its value — is what marks
     // it manual: ItemFormModal only includes the field when the user
     // actually changed it, so a resubmit of the same value never silently
@@ -207,11 +224,16 @@ export class ItemsService {
       // manual), so this should not happen in practice. Falling back to no
       // SKU rather than throwing keeps variant creation from being blocked
       // by an inconsistency in unrelated, pre-existing data.
-      variant = await this.itemsRepo.createVariant(itemId, tenantId, { ...rest });
+      variant = await this.itemsRepo.createVariant(itemId, tenantId, {
+        ...rest,
+      });
     } else {
       let created: { id: string; [key: string]: unknown } | null = null;
       for (let attempt = 0; attempt < MAX_SKU_GENERATE_ATTEMPTS; attempt++) {
-        const seq = await this.itemsRepo.nextVariantSkuSequence(tenantId, itemId);
+        const seq = await this.itemsRepo.nextVariantSkuSequence(
+          tenantId,
+          itemId,
+        );
         const sku = formatVariantSku((parent as { sku: string }).sku, seq);
         try {
           created = await this.itemsRepo.createVariant(itemId, tenantId, {

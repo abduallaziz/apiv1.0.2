@@ -36,7 +36,14 @@ describe('quality management regression (Migration 8.2)', () => {
   const createItem = async (name: string) => {
     const { data, error } = await supabase
       .from('items')
-      .insert({ tenant_id: TEST_TENANT_ID, name, type: 'product', operation_type: 'sell', price: 10, is_active: true })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        name,
+        type: 'product',
+        operation_type: 'sell',
+        price: 10,
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -45,21 +52,38 @@ describe('quality management regression (Migration 8.2)', () => {
   };
 
   beforeAll(async () => {
-    supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
-    const { data: wh, error } = await supabase.from('warehouses').select('id').eq('tenant_id', TEST_TENANT_ID).limit(1);
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    );
+    const { data: wh, error } = await supabase
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', TEST_TENANT_ID)
+      .limit(1);
     if (error) throw error;
-    warehouseId = wh![0].id;
+    warehouseId = wh[0].id;
   }, 30_000);
 
   afterAll(async () => {
-    for (const id of nonConformanceIds) await supabase.from('non_conformances').delete().eq('id', id);
-    for (const id of holdIds) await supabase.from('quality_holds').delete().eq('id', id);
-    for (const id of inspectionIds) await supabase.from('quality_inspections').delete().eq('id', id);
-    await supabase.from('approval_history').delete().eq('reference_type', 'quality_hold').in('reference_id', holdIds);
+    for (const id of nonConformanceIds)
+      await supabase.from('non_conformances').delete().eq('id', id);
+    for (const id of holdIds)
+      await supabase.from('quality_holds').delete().eq('id', id);
+    for (const id of inspectionIds)
+      await supabase.from('quality_inspections').delete().eq('id', id);
+    await supabase
+      .from('approval_history')
+      .delete()
+      .eq('reference_type', 'quality_hold')
+      .in('reference_id', holdIds);
     for (const itemId of itemIds) {
       const { error } = await supabase.from('items').delete().eq('id', itemId);
       if (error) {
-        await supabase.from('items').update({ is_active: false, deleted_at: new Date().toISOString() }).eq('id', itemId);
+        await supabase
+          .from('items')
+          .update({ is_active: false, deleted_at: new Date().toISOString() })
+          .eq('id', itemId);
       }
     }
   }, 60_000);
@@ -68,7 +92,12 @@ describe('quality management regression (Migration 8.2)', () => {
     const itemId = await createItem('QM Inspection Item');
     const { data: gr } = await supabase
       .from('goods_receipts')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, receipt_number: `QM-GR-${Date.now()}`, status: 'draft' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        receipt_number: `QM-GR-${Date.now()}`,
+        status: 'draft',
+      })
       .select()
       .single();
 
@@ -89,7 +118,11 @@ describe('quality management regression (Migration 8.2)', () => {
 
     const { data: completed, error: completeErr } = await supabase
       .from('quality_inspections')
-      .update({ status: 'failed', inspected_at: new Date().toISOString(), notes: 'defect found' })
+      .update({
+        status: 'failed',
+        inspected_at: new Date().toISOString(),
+        notes: 'defect found',
+      })
       .eq('id', inspection.id)
       .eq('status', 'pending')
       .select()
@@ -104,7 +137,13 @@ describe('quality management regression (Migration 8.2)', () => {
     const itemId = await createItem('QM Hold Item (release approved)');
     const { data: hold, error: createErr } = await supabase
       .from('quality_holds')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, item_id: itemId, status: 'active', reason: 'awaiting re-test' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        item_id: itemId,
+        status: 'active',
+        reason: 'awaiting re-test',
+      })
       .select()
       .single();
     expect(createErr).toBeNull();
@@ -115,7 +154,11 @@ describe('quality management regression (Migration 8.2)', () => {
     const releasedAt = new Date().toISOString();
     const { data: released, error: releaseErr } = await supabase
       .from('quality_holds')
-      .update({ status: 'released', released_by: null, released_at: releasedAt })
+      .update({
+        status: 'released',
+        released_by: null,
+        released_at: releasedAt,
+      })
       .eq('id', hold.id)
       .eq('status', 'active')
       .select()
@@ -123,16 +166,18 @@ describe('quality management regression (Migration 8.2)', () => {
     expect(releaseErr).toBeNull();
     expect(released.status).toBe('released');
 
-    const { error: historyErr } = await supabase.from('approval_history').insert({
-      tenant_id: TEST_TENANT_ID,
-      reference_type: 'quality_hold',
-      reference_id: hold.id,
-      action: 'release',
-      actor_id: null,
-      previous_status: 'active',
-      new_status: 'released',
-      reason: 'confirmed safe',
-    });
+    const { error: historyErr } = await supabase
+      .from('approval_history')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        reference_type: 'quality_hold',
+        reference_id: hold.id,
+        action: 'release',
+        actor_id: null,
+        previous_status: 'active',
+        new_status: 'released',
+        reason: 'confirmed safe',
+      });
     expect(historyErr).toBeNull();
 
     const { data: historyRows, error: historyReadErr } = await supabase
@@ -142,17 +187,23 @@ describe('quality management regression (Migration 8.2)', () => {
       .eq('reference_type', 'quality_hold')
       .eq('reference_id', hold.id);
     expect(historyReadErr).toBeNull();
-    expect(historyRows!.length).toBe(1);
-    expect(historyRows![0].previous_status).toBe('active');
-    expect(historyRows![0].new_status).toBe('released');
-    expect(historyRows![0].action).toBe('release');
+    expect(historyRows.length).toBe(1);
+    expect(historyRows[0].previous_status).toBe('active');
+    expect(historyRows[0].new_status).toBe('released');
+    expect(historyRows[0].action).toBe('release');
   }, 30_000);
 
   it('non-conformance: create open, close it', async () => {
     const itemId = await createItem('QM Non-Conformance Item');
     const { data: inspection } = await supabase
       .from('quality_inspections')
-      .insert({ tenant_id: TEST_TENANT_ID, reference_type: 'goods_receipt', reference_id: itemId, item_id: itemId, status: 'failed' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        reference_type: 'goods_receipt',
+        reference_id: itemId,
+        item_id: itemId,
+        status: 'failed',
+      })
       .select()
       .single();
     inspectionIds.push(inspection.id);
@@ -175,7 +226,11 @@ describe('quality management regression (Migration 8.2)', () => {
 
     const { data: closed, error: closeErr } = await supabase
       .from('non_conformances')
-      .update({ status: 'closed', resolved_by: null, resolved_at: new Date().toISOString() })
+      .update({
+        status: 'closed',
+        resolved_by: null,
+        resolved_at: new Date().toISOString(),
+      })
       .eq('id', nc.id)
       .eq('status', 'open')
       .select()
@@ -190,7 +245,13 @@ describe('quality management regression (Migration 8.2)', () => {
 
     const { data: hold } = await supabase
       .from('quality_holds')
-      .insert({ tenant_id: TEST_TENANT_ID, warehouse_id: warehouseId, item_id: heldItem, status: 'active', reason: 'pending inspection' })
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        warehouse_id: warehouseId,
+        item_id: heldItem,
+        status: 'active',
+        reason: 'pending inspection',
+      })
       .select()
       .single();
     holdIds.push(hold.id);

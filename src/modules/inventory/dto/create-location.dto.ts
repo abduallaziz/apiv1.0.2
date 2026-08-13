@@ -1,4 +1,14 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsUUID, IsIn, IsNumber, Min, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsBoolean,
+  IsUUID,
+  IsIn,
+  IsNumber,
+  Min,
+  IsArray,
+} from 'class-validator';
 
 export class CreateLocationDto {
   @IsString()
@@ -31,7 +41,15 @@ export class CreateLocationDto {
   location_type?: 'zone' | 'aisle' | 'rack' | 'shelf' | 'bin';
 
   // Functional purpose (new, migration 169) — independent of location_type.
-  @IsIn(['receiving', 'storage', 'picking', 'packing', 'quality_hold', 'damaged', 'shipping'])
+  @IsIn([
+    'receiving',
+    'storage',
+    'picking',
+    'packing',
+    'quality_hold',
+    'damaged',
+    'shipping',
+  ])
   @IsOptional()
   location_purpose?: string;
 

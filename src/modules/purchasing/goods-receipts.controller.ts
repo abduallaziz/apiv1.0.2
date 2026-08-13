@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Param, Body, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { GoodsReceiptsService } from './goods-receipts.service';
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
@@ -24,7 +34,12 @@ export class GoodsReceiptsController {
     @Query('page') page?: string,
     @Query('per_page') perPage?: string,
   ) {
-    return this.goodsReceiptsService.findAll(tenant.tenantId, status, page, perPage);
+    return this.goodsReceiptsService.findAll(
+      tenant.tenantId,
+      status,
+      page,
+      perPage,
+    );
   }
 
   @Get(':id')
@@ -36,7 +51,10 @@ export class GoodsReceiptsController {
   @Post()
   @RequirePermission('purchasing.receive')
   @Audit('goods_receipt.created')
-  create(@Body() dto: CreateGoodsReceiptDto, @GetTenant() tenant: TenantContext) {
+  create(
+    @Body() dto: CreateGoodsReceiptDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
     return this.goodsReceiptsService.create(tenant.tenantId, dto);
   }
 
