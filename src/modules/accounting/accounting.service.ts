@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { AccountingRepository } from './repositories/accounting.repository';
 import { JournalEntriesQueryDto } from './dto/journal-entries-query.dto';
@@ -81,7 +85,34 @@ export class AccountingService {
     dto: AssignBranchAccountingOwnerDto,
     createdBy: string,
   ) {
-    return this.repo.assignBranchAccountingOwner(tenant, dto, createdBy);
+    try {
+      return await this.repo.assignBranchAccountingOwner(
+        tenant,
+        dto,
+        createdBy,
+      );
+    } catch (err: any) {
+      // excl_branch_accounting_assignments_no_overlap (migration 178) —
+      // the branch already has an active (effective_to IS NULL) assignment.
+      // Correct, expected business-rule rejection at the DB level; only
+      // this exact code+constraint pair is reshaped into a client-facing
+      // 409. Every other error (including any other exclusion-constraint
+      // violation elsewhere) rethrows unchanged and stays a 500, per the
+      // same narrow-match discipline InvoicesService already uses for
+      // uq_orders_tenant_sale_attempt.
+      if (
+        err?.code === '23P01' &&
+        err?.constraint === 'excl_branch_accounting_assignments_no_overlap'
+      ) {
+        throw new ConflictException({
+          message:
+            'This branch already has an active accounting owner assignment',
+          reasonCode: 'branch_assignment_overlap',
+          detail: err.message,
+        });
+      }
+      throw err;
+    }
   }
 
   async getChartOfAccounts(tenant: TenantContext) {

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { AccountingService } from './accounting.service';
 import { TenantContext } from '../../core/tenant/tenant-context';
 
@@ -107,6 +107,69 @@ describe('AccountingService', () => {
       dto,
       'user-1',
     );
+  });
+
+  it('assignBranchAccountingOwner maps excl_branch_accounting_assignments_no_overlap to a 409', async () => {
+    const dbError = Object.assign(
+      new Error(
+        'conflicting key value violates exclusion constraint "excl_branch_accounting_assignments_no_overlap"',
+      ),
+      {
+        code: '23P01',
+        constraint: 'excl_branch_accounting_assignments_no_overlap',
+      },
+    );
+    const { service } = buildService({
+      assignBranchAccountingOwner: jest.fn().mockRejectedValue(dbError),
+    });
+    const dto = {
+      branch_id: 'b1',
+      accounting_owner_id: 'o1',
+      effective_from: '2026-08-13',
+    } as any;
+    await expect(
+      service.assignBranchAccountingOwner(TENANT, dto, 'user-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('assignBranchAccountingOwner rethrows unrelated errors unchanged (stays a 500)', async () => {
+    const dbError = Object.assign(new Error('connection terminated'), {
+      code: '57P01',
+    });
+    const { service } = buildService({
+      assignBranchAccountingOwner: jest.fn().mockRejectedValue(dbError),
+    });
+    const dto = {
+      branch_id: 'b1',
+      accounting_owner_id: 'o1',
+      effective_from: '2026-08-13',
+    } as any;
+    await expect(
+      service.assignBranchAccountingOwner(TENANT, dto, 'user-1'),
+    ).rejects.toBe(dbError);
+  });
+
+  it('assignBranchAccountingOwner rethrows a different exclusion-constraint violation unchanged', async () => {
+    const dbError = Object.assign(
+      new Error(
+        'conflicting key value violates exclusion constraint "some_other_constraint"',
+      ),
+      {
+        code: '23P01',
+        constraint: 'some_other_constraint',
+      },
+    );
+    const { service } = buildService({
+      assignBranchAccountingOwner: jest.fn().mockRejectedValue(dbError),
+    });
+    const dto = {
+      branch_id: 'b1',
+      accounting_owner_id: 'o1',
+      effective_from: '2026-08-13',
+    } as any;
+    await expect(
+      service.assignBranchAccountingOwner(TENANT, dto, 'user-1'),
+    ).rejects.toBe(dbError);
   });
 
   it('getChartOfAccounts delegates to the repo', async () => {
