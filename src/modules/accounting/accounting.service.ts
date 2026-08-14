@@ -100,9 +100,19 @@ export class AccountingService {
       // violation elsewhere) rethrows unchanged and stays a 500, per the
       // same narrow-match discipline InvoicesService already uses for
       // uq_orders_tenant_sale_attempt.
+      //
+      // No `.constraint` field: confirmed live that @supabase-js/PostgREST
+      // error objects only ever carry {code, details, hint, message} — the
+      // constraint name is embedded as text inside `message`, not exposed
+      // as its own property (unlike the raw `pg` driver). Matching on
+      // `.constraint` here silently never fires; corrected to match the
+      // constraint name inside `message`, matching this file's own
+      // existing message-substring convention (see the fn_post_sales_order
+      // regex above).
       if (
         err?.code === '23P01' &&
-        err?.constraint === 'excl_branch_accounting_assignments_no_overlap'
+        typeof err?.message === 'string' &&
+        err.message.includes('excl_branch_accounting_assignments_no_overlap')
       ) {
         throw new ConflictException({
           message:

@@ -110,14 +110,13 @@ describe('AccountingService', () => {
   });
 
   it('assignBranchAccountingOwner maps excl_branch_accounting_assignments_no_overlap to a 409', async () => {
+    // Shape matches the real @supabase-js/PostgREST error object confirmed
+    // live: {code, details, hint, message} — no `.constraint` field.
     const dbError = Object.assign(
       new Error(
         'conflicting key value violates exclusion constraint "excl_branch_accounting_assignments_no_overlap"',
       ),
-      {
-        code: '23P01',
-        constraint: 'excl_branch_accounting_assignments_no_overlap',
-      },
+      { code: '23P01' },
     );
     const { service } = buildService({
       assignBranchAccountingOwner: jest.fn().mockRejectedValue(dbError),
@@ -154,10 +153,7 @@ describe('AccountingService', () => {
       new Error(
         'conflicting key value violates exclusion constraint "some_other_constraint"',
       ),
-      {
-        code: '23P01',
-        constraint: 'some_other_constraint',
-      },
+      { code: '23P01' },
     );
     const { service } = buildService({
       assignBranchAccountingOwner: jest.fn().mockRejectedValue(dbError),
