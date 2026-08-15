@@ -5204,3 +5204,124 @@ Full independent re-audit of M176–M186 (Accounting Foundation) found `fn_post_
 **Feature flag**: `POOLED_INVOICE_WRITES_ENABLED` was enabled for live validation, then reverted to `false` per the mandatory final step of the validation task — Sales Posting is implemented and proven correct, but **not live in production** pending an explicit go-live decision.
 
 **Explicitly not done:** no AR collection/sub-ledger for `tab` (recorded Known Product Gap, not built, per Owner Decision). No Accounting UI (separately audited this session — confirmed `NOT FOUND` across every accounting concept in the frontend). M185+ not started.
+
+## 🗑️ M185 — Gift Cards Removed Entirely (Product Decision, 2026-08-11)
+
+"Approved – Proceed with Implementation." Feature was originally built as part of Phase 10G (TASKS.md), but the owner decided — after the Accounting Foundation (M176–M184) investigation surfaced an unresolved historical-liability question with no clean answer — to remove it entirely rather than carry the accounting complexity forward.
+
+**Scope (Option B — full removal, no trace, per explicit approval):**
+- Dropped `gift_cards` table entirely (9 rows, 5 active, historical balance 247,264.2 — discarded intentionally).
+- Dropped `orders.gift_card_code` / `orders.gift_card_amount` columns, including 3 real completed orders that referenced them (discarded intentionally, not preserved, per explicit "Option B" approval).
+- Removed `gift_card` from `orders.payment_method`'s allowed values.
+- Dropped `fn_redeem_gift_card` (only consumer was the now-removed module).
+- Removed the `gift_cards.manage` permission and its role grants.
+
+**Not affected:** `loyalty_tiers`, `coupons`, `customer_field_definitions` (083's other tables) — untouched.
+
+## 🏗️ M186 — Accounting Bootstrap Backfill Function (Phase 3, 2026-08-11)
+
+"Approved – Proceed with Implementation." `fn_backfill_accounting_bootstrap(p_tenant_id)` — configuration-only backfill for tenants that predate the Accounting Foundation (M176–M184), Option B scope (13 named tenants, explicit allowlist enforced by the caller script, not by this function) + historical-orders Option A (creates ZERO journal entries, never touches `orders`).
+
+**Design notes verified from the migration header:**
+- Idempotent: hard gate at the top — a tenant that already has any `accounting_owners` row returns `SKIPPED_ALREADY_CONFIGURED` immediately.
+- Atomic: one function call = one Postgres transaction; any `RAISE EXCEPTION` rolls back only that tenant's inserts.
+- Mirrors `accounting-bootstrap.service.ts`'s own runtime inserts exactly, so a backfilled tenant is byte-for-byte identical to one bootstrapped at registration.
+
+**Verification status:** the function's **creation is verified** (migration applied, header inspected directly). **Execution of the backfill against the 13-tenant allowlist is NOT verified** — no evidence was found in this session that the caller script was ever actually run against those tenants. Do not assume the backfill happened.
+
+## 🔒 M187 — Sale Idempotency (Migration Matrix item #1, 2026-08-11)
+
+"APPROVED – Proceed with M187 ONLY." `orders.sale_attempt_id` (UUID, NOT NULL, tenant-scoped unique) — prevents duplicate completed orders from double-click, client retry, network replay, or multiple tabs. Scope strictly limited to this column + its uniqueness constraint; does not touch M182/M184, accounting posting, inventory, loyalty, split, tab, dine-in, or cancel/reversal logic.
+
+**Historical-row handling:** 133 pre-existing completed orders had no natural `sale_attempt_id`. `DEFAULT uuid_generate_v4()` was applied at `ALTER TABLE` time to satisfy `NOT NULL` for those rows (mechanically generated, no business meaning, never read/compared for historical orders), then the `DEFAULT` was dropped immediately after backfill — every future `INSERT` must supply an explicit value.
+
+## 💳 M188 — Split Payment Persistence (Migration Matrix item #2, 2026-08-11)
+
+"APPROVED – Proceed with M188 ONLY." `orders.cash_amount` / `orders.card_amount` (nullable) — persists the real cash/card breakdown of a split payment. Scope strictly limited to these columns + their reconciliation CHECK constraint; does not touch M182/M184, accounting posting, TAB, loyalty, dine-in, cancel/reversal, or ShiftEngine.
+
+**Nullability decision:** populated ONLY for `payment_method='split'` — every other payment method stores NULL for both (deliberately not mirroring `total` into these columns for non-split methods, to avoid a semantic expansion beyond what was approved).
+
+**Historical-row handling:** 9 pre-existing completed orders already had `payment_method='split'` with no breakdown. Both columns are nullable, so no backfill/fabrication was required — the reconciliation CHECK holds trivially for NULL/NULL on those 9 rows while fully enforcing correctness for every future split order.
+
+**This was the exact gap M194 (2026-08-13, see M184 entry above) later closed** — `fn_post_sales_order()` unconditionally rejected `split` until M194 added the two-settlement-line mapping this column pair enabled.
+
+## ⚙️ Accounting Backend Phase 1 (build date/commit not independently verified this session)
+
+**Confirmed present and functioning**, verified via live Railway production route logs this session: `AccountingController` mapped at `/api/v1/accounting`, with live routes `fiscal-periods`, `cogs-reconciliation`, `chart-of-accounts`, `owners`, `branch-assignments`, `command-center`, `journal-entries`, `journal-entries/:id`, `price-override-audit/:id` — all returning `200` against real authenticated requests this session.
+
+**Gap:** original build date and commit hash were not independently re-verified this session — only current working state was confirmed. This entry's absence of a build date is not evidence the work doesn't exist elsewhere in this file's earlier, unexamined sections.
+
+## 🖥️ Accounting UI Phase 1 (build date/commit not independently verified this session)
+
+**Confirmed present and functioning**, verified via direct file read and a live browser session as `owner@sefay.com` this session: `AccountingCommandCenterPage.tsx`, `AccountingConfigurationPage.tsx` (fiscal periods, accounting owners, branch assignments, chart of accounts), `JournalEntriesListPage.tsx` + `JournalEntryDetailSheet.tsx`, `CogsReconciliationPage.tsx`, `PriceOverrideAuditPage.tsx` + `PriceOverrideAuditDetailSheet.tsx`, `AssignBranchOwnerSheet.tsx`.
+
+**Gap:** same as Accounting Backend Phase 1 — original build date/commit not independently re-verified this session.
+
+## 🚦 H01 — Controlled Accounting Go-Live (2026-08-15)
+
+"APPROVED — PROCEED WITH H01 CONTROLLED ACCOUNTING GO-LIVE." Executed the approved procedure: 5 pre-checks (H02 28/28, git HEAD `0cabf02`, clean working tree, Redis + API Online, flag confirmed `false` beforehand), `railway variables --set POOLED_INVOICE_WRITES_ENABLED=true`, `railway redeploy --yes`.
+
+**Deployment:** `7ec962b2-9db1-45bf-8d0d-e94362973c54` (later superseded by an unrelated follow-up deploy, `b9a1b362`, from a same-day commit push — flag survived the redeploy unchanged).
+
+**5 smoke tests against the existing demo tenant** (`9bcd3369-...`), using a disposable test user, no new permanent fixtures:
+1. Cash sale — PASS (order `a7dfa04f-...`, journal `f3128f19-...`, balanced).
+2. Split payment — PASS (order `a360248f-...`, journal `9f953f68-...`, balanced).
+3. Price Override — PARTIAL: flag-specific gate confirmed removed, but blocked by a separate, pre-existing D01 `no_effective_role` gap for the disposable test user used (root-caused and resolved separately — see the D01 Final E2E entry below).
+4. Cancel/Reversal — PASS (reversal entry `02dcdc16-...` posted correctly).
+5. Command Center update — PASS (live KPIs reflected the new postings).
+
+**Decision:** flag left `true`. No rollback condition met. `POOLED_INVOICE_WRITES_ENABLED = false` as recorded in the earlier "D01 (M0–M7)" entry above was accurate as of 2026-08-13; superseded by this entry as of 2026-08-15.
+
+## 🧪 H02 — Accounting SQL Regression Suite (2026-08-15)
+
+"APPROVED — PROCEED WITH H02." 28-scenario suite covering `fn_post_journal_entry`/`fn_reverse_journal_entry`/`fn_post_sales_order`/`fn_reverse_sales_order`, added at `api/src/database/migrations/__tests__/accounting-posting-engine.regression.spec.ts`. 28/28 passing. Committed together with M196 in `5b090d9`.
+
+**Two design conflicts surfaced and resolved via explicit user decision, not silently patched:** scenario #6 (closed fiscal period) deferred — zero closed fiscal periods exist anywhere live, and constructing one would either mutate the demo tenant's real calendar or permanently pollute it; scenario #19 rewritten to assert the actual `orders_payment_method_check` table-level rejection rather than the SQL function's own (dead) `ELSE` branch, which is unreachable in practice.
+
+## 🏢 H03 / H03-B — Branch Accounting Readiness Audit & Classification (2026-08-15)
+
+Read-only audit of the 9 unassigned-branch cases surfaced by the earlier Pre-Launch Hardening Audit. Classified all 9 as TEST-FIXTURE (H02 regression-suite artifacts, `H02-unassigned-branch-*` naming), zero REAL PRODUCTION or UNKNOWN cases. No assignment created, no owner chosen — per explicit instruction, classification only.
+
+## 🧪 H04 — Frontend Automated Test Strategy (2026-08-15, downgraded to P2)
+
+Design/audit only, no code/installs. Audited `web/`'s current testing state (confirmed: no test framework installed) and recommended Vitest + RTL + Playwright. Based on evidence gathered (small live-traffic sample, no user-facing incidents found in this session's monitoring passes), downgraded from P1 to **P2** — no implementation started.
+
+## 💳 D01 — Production Price Override Policy + Final E2E PASS (2026-08-15)
+
+"Approved – Proceed with creating the D01 Tenant Default Price Override Policy and run the final production E2E validation." Root cause of the H01 Smoke Test 3 partial result was diagnosed first (audit only, no code change): the disposable test user used in H01 had zero `user_roles` rows (bypassed normal provisioning), correctly resolving to `no_effective_role` — not a resolver defect. `owner@sefay.com` (a real, active tenant user) was confirmed to already resolve cleanly to Effective Role `owner`/priority 90, with `invoice.price_override` permission granted.
+
+**Policy created** — one Tenant Default row (`price_override_policies`, `branch_id`/`role_id` both NULL) for the demo tenant: `allow_discount=true, max_discount_percent=15, allow_increase=true, max_increase_percent=15, allow_combine_with_discount=false, reason_policy=required_above_threshold, reason_threshold_percent=10, allow_zero_price=false`, `created_by` = the real owner user (not a test-fixture NULL).
+
+**Production E2E test, as `owner@sefay.com`, deliberately at the exact 15% cap boundary** (official price 5.00 → requested 4.25, a 15% discount):
+1. Price Resolution: official price resolved server-side (5.00), requested price differed (4.25), effective role = owner, permission = granted, policy = approved — confirmed the 15%-inclusive/16%-rejected boundary live (this exact discount is 15%, and it passed).
+2. Order created successfully.
+3. `order_items.official_price_snapshot` = 5 (the pre-override official price, preserved).
+4. `order_items.price` = 4.25 (the approved override price).
+5. Exactly one `price_override_audit` row created, containing: official price (5), approved price (4.25), difference amount (0.75) and percent (15), direction (discount), the reason text supplied, the actor (owner user), `actor_role_name_snapshot="owner"`, and a full embedded snapshot of the policy at the moment of approval.
+6. Accounting journal entry created and posted, correctly balanced (debit settlement 4.89 = credit revenue 4.25 + credit tax 0.64).
+7. Atomicity confirmed: order, order_items, audit row, and journal entry all share an identical `created_at` timestamp — single pooled transaction, no partial-write gap.
+8. Order then cancelled: order → `cancelled`; original journal entry → `reversed`; new reversal entry posted with every line's debit/credit correctly swapped and linked via `reversal_of_id` — balanced.
+
+**Result: D01 PRICE OVERRIDE E2E = PASS.** No rollback condition met, flag unchanged (`true`). (Full technical IDs for this test — order id, audit id, journal entry ids — are recorded in this session's engineering conversation history; omitted here as unnecessary detail for the project log beyond what's shown above.)
+
+## 🔧 F2 — Shared Postgres Error Helpers (2026-08-15)
+
+"Approved — Proceed with F2 implementation." Extracted `isPostgrestError` / `isUniqueViolation` / `isForeignKeyViolation` to `src/shared/supabase/postgrest-error.util.ts` — pure boolean predicates, no exception construction. Migrated 20 files (12 that had byte-identical duplicated `isPostgrestError`, 8 checking `error.code === '23505'/'23503'` directly) to use the shared helpers; zero exception classes, messages, or HTTP status codes changed anywhere.
+
+**Two special cases preserved exactly:** `access-control.repository.ts`'s `DUPLICATE_ROLE_NAME` sentinel `Error` (not an HTTP exception); `invoices.service.ts`'s M187 sale_attempt_id race-recovery branch (DB lookup + 409 shaping, not a plain rejection) — only their boolean condition was swapped.
+
+**Validated:** new util tests 10/10; 13 affected-module suites, 125/125; full backend suite 466/471 (5 pre-existing failures — `serial-tracking-13.14.regression.spec.ts`, `scanner-event-engine-13.21-phase4.regression.spec.ts` — reproduced identically on the pre-F2 baseline via `git stash`, confirmed unrelated schema-drift/timeout issues, not caused by this change); H02 28/28; `tsc --noEmit` clean; `nest build` clean; ESLint — zero new findings versus the pre-change baseline (verified per-file via `git stash`).
+
+**Commit:** `5fabea3`, pushed to `origin/main`.
+
+## 🌐 M196 — Journal Entry Description/Reference Language Neutrality (2026-08-15)
+
+"Approved – Proceed with Implementation." Reported live by the product owner: Journal Entries UI (Arabic) was rendering hardcoded English text — `fn_post_sales_order()` and `fn_reverse_journal_entry()` (M182/M194) baked sentences like "POS Order <uuid>" / "Sales posting for order <uuid>" / "Reversal of ..." directly into `journal_entries.reference`/`description`, with the full 36-char order UUID exposed as if it were a short reference code.
+
+**Fix:** `reference` now holds only the bare source id (no language, no prefix); `description` is left `NULL` for system-generated entries — the existing `source_module`/`source_entity_type`/`source_entity_id` columns (M182) already identify the entry structurally, so no language-specific text needs to be frozen into the row at all. A human-entered reversal reason (`p_reason`) is still stored as-is (real user text, not fabricated).
+
+**Frontend:** `web/messages/{ar,en}/accounting.json` gained `sourceLabels`, `referenceFallback`, `noDescription` keys; `JournalEntriesListPage.tsx` and `JournalEntryDetailSheet.tsx` now translate the source column, shorten the reference display to the last 8 characters (never the full UUID), and recognize the exact legacy "Sales posting for order <uuid>" pattern via a frontend-only regex so **historical, DB-immutable rows** (guarded by the M182 posted-entry immutability trigger — `reference`/`description` cannot be UPDATEd once posted) also render correctly without ever touching the database.
+
+**Verified live** (production, both via direct DB query and browser session as `owner@sefay.com`): new postings after this migration store neutral `reference`/`description`; historical rows (dated 08-14/08-15, pre-dating this fix) render translated via the frontend recognizer.
+
+**Commits:** API `5b090d9` (migration + H02 regression suite), Web `0c08015` + `de04693` (i18n + translation logic).
