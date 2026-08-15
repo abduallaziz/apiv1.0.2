@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import {
+  isUniqueViolation,
+  isForeignKeyViolation,
+} from '../../../shared/supabase/postgrest-error.util';
 
 const SORTABLE_COLUMNS = new Set([
   'code',
@@ -15,27 +19,15 @@ const SORTABLE_COLUMNS = new Set([
   'updated_at',
 ]);
 
-interface PostgrestError {
-  code?: string;
-  message?: string;
-  details?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
-
 // Translates known Postgres constraint violations into actionable HTTP errors
 // instead of letting them fall through to the generic 500 handler.
 function toHttpError(error: unknown): unknown {
-  if (!isPostgrestError(error)) return error;
-
-  if (error.code === '23505') {
+  if (isUniqueViolation(error)) {
     return new ConflictException(
       'Location code already exists in this warehouse',
     );
   }
-  if (error.code === '23503') {
+  if (isForeignKeyViolation(error)) {
     return new BadRequestException('The selected warehouse does not exist');
   }
   return error;

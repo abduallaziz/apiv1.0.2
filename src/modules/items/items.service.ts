@@ -14,15 +14,7 @@ import { UpdateVariantDto } from './dto/update-variant.dto';
 import { ItemBarcodesService } from './item-barcodes.service';
 import { formatProductSku, formatVariantSku } from './utils/sku.util';
 import { QueryItemsDto } from './dto/query-items.dto';
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: string }).code === '23505'
-  );
-}
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 const MAX_SKU_GENERATE_ATTEMPTS = 5;
 

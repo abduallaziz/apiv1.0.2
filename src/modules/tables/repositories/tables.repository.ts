@@ -1,21 +1,12 @@
 import { ConflictException, Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
+import { isUniqueViolation } from '../../../shared/supabase/postgrest-error.util';
 
 const SELECT = 'id, branch_id, name, capacity, status, created_at';
 
-interface PostgrestError {
-  code?: string;
-  message?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
-
 function toHttpError(error: unknown): unknown {
-  if (!isPostgrestError(error)) return error;
-  if (error.code === '23505') {
+  if (isUniqueViolation(error)) {
     return new ConflictException(
       'A table with this name already exists at this branch',
     );

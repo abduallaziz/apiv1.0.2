@@ -3,18 +3,10 @@ import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
-
-interface PostgrestError {
-  code?: string;
-  message?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
+import { isUniqueViolation } from '../../../shared/supabase/postgrest-error.util';
 
 function toHttpError(error: unknown): unknown {
-  if (isPostgrestError(error) && error.code === '23505') {
+  if (isUniqueViolation(error)) {
     return new ConflictException(
       'A production order with this number already exists',
     );

@@ -1,16 +1,9 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-
-interface PostgrestError {
-  code?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
+import { isUniqueViolation } from '../../../shared/supabase/postgrest-error.util';
 
 function toHttpError(error: unknown): unknown {
-  if (isPostgrestError(error) && error.code === '23505') {
+  if (isUniqueViolation(error)) {
     return new ConflictException(
       'An operation with this sequence already exists on this production order',
     );

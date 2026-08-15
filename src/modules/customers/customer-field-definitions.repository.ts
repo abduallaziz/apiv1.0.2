@@ -5,6 +5,7 @@ import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateFieldDefinitionDto } from './dto/create-field-definition.dto';
 import { UpdateFieldDefinitionDto } from './dto/update-field-definition.dto';
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 @Injectable()
 export class CustomerFieldDefinitionsRepository extends ScopedRepository {
@@ -60,7 +61,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
       .select()
       .single();
     if (error) {
-      if (error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new BadRequestException(
           'field_key already exists for this tenant',
         );

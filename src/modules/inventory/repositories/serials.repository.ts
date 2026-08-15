@@ -1,14 +1,6 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-
-interface PostgrestError {
-  code?: string;
-  message?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
+import { isPostgrestError } from '../../../shared/supabase/postgrest-error.util';
 
 const SERIAL_SELECT =
   'id, tenant_id, item_id, variant_id, batch_id, warehouse_id, serial_number, status, ' +

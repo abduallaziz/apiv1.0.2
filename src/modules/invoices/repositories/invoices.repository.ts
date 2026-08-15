@@ -5,6 +5,7 @@ import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { TenantContext } from '../../../core/tenant/tenant-context';
 import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
+import { isForeignKeyViolation } from '../../../shared/supabase/postgrest-error.util';
 
 export interface PooledInvoiceItem {
   item_id: string;
@@ -371,7 +372,7 @@ export class InvoicesRepository extends ScopedRepository {
       .insert(mapped)
       .select('id');
     if (error) {
-      if (error.code === '23503')
+      if (isForeignKeyViolation(error))
         throw new NotFoundException('Unknown item_id or variant_id');
       throw error;
     }

@@ -5,6 +5,7 @@ import { ScopedRepository } from '../tenant/scoped.repository';
 import { TenantContext } from '../tenant/tenant-context';
 import { CreateLoyaltyTierDto } from './dto/create-loyalty-tier.dto';
 import { UpdateLoyaltyTierDto } from './dto/update-loyalty-tier.dto';
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 @Injectable()
 export class LoyaltyTiersRepository extends ScopedRepository {
@@ -51,7 +52,7 @@ export class LoyaltyTiersRepository extends ScopedRepository {
       .select()
       .single();
     if (error) {
-      if (error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new BadRequestException('A tier with this name already exists');
       }
       throw error;
@@ -68,7 +69,7 @@ export class LoyaltyTiersRepository extends ScopedRepository {
       .select()
       .single();
     if (error) {
-      if (error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new BadRequestException('A tier with this name already exists');
       }
       throw error;

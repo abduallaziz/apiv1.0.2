@@ -37,6 +37,7 @@ import {
 } from '../../core/pricing/price-resolution.service';
 import { EffectiveRole } from '../../core/pricing/effective-role.resolver';
 import { PooledOverrideAudit } from './repositories/invoices.repository';
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 const INVOICES_LIST_TTL = 240; // 4 minutes
 const invoicesListCacheKey = (
@@ -466,7 +467,7 @@ export class InvoicesService {
       // commits. uq_orders_tenant_sale_attempt (migration 187) is the real
       // guarantee — the loser hits a unique-violation (Postgres 23505) here
       // and resolves to the winner's order instead of erroring blindly.
-      if (err?.code === '23505') {
+      if (isUniqueViolation(err)) {
         const existing = await this.repo.findBySaleAttemptId(
           tenant,
           dto.sale_attempt_id,

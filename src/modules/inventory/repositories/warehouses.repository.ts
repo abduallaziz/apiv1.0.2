@@ -6,26 +6,18 @@ import {
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
-
-interface PostgrestError {
-  code?: string;
-  message?: string;
-  details?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
+import {
+  isUniqueViolation,
+  isForeignKeyViolation,
+} from '../../../shared/supabase/postgrest-error.util';
 
 // Translates known Postgres constraint violations into actionable HTTP errors
 // instead of letting them fall through to the generic 500 handler.
 function toHttpError(error: unknown): unknown {
-  if (!isPostgrestError(error)) return error;
-
-  if (error.code === '23505') {
+  if (isUniqueViolation(error)) {
     return new ConflictException('A warehouse with this code already exists');
   }
-  if (error.code === '23503') {
+  if (isForeignKeyViolation(error)) {
     return new BadRequestException('The selected branch does not exist');
   }
   return error;

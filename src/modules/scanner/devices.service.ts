@@ -6,13 +6,7 @@ import {
 import { DevicesRepository } from './repositories/devices.repository';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
-
-interface PostgrestError {
-  code?: string;
-}
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 @Injectable()
 export class DevicesService {
@@ -47,7 +41,7 @@ export class DevicesService {
       }
       return this.findById(device.id, tenantId);
     } catch (error) {
-      if (isPostgrestError(error) && error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new ConflictException('A device with this code already exists');
       }
       throw error;

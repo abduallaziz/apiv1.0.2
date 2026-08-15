@@ -11,6 +11,7 @@ import { generateEan13ForTenant } from './utils/ean13.util';
 import { parseCsv } from './utils/csv.util';
 import { renderBarcodeLabelSvg } from './utils/barcode-render.util';
 import { BarcodeType } from './dto/create-item-barcode.dto';
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 const MAX_GENERATE_ATTEMPTS = 5;
 
@@ -19,14 +20,6 @@ export interface ImportRowResult {
   status: 'created' | 'skipped' | 'error';
   barcode?: string;
   message?: string;
-}
-
-interface PostgrestError {
-  code?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
 }
 
 // Supabase/Postgrest errors are plain objects, not Error instances —
@@ -125,7 +118,7 @@ export class ItemBarcodesService {
     try {
       return await this.barcodesRepo.create(tenantId, { ...dto });
     } catch (error) {
-      if (isPostgrestError(error) && error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new ConflictException(
           'This barcode is already assigned to another item',
         );
@@ -163,7 +156,7 @@ export class ItemBarcodesService {
     try {
       return await this.barcodesRepo.update(id, tenantId, { ...dto });
     } catch (error) {
-      if (isPostgrestError(error) && error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new ConflictException(
           'This barcode is already assigned to another item',
         );
@@ -208,7 +201,7 @@ export class ItemBarcodesService {
           is_primary: !alreadyHasPrimary,
         });
       } catch (error) {
-        if (isPostgrestError(error) && error.code === '23505') {
+        if (isUniqueViolation(error)) {
           continue; // extremely rare tenant-hash/sequence collision — retry with next seq
         }
         throw error;

@@ -13,18 +13,12 @@ import { CreateScanEventDto } from './dto/create-scan-event.dto';
 import { normalizeScanValue } from './utils/normalize-scan-value.util';
 import { ResolverService } from './resolver/resolver.service';
 import { ResolutionResult } from './resolver/resolver.types';
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 // Same-device/same-value scans within this trailing window are treated as
 // one duplicate scan when no client_event_id is supplied (e.g. a dumb
 // scanner that just re-emits the barcode on a second trigger pull).
 const DEDUP_WINDOW_MS = 2000;
-
-interface PostgrestError {
-  code?: string;
-}
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
 
 export interface ScanEventResult {
   duplicate: boolean;
@@ -146,11 +140,7 @@ export class EventsService {
     } catch (error) {
       // Race: a concurrent request with the same client_event_id won the
       // insert between our dedup check and our own insert.
-      if (
-        isPostgrestError(error) &&
-        error.code === '23505' &&
-        dto.client_event_id
-      ) {
+      if (isUniqueViolation(error) && dto.client_event_id) {
         const existing = await this.eventsRepo.findByClientEventId(
           tenantId,
           dto.device_id,

@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { HARDCODED_PLATFORM_ONLY_KEYS } from './platform-only-permissions.const';
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 export interface RoleRow {
   id: string;
@@ -121,7 +122,7 @@ export class AccessControlRepository {
 
     if (error) {
       // idx_roles_tenant_name_unique — same name already exists for this tenant.
-      if (error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new Error('DUPLICATE_ROLE_NAME');
       }
       throw error;

@@ -2,17 +2,10 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
-
-interface PostgrestError {
-  code?: string;
-}
-
-function isPostgrestError(error: unknown): error is PostgrestError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
+import { isForeignKeyViolation } from '../../../shared/supabase/postgrest-error.util';
 
 function toHttpError(error: unknown): unknown {
-  if (isPostgrestError(error) && error.code === '23503') {
+  if (isForeignKeyViolation(error)) {
     return new BadRequestException('The selected warehouse does not exist');
   }
   return error;

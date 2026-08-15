@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
 
@@ -53,7 +54,7 @@ export class CouponsRepository extends ScopedRepository {
       .select()
       .single();
     if (error) {
-      if (error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new BadRequestException('A coupon with this code already exists');
       }
       throw error;
@@ -70,7 +71,7 @@ export class CouponsRepository extends ScopedRepository {
       .select()
       .single();
     if (error) {
-      if (error.code === '23505') {
+      if (isUniqueViolation(error)) {
         throw new BadRequestException('A coupon with this code already exists');
       }
       throw error;

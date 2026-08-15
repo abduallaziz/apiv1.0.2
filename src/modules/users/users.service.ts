@@ -18,6 +18,10 @@ import { UserRole } from '../../shared/types/enums';
 import { BillingService } from '../../core/billing/billing.service';
 import { AuthService } from '../auth/auth.service';
 import { PermissionsService } from '../../core/permissions/permissions.service';
+import {
+  isUniqueViolation,
+  isForeignKeyViolation,
+} from '../../shared/supabase/postgrest-error.util';
 
 @Injectable()
 export class UsersService {
@@ -520,7 +524,7 @@ export class UsersService {
     try {
       await this.usersRepository.insertUserRole(id, roleId, currentCount === 0);
     } catch (err: any) {
-      if (err?.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new ConflictException(`User already has the "${role.name}" role`);
       }
       throw err;
@@ -611,7 +615,7 @@ export class UsersService {
       );
     } catch (err: any) {
       // user_permissions_override.permission_key REFERENCES permissions(name)
-      if (err?.code === '23503') {
+      if (isForeignKeyViolation(err)) {
         throw new NotFoundException(`Unknown permission: ${permissionKey}`);
       }
       throw err;
