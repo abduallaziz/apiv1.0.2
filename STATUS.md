@@ -5325,3 +5325,12 @@ Design/audit only, no code/installs. Audited `web/`'s current testing state (con
 **Verified live** (production, both via direct DB query and browser session as `owner@sefay.com`): new postings after this migration store neutral `reference`/`description`; historical rows (dated 08-14/08-15, pre-dating this fix) render translated via the frontend recognizer.
 
 **Commits:** API `5b090d9` (migration + H02 regression suite), Web `0c08015` + `de04693` (i18n + translation logic).
+
+## 📍 Roadmap Position — Phase 16 Reconciliation (2026-08-15)
+
+Connecting this log's own entries above to the current roadmap state (`api/TASKS.md`, Phase 16 — "Sefay Global Financial Platform"), verified as of this entry:
+
+- Phase 16 migration work through **M196 is complete** — every migration entry from M176 through M196 above (plus the D01 M0–M7, Accounting Backend/UI Phase 1, H01–H04, D01 Final E2E, and F2 entries above) reflects the full current state.
+- Production state: `POOLED_INVOICE_WRITES_ENABLED = true` (set by H01 above, confirmed unchanged through the D01 Final E2E and F2 entries above).
+- **No approved next implementation item currently exists in the roadmap.** The only two items `TASKS.md` still lists as not-started (Access Control platform-only permissions hardening; Multi-Role Per User frontend UI) remain explicitly deferred by Owner decision — neither has been promoted, renamed, or had its deferral reason removed.
+- Any new implementation phase or item requires a separate, explicit Owner decision before work begins.
