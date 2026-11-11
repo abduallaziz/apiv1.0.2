@@ -5,7 +5,11 @@ import { TenantContext } from '../../core/tenant/tenant-context';
 const TENANT = new TenantContext('t1', 'b1');
 const VAT = 1.15;
 
-const fixed = (amount: number, over: Record<string, unknown> = {}) => ({
+const fixed = (
+  amount: number,
+  over: Record<string, unknown> = {},
+  taxMode?: 'including' | 'excluding',
+) => ({
   id: 'inst-1',
   customer_id: 'cust-1',
   status: 'unlocked',
@@ -16,7 +20,7 @@ const fixed = (amount: number, over: Record<string, unknown> = {}) => ({
     branch_scope: 'all',
     branch_id: null,
     reward_type: 'fixed_discount',
-    reward_config: { amount },
+    reward_config: taxMode ? { amount, tax_mode: taxMode } : { amount },
     usage_conditions: {},
   },
   ...over,
@@ -39,37 +43,52 @@ const preview = (s: RewardRedemptionService, ids: string[], subtotal: number, ne
   s.previewSelection(TENANT, 'cust-1', 'b1', ids, subtotal, { netBase, taxFactor: VAT });
 
 describe('fixed-amount reward balance (preview)', () => {
-  it('20 SAR reward on a 5.75 sale consumes 5.75 (VAT included) and leaves 14.25', async () => {
-    const { service } = build([fixed(20)]);
+  it("'including': 20 SAR on a 5.75 sale consumes 5.75 (VAT included) and leaves 14.25", async () => {
+    const { service } = build([fixed(20, {}, 'including')]);
     const p = await preview(service, ['inst-1'], 5); // net 5.00 -> gross 5.75
     expect(p.fixedConsumptions).toEqual([{ instanceId: 'inst-1', amount: 5.75 }]);
-    expect(p.discountAmount).toBe(5); // net discount: whole net -> total 0
+    expect(p.discountAmount).toBe(5); // whole net -> total 0
     expect(20 - p.fixedConsumptions![0].amount).toBeCloseTo(14.25, 2);
   });
 
-  it('a reward smaller than the bill is consumed entirely', async () => {
-    const { service } = build([fixed(20)]);
-    const p = await preview(service, ['inst-1'], 30); // gross 34.50
+  it("'including' smaller than the bill: 20 off a 34.50 gross bill, net discount 17.39", async () => {
+    const { service } = build([fixed(20, {}, 'including')]);
+    const p = await preview(service, ['inst-1'], 30);
     expect(p.fixedConsumptions![0].amount).toBe(20);
     expect(p.discountAmount).toBeCloseTo(17.39, 2);
   });
 
+  it("'excluding' (default): 20 SAR before VAT on a 5.00 net sale consumes 5.00 and leaves 15.00", async () => {
+    const { service } = build([fixed(20)]); // no tax_mode -> excluding
+    const p = await preview(service, ['inst-1'], 5);
+    expect(p.fixedConsumptions).toEqual([{ instanceId: 'inst-1', amount: 5 }]);
+    expect(p.discountAmount).toBe(5);
+  });
+
+  it("'excluding' smaller than the bill: the full 20 comes off the net price", async () => {
+    const { service } = build([fixed(20, {}, 'excluding')]);
+    const p = await preview(service, ['inst-1'], 30);
+    expect(p.fixedConsumptions![0].amount).toBe(20);
+    expect(p.discountAmount).toBe(20); // 30 - 20 = 10 net, VAT 1.50 -> 11.50
+  });
+
   it('uses the remaining balance, not the original amount', async () => {
-    const { service } = build([fixed(20, { remaining_amount: '14.25' })]);
+    const { service } = build([fixed(20, { remaining_amount: '14.25' }, 'including')]);
     const p = await preview(service, ['inst-1'], 30);
     expect(p.fixedConsumptions![0].amount).toBe(14.25);
   });
 
-  it('two fixed rewards are consumed in order against what is still payable', async () => {
+  it('two fixed rewards (mixed modes) are consumed in order against what is still payable', async () => {
     const { service } = build([
-      fixed(3, { id: 'a' }),
-      fixed(10, { id: 'b' }),
+      fixed(3, { id: 'a' }, 'excluding'), // 3.00 net
+      fixed(10, { id: 'b' }, 'including'), // rest: net 2.00 -> gross 2.30
     ]);
-    const p = await preview(service, ['a', 'b'], 5); // gross 5.75
+    const p = await preview(service, ['a', 'b'], 5);
     expect(p.fixedConsumptions).toEqual([
       { instanceId: 'a', amount: 3 },
-      { instanceId: 'b', amount: 2.75 },
+      { instanceId: 'b', amount: 2.3 },
     ]);
+    expect(p.discountAmount).toBeCloseTo(5, 2);
   });
 
   it('does not consume a reward when nothing is left to pay', async () => {

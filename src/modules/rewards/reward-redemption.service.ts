@@ -79,7 +79,11 @@ export class RewardRedemptionService {
     let discountAmount = 0;
     const freeItemGrants: FreeItemGrant[] = [];
     const singleUseIds: string[] = [];
-    const fixedPending: Array<{ instanceId: string; remaining: number }> = [];
+    const fixedPending: Array<{
+      instanceId: string;
+      remaining: number;
+      mode: 'including' | 'excluding';
+    }> = [];
 
     for (const instance of instances) {
       if (instance.customer_id !== customerId) {
@@ -144,7 +148,18 @@ export class RewardRedemptionService {
               instance.remaining_amount !== undefined
                 ? Number(instance.remaining_amount)
                 : amount;
-            fixedPending.push({ instanceId: instance.id as string, remaining });
+            // reward_config.tax_mode: 'including' = the amount is VAT-inclusive
+            // (taken off what the customer pays); anything else (default) = the
+            // amount is taken off the price BEFORE VAT.
+            const mode =
+              definition.reward_config.tax_mode === 'including'
+                ? 'including'
+                : 'excluding';
+            fixedPending.push({
+              instanceId: instance.id as string,
+              remaining,
+              mode,
+            });
           } else {
             discountAmount += this.discountEngine.applyFixedDiscount(
               subtotal,
@@ -195,22 +210,32 @@ export class RewardRedemptionService {
       }
     }
 
-    // Fixed-amount rewards act as a VAT-inclusive balance: they consume up to the
-    // gross amount still payable (after the other discounts), and the net
-    // discount is that gross divided by (1 + VAT). 20 SAR on a 5.75 sale (5.00 +
-    // 0.75 VAT) consumes 5.75, leaves 14.25, and the sale total is 0.
+    // Fixed-amount rewards keep a balance (partial use). Two modes, chosen per
+    // reward definition (reward_config.tax_mode):
+    //  - 'excluding' (default): the amount is taken off the net price BEFORE VAT
+    //    (20 off a 5.00 net sale consumes 5.00, leaves 15.00; VAT then applies to the rest).
+    //  - 'including': the amount is a VAT-inclusive value taken off what the customer
+    //    pays (20 on a 5.75 sale = 5.00 + 0.75 VAT consumes 5.75, leaves 14.25).
+    // consumed amounts are in the reward's own unit (net or gross); the net discount
+    // fed into the invoice pipeline is derived from them.
     const fixedConsumptions: Array<{ instanceId: string; amount: number }> = [];
     if (fixedBase && fixedPending.length) {
-      let grossLeft = parseFloat(
-        (
-          Math.max(fixedBase.netBase - discountAmount, 0) * fixedBase.taxFactor
-        ).toFixed(2),
-      );
+      let netLeft = Math.max(fixedBase.netBase - discountAmount, 0);
       for (const p of fixedPending) {
-        const consumed = parseFloat(Math.min(p.remaining, grossLeft).toFixed(2));
+        if (netLeft <= 0) break;
+        let consumed: number;
+        let netUsed: number;
+        if (p.mode === 'including') {
+          const grossLeft = netLeft * fixedBase.taxFactor;
+          consumed = parseFloat(Math.min(p.remaining, grossLeft).toFixed(2));
+          netUsed = parseFloat((consumed / fixedBase.taxFactor).toFixed(2));
+        } else {
+          consumed = parseFloat(Math.min(p.remaining, netLeft).toFixed(2));
+          netUsed = consumed;
+        }
         if (consumed <= 0) continue;
-        discountAmount += parseFloat((consumed / fixedBase.taxFactor).toFixed(2));
-        grossLeft = parseFloat((grossLeft - consumed).toFixed(2));
+        discountAmount += netUsed;
+        netLeft = Math.max(parseFloat((netLeft - netUsed).toFixed(2)), 0);
         fixedConsumptions.push({ instanceId: p.instanceId, amount: consumed });
       }
     }
