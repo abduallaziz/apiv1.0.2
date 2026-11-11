@@ -191,6 +191,11 @@ export class RewardRedemptionService {
     );
   }
 
+  /** Undo of redeemSelected when the sale itself failed (see releaseRedeemed). */
+  releaseSelected(tenantId: string, customerId: string, instanceIds: string[]) {
+    return this.instancesRepo.releaseRedeemed(tenantId, customerId, instanceIds);
+  }
+
   /** Best-effort post-creation linkage — never allowed to affect the sale. */
   async attachOrder(instanceIds: string[], orderId: string): Promise<void> {
     if (instanceIds.length === 0) return;

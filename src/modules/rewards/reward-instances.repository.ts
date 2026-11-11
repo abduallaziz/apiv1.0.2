@@ -160,6 +160,33 @@ export class RewardInstancesRepository extends ScopedRepository {
     return data ?? [];
   }
 
+  /**
+   * Compensation for a sale that failed AFTER fn_redeem_reward_instances ran:
+   * puts the instances back to 'unlocked'. Only touches instances still marked
+   * redeemed with no order attached, so it can never undo a completed sale.
+   */
+  async releaseRedeemed(
+    tenantId: string,
+    customerId: string,
+    instanceIds: string[],
+  ): Promise<number> {
+    const { data, error } = await this.supabase
+      .from('customer_reward_instances')
+      .update({
+        status: 'unlocked',
+        redeemed_at: null,
+        redeemed_branch_id: null,
+      })
+      .in('id', instanceIds)
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customerId)
+      .eq('status', 'redeemed')
+      .is('redeemed_order_id', null)
+      .select('id');
+    if (error) throw error;
+    return data?.length ?? 0;
+  }
+
   /** Best-effort post-creation enrichment — order_id isn't known at redemption time (same constraint as Loyalty). Never throws in a way that affects the sale. */
   async attachRedemptionOrder(
     instanceIds: string[],

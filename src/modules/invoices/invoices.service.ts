@@ -87,6 +87,37 @@ export class InvoicesService {
     private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
   ) {}
 
+  /** Best-effort compensation when order creation fails after redemptions. */
+  private async rollbackRedemptions(
+    tenantId: string,
+    dto: CreateInvoiceDto,
+    branchId: string,
+    cashierId: string,
+  ): Promise<void> {
+    if (!dto.customer_id) return;
+    try {
+      if (dto.redeem_reward_instance_ids?.length) {
+        await this.rewardRedemptionService.releaseSelected(
+          tenantId,
+          dto.customer_id,
+          dto.redeem_reward_instance_ids,
+        );
+      }
+      if (dto.redeem_points && dto.redeem_points > 0) {
+        await this.loyaltyService.restoreRedeemedPoints(
+          tenantId,
+          dto.customer_id,
+          dto.redeem_points,
+          { branchId, createdBy: cashierId },
+        );
+      }
+    } catch (e) {
+      this.logger.error(
+        `Failed to roll back redemptions for customer ${dto.customer_id}: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
   async create(
     tenant: TenantContext,
     dto: CreateInvoiceDto,
@@ -449,6 +480,17 @@ export class InvoicesService {
       total: totalAmount,
     };
 
+    // A zero total cannot be posted to accounting (journal lines must be > 0),
+    // and it would fail AFTER rewards/points were consumed. Reject it up front,
+    // before anything is redeemed, with a clear reason the cashier can act on.
+    if (built.total <= 0) {
+      throw new BadRequestException({
+        message:
+          'The applied discounts cover the entire amount — the sale total must be greater than zero',
+        reasonCode: 'zero_total_not_supported',
+      });
+    }
+
     const storedPaymentMethod = dto.payment_method;
 
     if (dto.payment_method === 'cash') {
@@ -656,6 +698,9 @@ export class InvoicesService {
         );
       }
     } catch (err: any) {
+      // Anything consumed before the order existed (reward instances, loyalty
+      // points) must be given back, or the customer loses it with no sale.
+      await this.rollbackRedemptions(tenant.tenantId, dto, branchId, cashierId);
       // Race backstop for M187: two concurrent requests with the same
       // sale_attempt_id can both pass the early check above before either
       // commits. uq_orders_tenant_sale_attempt (migration 187) is the real

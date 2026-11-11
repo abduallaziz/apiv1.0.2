@@ -175,6 +175,53 @@ export class LoyaltyService {
     });
   }
 
+  /**
+   * Compensation for a sale that failed AFTER points were redeemed: gives the
+   * points back WITHOUT touching lifetime_points_earned (fn_adjust_loyalty_points
+   * adds every positive delta to it, which would inflate tier statistics).
+   * Optimistic: retries on a concurrent balance change. Ledger row type is
+   * 'adjustment' (the ledger CHECK has no refund type yet).
+   */
+  async restoreRedeemedPoints(
+    tenantId: string,
+    customerId: string,
+    points: number,
+    context: LoyaltyMutationContext = {},
+  ): Promise<boolean> {
+    if (points <= 0) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data: row, error } = await this.supabase
+        .from('customers')
+        .select('loyalty_points')
+        .eq('id', customerId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!row) return false;
+      const current = Number(row.loyalty_points);
+      const { data: updated, error: updErr } = await this.supabase
+        .from('customers')
+        .update({ loyalty_points: current + points })
+        .eq('id', customerId)
+        .eq('tenant_id', tenantId)
+        .eq('loyalty_points', current)
+        .select('id');
+      if (updErr) throw updErr;
+      if (!updated?.length) continue; // balance changed under us: retry
+      await this.supabase.from('loyalty_ledger').insert({
+        tenant_id: tenantId,
+        customer_id: customerId,
+        branch_id: context.branchId ?? null,
+        order_id: null,
+        type: 'adjustment',
+        delta: points,
+        created_by: context.createdBy ?? null,
+      });
+      return true;
+    }
+    return false;
+  }
+
   /** Redeems points from a customer (throws if the balance is insufficient). */
   async redeemPoints(
     tenantId: string,
