@@ -23,8 +23,13 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
+// Branch System Step 5 (Owner-approved): production orders' branch comes
+// from their own warehouse_id -> warehouses.branch_id, resolved with
+// certainty inside the service (which already has WarehousesService) rather
+// than guessed from the HTTP response shape — so these routes use explicit
+// AuditService.log() calls in the service instead of the generic @Audit()
+// decorator (which only ever logs null — see AuditInterceptor).
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('manufacturing/production-orders')
 export class ProductionOrdersController {
@@ -49,31 +54,39 @@ export class ProductionOrdersController {
 
   @Post()
   @RequirePermission('manufacturing.plan')
-  @Audit('production_order.created')
   create(
     @Body() dto: CreateProductionOrderDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.productionOrdersService.create(tenant.tenantId, dto);
+    return this.productionOrdersService.create(tenant.tenantId, dto, user.sub);
   }
 
   @Patch(':id')
   @RequirePermission('manufacturing.plan')
-  @Audit('production_order.updated')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateProductionOrderDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.productionOrdersService.update(id, tenant.tenantId, dto);
+    return this.productionOrdersService.update(
+      id,
+      tenant.tenantId,
+      dto,
+      user.sub,
+    );
   }
 
   @Post(':id/start')
   @RequirePermission('manufacturing.execute')
   @HttpCode(HttpStatus.OK)
-  @Audit('production_order.started')
-  start(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.productionOrdersService.start(id, tenant.tenantId);
+  start(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.productionOrdersService.start(id, tenant.tenantId, user.sub);
   }
 
   @Post(':id/complete')
@@ -96,8 +109,11 @@ export class ProductionOrdersController {
   @Post(':id/cancel')
   @RequirePermission('manufacturing.execute')
   @HttpCode(HttpStatus.OK)
-  @Audit('production_order.cancelled')
-  cancel(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.productionOrdersService.cancel(id, tenant.tenantId);
+  cancel(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.productionOrdersService.cancel(id, tenant.tenantId, user.sub);
   }
 }

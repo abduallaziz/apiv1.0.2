@@ -9,6 +9,25 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
+// Branch Domain Batch 1, B4 (Owner-approved) — pre-change audit found
+// invoice.view.own/branch/all and expense.view.branch/all are seeded and
+// actively granted (11 role_permissions rows + 12 real tenant_role_
+// permissions overrides, live-queried, not assumed) but NEVER checked by
+// any controller — invoices.controller.ts and expenses.controller.ts gate
+// on the flat invoice.view / expenses.view instead. Real branch scope is
+// now enforced by B1-B3's server-derived effectiveBranchId
+// (BranchAuthorizationService.resolveBranchScope), not by which of these
+// tiers a role holds.
+//
+// Deliberately NOT deleted: permission_key has ON DELETE CASCADE onto
+// role_permissions AND tenant_role_permissions (001_initial_schema.sql,
+// 064_create_tenant_role_permissions.sql) — removing these rows would
+// silently destroy 23 live grant/override rows across real tenants for no
+// safety benefit, since nothing reads them today anyway. Retained
+// as-is, documented as deprecated/non-authoritative for scope. A future,
+// separately-approved migration can retire them once every consumer of
+// the permission-admin UI (if any surfaces these names to tenant owners)
+// has been checked.
 const permissions = [
   {
     name: 'invoice.create.own',
@@ -17,18 +36,26 @@ const permissions = [
     description: 'Create own invoices',
   },
   {
+    // DEPRECATED (Branch Domain Batch 1, B4) — never checked by any
+    // controller; invoices.controller.ts gates on the flat 'invoice.view'
+    // instead. Real scope enforcement is BranchAuthorizationService's
+    // server-derived effectiveBranchId, not this tier. Retained (not
+    // deleted) only because live tenant_role_permissions overrides
+    // reference it — see the module-level comment above.
     name: 'invoice.view.own',
     resource: 'invoice',
     action: 'view',
     description: 'View own invoices',
   },
   {
+    // DEPRECATED (Branch Domain Batch 1, B4) — see invoice.view.own above.
     name: 'invoice.view.branch',
     resource: 'invoice',
     action: 'view',
     description: 'View branch invoices',
   },
   {
+    // DEPRECATED (Branch Domain Batch 1, B4) — see invoice.view.own above.
     name: 'invoice.view.all',
     resource: 'invoice',
     action: 'view',
@@ -77,12 +104,17 @@ const permissions = [
     description: 'Submit expense requests',
   },
   {
+    // DEPRECATED (Branch Domain Batch 1, B4) — never checked by any
+    // controller; expenses.controller.ts gates on the flat 'expenses.view'
+    // instead. See the invoice.view.own comment above for the full
+    // rationale (same class of finding, same retain-not-delete decision).
     name: 'expense.view.branch',
     resource: 'expense',
     action: 'view',
     description: 'View branch expenses',
   },
   {
+    // DEPRECATED (Branch Domain Batch 1, B4) — see expense.view.branch above.
     name: 'expense.view.all',
     resource: 'expense',
     action: 'view',
@@ -125,6 +157,11 @@ const permissions = [
     description: 'View branch shifts',
   },
   {
+    // DEPRECATED (Branch Domain Batch 1, B4) — never checked by any
+    // controller; shift.view.own and shift.view.branch immediately above
+    // are the two real, enforced tiers (shifts.controller.ts). Retained
+    // (not deleted) only because live tenant_role_permissions overrides
+    // reference it — see the invoice.view.own comment above.
     name: 'shift.view.all',
     resource: 'shift',
     action: 'view',
@@ -178,6 +215,31 @@ const permissions = [
     action: 'manage',
     description: 'Manage customers',
   },
+  // Batch 1 Remediation 1 (Owner-approved) — customers.view/.manage kept
+  // above unchanged as active compatibility aliases (not hard-cut) so no
+  // existing tenant_role_permissions/user_permissions_override row
+  // referencing them silently loses effect. The 4 approved capability keys:
+  // customers.view already exists above and is reused as-is (list/read);
+  // these 3 are new, splitting what customers.manage used to cover as one
+  // undifferentiated grant.
+  {
+    name: 'customers.create',
+    resource: 'customers',
+    action: 'create',
+    description: 'Create customers',
+  },
+  {
+    name: 'customers.update',
+    resource: 'customers',
+    action: 'update',
+    description: 'Update customers',
+  },
+  {
+    name: 'customers.archive',
+    resource: 'customers',
+    action: 'archive',
+    description: 'Archive/delete customers',
+  },
   {
     name: 'expenses.view',
     resource: 'expenses',
@@ -189,6 +251,24 @@ const permissions = [
     resource: 'expenses',
     action: 'manage',
     description: 'Manage expenses',
+  },
+  // NEW EXPENSES domain (expenses_v2 and related tables) — reuses the
+  // existing expenses.view/expenses.manage keys above unchanged (locked
+  // Owner decision: exactly 4 keys, no separate Department permissions),
+  // and adds the 2 keys that key set requires beyond what Legacy Expenses
+  // already had.
+  {
+    name: 'expenses.create',
+    resource: 'expenses',
+    action: 'create',
+    description: 'Create expenses',
+  },
+  {
+    name: 'expenses.configure',
+    resource: 'expenses',
+    action: 'configure',
+    description:
+      'Manage expense configuration: Departments, Categories, and Quick Expense Definitions',
   },
   {
     name: 'reports.view.branch',
@@ -628,6 +708,13 @@ const add = (role: string, keys: string[]) =>
     rolePerms.push({ role, permission_key: k, is_granted: true }),
   );
 
+// Branch Domain Batch 1, B4 (Owner-approved) — every invoice.view.*,
+// expense.view.branch/all, and shift.view.all grant below is deprecated
+// (see the definitions above) but deliberately kept exactly as-is: these
+// role_permissions rows are real, live-queried grants (11 rows) plus 12
+// real tenant_role_permissions overrides reference the same keys — this
+// batch only stops those keys from being misleading in the seed's own
+// comments, it does not touch any grant data.
 add('superadmin', [
   'analytics.view.all',
   'audit.view.all',
@@ -643,8 +730,13 @@ add('superadmin', [
   'items.view',
   'customers.view',
   'customers.manage',
+  'customers.create',
+  'customers.update',
+  'customers.archive',
   'expenses.view',
   'expenses.manage',
+  'expenses.create',
+  'expenses.configure',
   'reports.view.all',
   'settings.manage',
   'superadmin.queue.view',
@@ -721,8 +813,13 @@ add('owner', [
   'items.view',
   'customers.view',
   'customers.manage',
+  'customers.create',
+  'customers.update',
+  'customers.archive',
   'expenses.view',
   'expenses.manage',
+  'expenses.create',
+  'expenses.configure',
   'reports.view.all',
   'reports.view.branch',
   'settings.view',
@@ -795,7 +892,11 @@ add('manager', [
   'items.view',
   'customers.view',
   'customers.manage',
+  'customers.create',
+  'customers.update',
+  'customers.archive',
   'expenses.view',
+  'expenses.create',
   'reports.view.branch',
   'settings.view',
   'inventory.view',
@@ -874,12 +975,16 @@ add('cashier', [
   'invoice.create',
   'expense.request',
   'expenses.view',
+  'expenses.create',
   'shift.open',
   'shift.close',
   'shift.view.own',
   'items.view',
   'customers.view',
   'customers.manage',
+  'customers.create',
+  'customers.update',
+  'customers.archive',
   'inventory.view',
   'inventory.reserve',
   'attendance.checkin',

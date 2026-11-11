@@ -11,6 +11,7 @@ import { PosEngine } from '../../engines/pos-engine/pos.engine';
 import { PaymentEngine } from '../../engines/payment-engine/payment.engine';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { AuditService } from '../../core/audit/audit.service';
+import { PriceResolutionService } from '../../core/pricing/price-resolution.service';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { AddDineInItemsDto } from './dto/add-dine-in-items.dto';
 import { CheckoutDineInDto } from './dto/checkout-dine-in.dto';
@@ -27,6 +28,7 @@ export class DineInService {
     private readonly paymentEngine: PaymentEngine,
     private readonly tenantsRepo: TenantsRepository,
     private readonly auditService: AuditService,
+    private readonly priceResolutionService: PriceResolutionService,
   ) {}
 
   async openTable(tenant: TenantContext, tableId: string, cashierId: string) {
@@ -72,7 +74,25 @@ export class DineInService {
         'No open order for this table — open the table first',
       );
 
-    await this.dineInRepo.insertItems(order.id, tenant.tenantId, dto.items);
+    // Never trust the client-supplied price: every line is re-priced from the
+    // item/variant master data (dine-in has no audited override workflow).
+    const pricedItems = [];
+    for (const item of dto.items) {
+      const official = await this.priceResolutionService.getOfficialUnitPrice(
+        item.item_id,
+        item.variant_id,
+        tenant.tenantId,
+      );
+      if (official === null) {
+        throw new NotFoundException({
+          message: 'Item or variant not found',
+          item_id: item.item_id,
+        });
+      }
+      pricedItems.push({ ...item, unit_price: official });
+    }
+
+    await this.dineInRepo.insertItems(order.id, tenant.tenantId, pricedItems);
     return this.recalculateAndRespond(tenant, order, taxRate);
   }
 
@@ -187,6 +207,18 @@ export class DineInService {
       );
     }
 
+    // The customer link comes from the client: it must belong to this tenant
+    // (fn_checkout_dine_in_table writes it without checking ownership).
+    if (
+      dto.customer_id &&
+      !(await this.dineInRepo.customerBelongsToTenant(
+        tenant.tenantId,
+        dto.customer_id,
+      ))
+    ) {
+      throw new BadRequestException('Customer not found');
+    }
+
     // ذرّي عبر fn_checkout_dine_in_table — إنهاء الطلب وتحرير الطاولة بمعاملة واحدة،
     // بدل خطوتين منفصلتين قد تتباعدان لو فشلت الثانية بعد نجاح الأولى.
     const finalized = await this.dineInRepo.checkoutAtomic(
@@ -209,6 +241,7 @@ export class DineInService {
       action: 'dine_in.checkout',
       resource_type: 'order',
       resource_id: order.id,
+      branch_id: (order as { branch_id?: string | null }).branch_id,
       after_data: {
         total: order.total,
         payment_method: dto.payment_method,

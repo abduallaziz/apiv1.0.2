@@ -17,8 +17,8 @@ export class BranchesService {
     private readonly billingService: BillingService,
   ) {}
 
-  async findAll(tenant: TenantContext) {
-    return this.repo.findAll(tenant);
+  async findAll(tenant: TenantContext, activeOnly = false) {
+    return this.repo.findAll(tenant, activeOnly);
   }
 
   async findById(id: string, tenant: TenantContext) {

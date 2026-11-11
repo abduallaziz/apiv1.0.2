@@ -1,6 +1,7 @@
 import { ForbiddenException, Logger } from '@nestjs/common';
 import { PermissionsService } from './permissions.service';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+import { isQaTenant } from '../security/qa-tenant';
 
 // Single source of truth for "is this authenticated user allowed
 // requiredPermission" — extracted verbatim from PermissionGuard.canActivate
@@ -12,8 +13,6 @@ import { JwtPayload } from '../../shared/types/jwt-payload.type';
 // bypass rules, the owner force-true rule (still inside PermissionsService.
 // hasPermission itself, untouched), or the shadow-mode hybrid-permission
 // comparison — all of that stays exactly as it already was.
-const UNRESTRICTED_TEST_TENANT_IDS = ['9bcd3369-d664-47c8-b297-3bc9b429aacf'];
-
 function enforceHybridPermissions(): boolean {
   return process.env.ENFORCE_HYBRID_PERMISSIONS === 'true';
 }
@@ -56,8 +55,9 @@ export async function resolveUserPermission(
   // Superadmin bypasses all permission checks
   if (roles.includes('superadmin')) return true;
 
-  // Internal QA/demo tenant bypasses all permission checks
-  if (UNRESTRICTED_TEST_TENANT_IDS.includes(user.tenant_id)) return true;
+  // Internal QA/demo tenant bypasses permission checks OUTSIDE production only
+  // (see core/security/qa-tenant.ts). user comes from a verified JWT.
+  if (isQaTenant(user.tenant_id)) return true;
 
   const [legacyGranted, hybridGranted] = await Promise.all([
     permissionsService.hasPermission(

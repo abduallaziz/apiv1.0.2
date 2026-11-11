@@ -9,6 +9,7 @@ import { CreateCorrectiveActionDto } from './dto/create-corrective-action.dto';
 import { CompleteCorrectiveActionDto } from './dto/complete-corrective-action.dto';
 import { VerifyCorrectiveActionDto } from './dto/verify-corrective-action.dto';
 import { CloseCorrectiveActionDto } from './dto/close-corrective-action.dto';
+import { AuditService } from '../../core/audit/audit.service';
 
 // assigned -> in_progress -> completed -> verified -> closed
 @Injectable()
@@ -16,6 +17,7 @@ export class CorrectiveActionsService {
   constructor(
     private readonly capaRepo: CorrectiveActionsRepository,
     private readonly nonConformancesService: NonConformancesService,
+    private readonly auditService: AuditService,
   ) {}
 
   findAll(tenantId: string, ownerId?: string, status?: string) {
@@ -81,6 +83,22 @@ export class CorrectiveActionsService {
       'in_progress',
       actorId,
     );
+
+    // Branch System Step 5 (Owner-approved) — corrective_actions has no
+    // reliable resource-branch path (non_conformance_id doesn't carry one
+    // either; this is one of the 5 documented domain-model gaps). branch_id
+    // is always null here by design, not an oversight.
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'corrective_action.started',
+        resource_type: 'corrective_action',
+        resource_id: id,
+        branch_id: null,
+      })
+      .catch(() => {});
+
     return updated;
   }
 

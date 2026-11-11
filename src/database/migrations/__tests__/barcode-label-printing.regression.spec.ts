@@ -14,6 +14,7 @@ import 'reflect-metadata';
 import { ItemBarcodesService } from '../../../modules/items/item-barcodes.service';
 import { ItemBarcodesRepository } from '../../../modules/items/repositories/item-barcodes.repository';
 import { ItemsRepository } from '../../../modules/items/repositories/items.repository';
+import { ItemPackagingLevelsRepository } from '../../../modules/items/repositories/item-packaging-levels.repository';
 import { ItemBarcodesController } from '../../../modules/items/item-barcodes.controller';
 import { REQUIRE_PERMISSION_KEY } from '../../../core/permissions/require-permission.decorator';
 
@@ -36,7 +37,12 @@ describe('barcode label printing regression (Migration 13.10-fix)', () => {
 
     const barcodesRepo = new ItemBarcodesRepository(supabase);
     const itemsRepo = new ItemsRepository(supabase);
-    barcodesService = new ItemBarcodesService(barcodesRepo, itemsRepo);
+    const packagingLevelsRepo = new ItemPackagingLevelsRepository(supabase);
+    barcodesService = new ItemBarcodesService(
+      barcodesRepo,
+      itemsRepo,
+      packagingLevelsRepo,
+    );
 
     const { data: item, error: itemErr } = await supabase
       .from('items')

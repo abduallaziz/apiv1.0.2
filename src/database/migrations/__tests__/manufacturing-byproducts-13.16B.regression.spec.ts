@@ -151,6 +151,8 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
     const scrapService = new ScrapService(
       new ScrapRepository(supabase),
       productionOrdersRepo,
+      { findById: () => Promise.resolve({ branch_id: null }) } as any,
+      { log: () => Promise.resolve() } as any,
     );
     const outputsRepo = new OutputsRepository(supabase);
     outputsService = new OutputsService(outputsRepo, productionOrdersRepo);
@@ -163,7 +165,7 @@ describe('manufacturing by-products regression (Migration 13.16B)', () => {
       { invalidateStockCache: async () => undefined } as any,
       {} as any,
       ownershipRepo,
-      {} as any,
+      { log: () => Promise.resolve() } as any,
       operationsService,
       scrapService,
       outputsService,

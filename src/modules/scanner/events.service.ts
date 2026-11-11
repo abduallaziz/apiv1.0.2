@@ -14,6 +14,8 @@ import { normalizeScanValue } from './utils/normalize-scan-value.util';
 import { ResolverService } from './resolver/resolver.service';
 import { ResolutionResult } from './resolver/resolver.types';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
+import { WarehousesService } from '../inventory/warehouses.service';
+import { AuditService } from '../../core/audit/audit.service';
 
 // Same-device/same-value scans within this trailing window are treated as
 // one duplicate scan when no client_event_id is supplied (e.g. a dumb
@@ -35,7 +37,28 @@ export class EventsService {
     private readonly devicesService: DevicesService,
     private readonly auditRepo: ScannerAuditLogsRepository,
     private readonly resolverService: ResolverService,
+    private readonly warehousesService: WarehousesService,
+    private readonly auditService: AuditService,
   ) {}
+
+  // Branch System Step 5 (Owner-approved) — see identical helper in
+  // ProductionOrdersService. A device's assigned_warehouse_id is nullable
+  // (unassigned devices are valid) — null in, null out, never an error.
+  private async resolveBranchForWarehouse(
+    warehouseId: string | null | undefined,
+    tenantId: string,
+  ): Promise<string | null> {
+    if (!warehouseId) return null;
+    try {
+      const warehouse = await this.warehousesService.findById(
+        warehouseId,
+        tenantId,
+      );
+      return warehouse?.branch_id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   findAll(tenantId: string, deviceId?: string, sessionId?: string) {
     return this.eventsRepo.findAll(tenantId, deviceId, sessionId);
@@ -55,10 +78,19 @@ export class EventsService {
   async ingest(
     tenantId: string,
     dto: CreateScanEventDto,
+    actorId: string,
   ): Promise<ScanEventResult> {
     // 1. Device ownership/authorization
     const device = await this.devicesRepo.findById(dto.device_id, tenantId);
     if (!device) throw new NotFoundException('Unknown device');
+    // Branch System Step 5 (Owner-approved) — resolved once, up front, for
+    // every audit_logs write in this method: the device's own branch
+    // (via its assigned warehouse), null when the device is unassigned.
+    const branchId = await this.resolveBranchForWarehouse(
+      (device as { assigned_warehouse_id?: string | null })
+        .assigned_warehouse_id,
+      tenantId,
+    );
     if (device.status !== 'active') {
       throw new ForbiddenException('Device is not authorized to submit scans');
     }
@@ -103,6 +135,16 @@ export class EventsService {
           client_event_id: dto.client_event_id ?? null,
         },
       });
+      await this.auditService
+        .log({
+          tenant_id: tenantId,
+          actor_id: actorId,
+          action: 'scanner_event.ingested',
+          resource_type: 'scanner_event',
+          resource_id: (duplicate as { id: string }).id,
+          branch_id: branchId,
+        })
+        .catch(() => {});
       return { duplicate: true, event: duplicate };
     }
 
@@ -155,6 +197,16 @@ export class EventsService {
             entity_id: existing.id,
             details: { raw_value: dto.raw_value, reason: 'race_condition' },
           });
+          await this.auditService
+            .log({
+              tenant_id: tenantId,
+              actor_id: actorId,
+              action: 'scanner_event.ingested',
+              resource_type: 'scanner_event',
+              resource_id: (existing as { id: string }).id,
+              branch_id: branchId,
+            })
+            .catch(() => {});
           return { duplicate: true, event: existing };
         }
       }
@@ -162,6 +214,17 @@ export class EventsService {
     }
 
     await this.devicesService.touchLastSeen(dto.device_id, tenantId, 'healthy');
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'scanner_event.ingested',
+        resource_type: 'scanner_event',
+        resource_id: (event as { id: string }).id,
+        branch_id: branchId,
+      })
+      .catch(() => {});
 
     await this.auditRepo.create(tenantId, {
       actor_type: 'device',

@@ -16,6 +16,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
+import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 
@@ -36,6 +37,15 @@ const COOKIE_OPTIONS: {
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
+
+// G1 (owner approved 2026-11-09): the native Android app cannot use the
+// httpOnly cookie, so a client that announces itself with the header
+// "X-Sefay-Client: android" gets the refresh token in the response BODY (to be
+// kept in the Android Keystore) and sends it back in the refresh body. Web
+// clients are untouched: cookie only, never a token in the body.
+const NATIVE_CLIENT_HEADER = 'x-sefay-client';
+const isNativeClient = (req: Request): boolean =>
+  String(req.headers[NATIVE_CLIENT_HEADER] ?? '').toLowerCase() === 'android';
 
 @Controller('auth')
 // IP-scoped ceiling: generous enough for several real cashiers logging in
@@ -58,12 +68,14 @@ export class AuthController {
     const userAgent = req.headers['user-agent'] || '';
     const result = await this.authService.login(dto, ip, userAgent);
 
-    res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
+    const native = isNativeClient(req);
+    if (!native) res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
 
     return {
       access_token: result.access_token,
       realtime_token: result.realtime_token,
       user: result.user,
+      ...(native ? { refresh_token: result.refresh_token } : {}),
     };
   }
 
@@ -95,10 +107,15 @@ export class AuthController {
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
+    @Body() body?: Partial<RefreshDto>,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
-    const refreshToken = req.cookies?.[REFRESH_COOKIE];
+    const native = isNativeClient(req);
+    // native clients send the token in the body; browsers only via the cookie
+    const refreshToken = native
+      ? body?.refresh_token
+      : req.cookies?.[REFRESH_COOKIE];
 
     if (!refreshToken) {
       res.status(401).json({ message: 'No refresh token' });
@@ -111,11 +128,12 @@ export class AuthController {
       userAgent,
     );
 
-    res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
+    if (!native) res.cookie(REFRESH_COOKIE, result.refresh_token, COOKIE_OPTIONS);
 
     return {
       access_token: result.access_token,
       realtime_token: result.realtime_token,
+      ...(native ? { refresh_token: result.refresh_token } : {}),
     };
   }
 

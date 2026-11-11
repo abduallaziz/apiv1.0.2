@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import {
+  WarehouseTasksQueryDto,
+  PagedResult,
+} from '../dto/wms-list-query.dto';
 
 @Injectable()
 export class WarehouseTasksRepository extends ScopedRepository {
@@ -13,19 +17,77 @@ export class WarehouseTasksRepository extends ScopedRepository {
     taskType?: string,
     status?: string,
     assignedTo?: string,
+  ): Promise<unknown[]>;
+  async findAll(
+    tenantId: string,
+    query: WarehouseTasksQueryDto,
+  ): Promise<unknown[] | PagedResult<unknown>>;
+  async findAll(
+    tenantId: string,
+    arg2?: string | WarehouseTasksQueryDto,
+    arg3?: string,
+    arg4?: string,
   ) {
-    let query = this.supabase
+    let q: WarehouseTasksQueryDto;
+    if (typeof arg2 === 'object') {
+      q = arg2;
+    } else {
+      q = { task_type: arg2, status: arg3, assigned_to: arg4 };
+    }
+
+    const applyFilters = (query: any) => {
+      if (q.task_type) query = query.eq('task_type', q.task_type);
+      if (q.status) query = query.eq('status', q.status);
+      if (q.assigned_to) query = query.eq('assigned_to', q.assigned_to);
+      if (q.warehouse_id) query = query.eq('warehouse_id', q.warehouse_id);
+      return query;
+    };
+
+    if (!q.page) {
+      let query = this.supabase
+        .from('warehouse_tasks')
+        .select('*, items(name), warehouses(name)')
+        .eq('tenant_id', tenantId);
+      query = applyFilters(query);
+      const { data, error } = await query.order('created_at', {
+        ascending: false,
+      });
+      if (error) throw error;
+      return data;
+    }
+
+    const page = q.page;
+    const limit = q.limit ?? 20;
+    const sortBy = q.sortBy ?? 'created_at';
+    const sortOrder = q.sortOrder ?? 'desc';
+
+    let dataQuery = this.supabase
       .from('warehouse_tasks')
       .select('*, items(name), warehouses(name)')
       .eq('tenant_id', tenantId);
-    if (taskType) query = query.eq('task_type', taskType);
-    if (status) query = query.eq('status', status);
-    if (assignedTo) query = query.eq('assigned_to', assignedTo);
-    const { data, error } = await query.order('created_at', {
-      ascending: false,
-    });
+    dataQuery = applyFilters(dataQuery);
+    dataQuery = dataQuery
+      .order(sortBy, { ascending: sortOrder === 'asc' })
+      .order('id', { ascending: true })
+      .range((page - 1) * limit, page * limit - 1);
+
+    let countQuery = this.supabase
+      .from('warehouse_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId);
+    countQuery = applyFilters(countQuery);
+
+    const [{ data, error }, { count, error: countError }] = await Promise.all(
+      [dataQuery, countQuery],
+    );
     if (error) throw error;
-    return data;
+    if (countError) throw countError;
+    return {
+      data,
+      total: count ?? 0,
+      page,
+      perPage: limit,
+    } as PagedResult<unknown>;
   }
 
   async findById(id: string, tenantId: string) {
@@ -39,12 +101,17 @@ export class WarehouseTasksRepository extends ScopedRepository {
     return data;
   }
 
+  // Inventory #7 / 7-1 (Owner-approved) — reads from the shared,
+  // entity-typed warehouse_work_status_history now, not the legacy
+  // warehouse_task_history (which no longer receives new rows as of
+  // migration 223).
   async findHistory(tenantId: string, taskId: string) {
     const { data, error } = await this.supabase
-      .from('warehouse_task_history')
+      .from('warehouse_work_status_history')
       .select('*')
       .eq('tenant_id', tenantId)
-      .eq('task_id', taskId)
+      .eq('entity_type', 'warehouse_task')
+      .eq('entity_id', taskId)
       .order('created_at', { ascending: false });
     if (error) throw error;
     return data;
@@ -57,9 +124,10 @@ export class WarehouseTasksRepository extends ScopedRepository {
       .select()
       .single();
     if (error) throw error;
-    await this.supabase.from('warehouse_task_history').insert({
+    await this.supabase.from('warehouse_work_status_history').insert({
       tenant_id: tenantId,
-      task_id: data.id,
+      entity_type: 'warehouse_task',
+      entity_id: data.id,
       old_status: null,
       new_status: 'pending',
       actor_id: payload.created_by,

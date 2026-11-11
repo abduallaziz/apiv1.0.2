@@ -21,7 +21,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('scanner/devices')
@@ -42,7 +41,6 @@ export class DevicesController {
 
   @Post()
   @RequirePermission('devices.manage')
-  @Audit('scanner_device.created')
   create(
     @Body() dto: CreateDeviceDto,
     @GetTenant() tenant: TenantContext,
@@ -53,20 +51,23 @@ export class DevicesController {
 
   @Patch(':id')
   @RequirePermission('devices.manage')
-  @Audit('scanner_device.updated')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateDeviceDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.devicesService.update(id, tenant.tenantId, dto);
+    return this.devicesService.update(id, tenant.tenantId, dto, user.sub);
   }
 
   @Delete(':id')
   @RequirePermission('devices.manage')
-  @Audit('scanner_device.removed')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.devicesService.remove(id, tenant.tenantId);
+  remove(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.devicesService.remove(id, tenant.tenantId, user.sub);
   }
 }

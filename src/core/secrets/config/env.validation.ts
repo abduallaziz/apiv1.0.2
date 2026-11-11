@@ -39,7 +39,11 @@ export const envValidationSchema = Joi.object({
   REDIS_URL: Joi.string().uri().required(),
 
   // ── Stripe ───────────────────────────────────────────
+  // The mock provider "succeeds" every charge without collecting money. In
+  // production it is refused unless explicitly opted into (and logged) —
+  // otherwise a misconfigured deploy would hand out paid plans for free.
   PAYMENT_PROVIDER: Joi.string().valid('stripe', 'mock').default('mock'),
+  ALLOW_MOCK_PAYMENT_IN_PRODUCTION: Joi.string().valid('true', 'false').optional(),
   STRIPE_SECRET_KEY: Joi.when('PAYMENT_PROVIDER', {
     is: 'stripe',
     then: Joi.string().pattern(/^sk_/).required(),
@@ -79,4 +83,20 @@ export const envValidationSchema = Joi.object({
   //
   // Remove this entry once load testing is complete.
   LOAD_TEST_MODE: Joi.string().valid('true', 'false').default('false'),
+}).custom((value, helpers) => {
+  // The mock provider "succeeds" every charge without collecting money. In
+  // production it is refused unless explicitly opted into — otherwise a
+  // misconfigured deploy would hand out paid plans for free. (Object-level so
+  // the default 'mock' is also caught.)
+  if (
+    value.NODE_ENV === 'production' &&
+    value.PAYMENT_PROVIDER === 'mock' &&
+    value.ALLOW_MOCK_PAYMENT_IN_PRODUCTION !== 'true'
+  ) {
+    return helpers.message({
+      custom:
+        'PAYMENT_PROVIDER must be "stripe" in production (set ALLOW_MOCK_PAYMENT_IN_PRODUCTION=true only to knowingly accept free plans)',
+    });
+  }
+  return value;
 });

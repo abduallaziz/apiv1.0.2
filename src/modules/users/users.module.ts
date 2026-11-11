@@ -7,9 +7,16 @@ import { AuditModule } from '../../core/audit/audit.module';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { BillingModule } from '../../core/billing/billing.module';
 import { AuthModule } from '../auth/auth.module';
+import { SecurityModule } from '../../core/security/security.module';
 
 @Module({
-  imports: [AuditModule, PermissionsModule, BillingModule, AuthModule],
+  imports: [
+    AuditModule,
+    PermissionsModule,
+    BillingModule,
+    AuthModule,
+    SecurityModule,
+  ],
   controllers: [UsersController, EmployeesController],
   providers: [UsersService, UsersRepository],
   exports: [UsersService, UsersRepository],

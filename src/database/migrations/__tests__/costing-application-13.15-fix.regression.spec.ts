@@ -66,12 +66,19 @@ describe('costing application exposure regression (Migration 13.15-fix)', () => 
       {} as any,
       {} as any,
       {} as any,
+      { findById: () => Promise.resolve({ branch_id: null }) } as any,
+      { log: () => Promise.resolve() } as any,
+      // ItemPackagingLevelsRepository stub — this suite's receipts never
+      // set packaging_level_id, so resolveToStorageQty is never called.
+      {} as any,
     );
 
     const landedCostsRepo = new LandedCostsRepository(supabase);
     landedCostsService = new LandedCostsService(
       landedCostsRepo,
       goodsReceiptsService,
+      { findById: () => Promise.resolve({ branch_id: null }) } as any,
+      { log: () => Promise.resolve() } as any,
     );
 
     const { data: wh, error: whErr } = await supabase
@@ -191,11 +198,15 @@ describe('costing application exposure regression (Migration 13.15-fix)', () => 
     } as any);
     itemIds.push(item.id);
 
-    const receipt: any = await goodsReceiptsService.create(TEST_TENANT_ID, {
-      warehouse_id: warehouseId,
-      receipt_number: `R1315-${Date.now()}`,
-      items: [{ item_id: item.id, quantity_received: 10, unit_cost: 5 }],
-    });
+    const receipt: any = await goodsReceiptsService.create(
+      TEST_TENANT_ID,
+      {
+        warehouse_id: warehouseId,
+        receipt_number: `R1315-${Date.now()}`,
+        items: [{ item_id: item.id, quantity_received: 10, unit_cost: 5 }],
+      } as any,
+      'test-actor',
+    );
     grIds.push(receipt.id);
 
     const landedCost = await landedCostsService.create(

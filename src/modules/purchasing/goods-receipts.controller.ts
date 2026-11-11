@@ -19,7 +19,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('purchasing/goods-receipts')
@@ -50,18 +49,17 @@ export class GoodsReceiptsController {
 
   @Post()
   @RequirePermission('purchasing.receive')
-  @Audit('goods_receipt.created')
   create(
     @Body() dto: CreateGoodsReceiptDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.goodsReceiptsService.create(tenant.tenantId, dto);
+    return this.goodsReceiptsService.create(tenant.tenantId, dto, user.sub);
   }
 
   @Post(':id/post')
   @RequirePermission('purchasing.receive')
   @HttpCode(HttpStatus.OK)
-  @Audit('goods_receipt.posted')
   post(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
@@ -73,8 +71,25 @@ export class GoodsReceiptsController {
   @Post(':id/cancel')
   @RequirePermission('purchasing.receive')
   @HttpCode(HttpStatus.OK)
-  @Audit('goods_receipt.cancelled')
-  cancel(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.goodsReceiptsService.cancel(id, tenant.tenantId);
+  cancel(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.goodsReceiptsService.cancel(id, tenant.tenantId, user.sub);
+  }
+
+  // Inventory Stage 1 / I4 (Owner-approved) — reverses an already-posted
+  // receipt's stock/cost-layer/PO effects. Distinct from /cancel, which
+  // only ever applied to a still-draft receipt.
+  @Post(':id/reverse')
+  @RequirePermission('purchasing.receive')
+  @HttpCode(HttpStatus.OK)
+  reverse(
+    @Param('id') id: string,
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.goodsReceiptsService.reverse(id, tenant.tenantId, user.sub);
   }
 }

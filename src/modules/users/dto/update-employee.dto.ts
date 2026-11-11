@@ -23,6 +23,11 @@ export class UpdateEmployeeDto {
   @IsOptional()
   avatar_url?: string | null;
 
+  // null clears the assignment back to Central (no branch restriction).
+  @IsString()
+  @IsOptional()
+  branch_id?: string | null;
+
   @IsString()
   @IsOptional()
   employee_number?: string | null;

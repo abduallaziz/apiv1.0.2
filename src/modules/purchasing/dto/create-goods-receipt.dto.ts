@@ -66,6 +66,15 @@ export class GoodsReceiptLineDto {
   @IsUUID()
   @IsOptional()
   owner_supplier_id?: string;
+
+  // Mutually alternative to unit_id — set when this line was entered by
+  // scanning a packaging-level barcode (e.g. a Carton barcode) instead of
+  // typing a unit. quantity_received is then the count of that packaging
+  // level (e.g. "2 Cartons"), resolved to storage-unit terms the same way
+  // unit_id already is.
+  @IsUUID()
+  @IsOptional()
+  packaging_level_id?: string;
 }
 
 export class CreateGoodsReceiptDto {

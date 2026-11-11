@@ -170,7 +170,33 @@ export class ProductionOrdersService {
     }
   }
 
-  async create(tenantId: string, dto: CreateProductionOrderDto) {
+  // Branch System Step 5 (Owner-approved) — the one shared resolution point
+  // for "which branch does this warehouse belong to," reused by every
+  // manual audit call below instead of duplicating the lookup. Returns
+  // null only if the warehouse itself has no branch (shouldn't happen —
+  // warehouses.branch_id is NOT NULL — but never throws for an audit-only
+  // lookup; a failed audit-branch resolution must never block the real
+  // business operation it's describing).
+  private async resolveBranchForWarehouse(
+    warehouseId: string,
+    tenantId: string,
+  ): Promise<string | null> {
+    try {
+      const warehouse = await this.warehousesService.findById(
+        warehouseId,
+        tenantId,
+      );
+      return warehouse?.branch_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async create(
+    tenantId: string,
+    dto: CreateProductionOrderDto,
+    actorId: string,
+  ) {
     await this.warehousesService.findById(dto.warehouse_id, tenantId); // throws NotFoundException if missing
     const bom = await this.bomRepo.findById(dto.bom_id, tenantId);
     if (!bom) throw new NotFoundException('BOM not found');
@@ -193,10 +219,30 @@ export class ProductionOrdersService {
       output_location_id: dto.output_location_id ?? null,
       notes: dto.notes ?? null,
     });
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'production_order.created',
+        resource_type: 'production_order',
+        resource_id: order.id,
+        branch_id: await this.resolveBranchForWarehouse(
+          dto.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
     return order;
   }
 
-  async update(id: string, tenantId: string, dto: UpdateProductionOrderDto) {
+  async update(
+    id: string,
+    tenantId: string,
+    dto: UpdateProductionOrderDto,
+    actorId: string,
+  ) {
     const existing: any = await this.findById(id, tenantId);
     if (existing.status !== 'draft') {
       throw new BadRequestException(
@@ -219,10 +265,25 @@ export class ProductionOrdersService {
         `Production order ${id} is not in draft status`,
       );
     }
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'production_order.updated',
+        resource_type: 'production_order',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          existing.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
     return updated;
   }
 
-  async start(id: string, tenantId: string) {
+  async start(id: string, tenantId: string, actorId: string) {
     const existing = await this.findById(id, tenantId);
     if (existing.status !== 'draft') {
       throw new BadRequestException(
@@ -235,6 +296,21 @@ export class ProductionOrdersService {
         `Production order ${id} is not in draft status`,
       );
     }
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'production_order.started',
+        resource_type: 'production_order',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          (existing as { warehouse_id: string }).warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
     return started;
   }
 
@@ -384,6 +460,10 @@ export class ProductionOrdersService {
             action: 'production_order.completed',
             resource_type: 'production_order',
             resource_id: id,
+            branch_id: await this.resolveBranchForWarehouse(
+              existing.warehouse_id,
+              tenantId,
+            ),
             before_data: existing,
             after_data: result,
           })
@@ -397,7 +477,7 @@ export class ProductionOrdersService {
 
   // Migration 6.8 — cancellable from draft or in_progress; no stock reversal
   // needed since fn_post_production_order hasn't run in either status.
-  async cancel(id: string, tenantId: string) {
+  async cancel(id: string, tenantId: string, actorId: string) {
     const existing = await this.findById(id, tenantId);
     if (!['draft', 'in_progress'].includes(existing.status)) {
       throw new BadRequestException(
@@ -410,6 +490,21 @@ export class ProductionOrdersService {
         `Production order ${id} cannot be cancelled from its current status`,
       );
     }
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'production_order.cancelled',
+        resource_type: 'production_order',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          (existing as { warehouse_id: string }).warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
     return cancelled;
   }
 }

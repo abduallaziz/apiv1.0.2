@@ -11,6 +11,7 @@ import { Request } from 'express';
 import { SubscriptionsService } from './subscriptions.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
+import { TenantOwnerGuard } from './guards/tenant-owner.guard';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 
@@ -37,6 +38,7 @@ export class SubscriptionsController {
   }
 
   @Post('upgrade')
+  @UseGuards(TenantOwnerGuard)
   upgrade(
     @GetTenant() tenant: TenantContext,
     @Req() req: Request,
@@ -49,6 +51,7 @@ export class SubscriptionsController {
   }
 
   @Delete('cancel')
+  @UseGuards(TenantOwnerGuard)
   cancel(@GetTenant() tenant: TenantContext, @Req() req: Request) {
     return this.subscriptionsService.cancel(this.resolveTenant(tenant, req));
   }

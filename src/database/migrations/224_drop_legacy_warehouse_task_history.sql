@@ -1,0 +1,20 @@
+-- 224. Inventory #7 / 7-1 closure (Owner-approved) — removes the legacy
+-- warehouse_task_history table now that warehouse_work_status_history
+-- (migration 223) is the sole Source of Truth for warehouse work status
+-- history.
+--
+-- Safety proof performed before this migration was written (not assumed):
+--   * Full-repo grep (api + web): zero executable code references
+--     warehouse_task_history — every hit is either its own original
+--     definition (170, immutable) or an explanatory comment.
+--   * No FK anywhere references it (grep for "REFERENCES
+--     warehouse_task_history": zero matches) — a pure leaf log table.
+--   * No view/trigger depends on it.
+--   * Live-function proof: ran fn_create_putaway_task -> fn_assign_
+--     warehouse_task -> fn_cancel_warehouse_task against the real database
+--     post-223; legacy table row count was unchanged (4 before, 4 after),
+--     proving the currently-installed function bodies never write to it.
+--   * Backfill completeness verified row-for-row (not just count) — all 4
+--     original rows (tenant_id, task_id, old_status, new_status, actor_id,
+--     created_at) are present unchanged in warehouse_work_status_history.
+DROP TABLE warehouse_task_history;

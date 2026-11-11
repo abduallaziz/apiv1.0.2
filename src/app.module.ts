@@ -6,13 +6,15 @@ import {
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { BranchScopeInterceptor } from './core/security/branch-scope.interceptor';
 import { ScheduleModule } from '@nestjs/schedule';
 import { createThrottlers } from './core/security/throttler.config';
 import { RedisThrottlerStorage } from './core/security/redis-throttler.storage';
 import { TenantThrottlerGuard } from './core/security/tenant-throttler.guard';
 import { IpMiddleware } from './core/security/ip.middleware';
 import { SupabaseModule } from './shared/supabase/supabase.module';
+import { StorageModule } from './shared/storage/storage.module';
 import { TenantSessionModule } from './core/tenant/tenant-session.module';
 import { SecurityModule } from './core/security/security.module';
 import { PermissionsModule } from './core/permissions/permissions.module';
@@ -30,14 +32,18 @@ import { ScannerModule } from './modules/scanner/scanner.module';
 import { OwnershipModule } from './modules/ownership/ownership.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { SalesReturnsModule } from './modules/sales-returns/sales-returns.module';
+import { WashQueueModule } from './modules/wash-queue/wash-queue.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
+import { ExpensesV2Module } from './modules/expenses-v2/expenses-v2.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HrModule } from './modules/hr/hr.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { TablesModule } from './modules/tables/tables.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
+import { RewardsModule } from './modules/rewards/rewards.module';
 import { NotePresetsModule } from './modules/note-presets/note-presets.module';
 import { BillingModule } from './core/billing/billing.module';
 import { PlansModule } from './modules/plans/plans.module';
@@ -45,6 +51,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { ReportsModule } from './modules/reports/reports.module';
 import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
+import { PrintModule } from './modules/print/print.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueueModule } from './core/queue/queue.module';
 import { OutboxModule } from './core/outbox/outbox.module';
@@ -90,6 +97,7 @@ import { RootController } from './root.controller';
     AiUsageTrackingModule,
     LoggerModule,
     SupabaseModule,
+    StorageModule,
     TenantSessionModule,
     SecurityModule,
     PermissionsModule,
@@ -108,20 +116,25 @@ import { RootController } from './root.controller';
     OwnershipModule,
     PurchasingModule,
     InvoicesModule,
+    SalesReturnsModule,
+    WashQueueModule,
     AccountingModule,
     ShiftsModule,
     ExpensesModule,
+    ExpensesV2Module,
     CustomersModule,
     HrModule,
     AccessControlModule,
     TablesModule,
     CouponsModule,
+    RewardsModule,
     NotePresetsModule,
     PlansModule,
     SubscriptionsModule,
     ReportsModule,
     SuperAdminModule,
     TenantsModule,
+    PrintModule,
     PaymentsModule,
     QueueModule,
     OutboxModule,
@@ -136,6 +149,10 @@ import { RootController } from './root.controller';
     {
       provide: APP_GUARD,
       useClass: TenantThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: BranchScopeInterceptor,
     },
   ],
 })

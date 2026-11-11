@@ -143,18 +143,46 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
     return sc.id;
   };
 
+  let createdWarehouseId: string;
+
   beforeAll(async () => {
     supabase = createClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
     );
-    const { data: wh, error } = await supabase
-      .from('warehouses')
+
+    // A dedicated warehouse instead of the shared "Sefay Demo" one every
+    // other regression spec in this directory also reuses. Measured root
+    // cause of an intermittent 8s-statement_timeout failure here: the
+    // shared demo warehouse has accumulated 554 real stock_levels rows /
+    // 17k+ stock_movements rows across this codebase's regression-test
+    // history, and fn_inventory_coverage_report's CROSS JOIN LATERAL runs
+    // fn_calculate_demand_forecast once per stock_levels row it scopes to
+    // -- so the RPC's real cost scales with that accumulated total, not
+    // with what this test itself seeds. Measured: ~8000-8400ms against the
+    // shared warehouse (554 rows, consistently at/over the cap) vs. ~320ms
+    // against a fresh isolated warehouse (2 rows) for the exact same RPC,
+    // same query, same index, same Postgres statement_timeout.
+    const { data: branch, error: branchErr } = await supabase
+      .from('branches')
       .select('id')
       .eq('tenant_id', TEST_TENANT_ID)
       .limit(1);
+    if (branchErr) throw branchErr;
+
+    const { data: wh, error } = await supabase
+      .from('warehouses')
+      .insert({
+        tenant_id: TEST_TENANT_ID,
+        branch_id: branch[0].id,
+        code: `AA73-ISO-${Date.now()}`,
+        name: 'AA73 Analytics Regression Warehouse',
+      })
+      .select()
+      .single();
     if (error) throw error;
-    warehouseId = wh[0].id;
+    warehouseId = wh.id;
+    createdWarehouseId = wh.id;
   }, 30_000);
 
   afterAll(async () => {
@@ -184,6 +212,17 @@ describe('advanced analytics phase 3 regression (Migration 7.3)', () => {
           .update({ is_active: false, deleted_at: new Date().toISOString() })
           .eq('id', itemId);
       }
+    }
+    if (createdWarehouseId) {
+      // stock_movements is an append-only ledger (no DELETE allowed) and
+      // warehouses.id is ON DELETE RESTRICT from it, so this warehouse can
+      // never be hard-deleted once fn_apply_stock_movement has written to
+      // it -- soft-delete instead, same convention as every other
+      // tenant-scoped table in this codebase.
+      await supabase
+        .from('warehouses')
+        .update({ is_active: false, deleted_at: new Date().toISOString() })
+        .eq('id', createdWarehouseId);
     }
   }, 60_000);
 

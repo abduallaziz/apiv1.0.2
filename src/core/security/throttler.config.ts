@@ -90,6 +90,14 @@ export function createThrottlers(redis: Redis): ThrottlerOptions[] {
       name: 'auth',
       ttl: WINDOW_MS,
       limit: 10,
+      // NestJS applies every named tier to every route unless a controller opts
+      // out, so this credential-guessing tier (10/min) was silently capping all
+      // business APIs for any tenant not exempted in TenantThrottlerGuard — the
+      // POS shift poll alone (every 5s) exceeded it, so cashiers got 429s and
+      // saw "register closed". It must only ever bound the auth routes; every
+      // other controller stays under 'global' / 'global-ip' (600/min).
+      skipIf: (context: ExecutionContext) =>
+        context.getClass().name !== 'AuthController',
     },
     {
       // Session maintenance (refresh/logout) is NOT a credential-guessing

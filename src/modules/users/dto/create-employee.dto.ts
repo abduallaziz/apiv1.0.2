@@ -21,6 +21,10 @@ export class CreateEmployeeDto {
 
   @IsString()
   @IsOptional()
+  branch_id?: string;
+
+  @IsString()
+  @IsOptional()
   employee_number?: string;
 
   @IsString()

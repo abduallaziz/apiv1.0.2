@@ -33,4 +33,11 @@ export class CreateItemBarcodeDto {
   @IsBoolean()
   @IsOptional()
   is_primary?: boolean;
+
+  // Set only when this barcode represents a packaging level (Box/Carton/
+  // Pallet/...) rather than a single sellable unit. Must belong to the
+  // same item_id — validated in ItemBarcodesService.create()/update().
+  @IsUUID()
+  @IsOptional()
+  packaging_level_id?: string;
 }

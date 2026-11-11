@@ -12,6 +12,19 @@ export interface LoyaltySettings {
   enabled: boolean;
 }
 
+// Customer Domain Phase 6 (Owner-approved) — context threaded through to
+// fn_adjust_loyalty_points on every mutation. All optional/nullable:
+// branchId is null for a Central/global manual adjustment; orderId is null
+// for manual adjustments AND for redemption specifically (redemption
+// executes before the order row exists — see invoices.service.ts's own
+// documented ordering); createdBy is the acting user, null for a
+// system-initiated mutation if one is ever added.
+export interface LoyaltyMutationContext {
+  branchId?: string | null;
+  orderId?: string | null;
+  createdBy?: string | null;
+}
+
 @Injectable()
 export class LoyaltyService {
   constructor(
@@ -69,17 +82,96 @@ export class LoyaltyService {
     if (!data) throw new BadRequestException('Customer not found');
   }
 
+  // Customer Domain Phase 7 (Owner-approved) — mirrors the exact fail-closed
+  // convention established in Batch 1 Remediation 2
+  // (CustomersRepository.getCustomerIdentityScope): a malformed/missing
+  // read resolves to 'branch' (restrictive), never 'shared' (permissive).
+  // A failure to determine Loyalty Scope must never widen what a
+  // restricted actor can redeem.
+  private async getLoyaltyScope(
+    tenantId: string,
+  ): Promise<'shared' | 'branch'> {
+    const { data, error } = await this.supabase
+      .from('tenants')
+      .select('loyalty_scope')
+      .eq('id', tenantId)
+      .single();
+    if (error) throw new Error(error.message);
+    const value = data?.loyalty_scope as string | null | undefined;
+    return value === 'shared' || value === 'branch' ? value : 'branch';
+  }
+
+  // customers.loyalty_points remains the tenant-wide pooled total in BOTH
+  // scope modes (approved architecture, explicit) — this is never cached
+  // per branch. Under BRANCH scope, the redeemable-at-this-branch amount is
+  // computed live from the ledger, summing every event (earn/redeem/
+  // adjustment) recorded against this exact (customer, branch) pair.
+  private async getBranchBalance(
+    tenantId: string,
+    customerId: string,
+    branchId: string,
+  ): Promise<number> {
+    const { data, error } = await this.supabase
+      .from('loyalty_ledger')
+      .select('delta')
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customerId)
+      .eq('branch_id', branchId);
+    if (error) throw new Error(error.message);
+    return (data ?? []).reduce((sum, row) => sum + Number(row.delta), 0);
+  }
+
+  // Customer Domain Phase 7 (Owner-approved) — this is the ONLY place
+  // Customer/Loyalty Scope logic lives; fn_adjust_loyalty_points itself
+  // stays scope-unaware, purely recording context (per the approved
+  // architecture: "Do NOT put Customer Scope logic inside the DB
+  // function"). SHARED: the pooled customers.loyalty_points total is
+  // authoritative — the DB function's own (loyalty_points + p_delta) >= 0
+  // guard is already sufficient, nothing extra to check here. BRANCH: a
+  // redemption at branch X may only draw down X's own ledger-computed
+  // balance — redeeming at C can never consume points earned at B, even
+  // though the pooled scalar in `customers` would technically allow it.
+  private async assertSufficientBranchBalance(
+    tenantId: string,
+    customerId: string,
+    points: number,
+    context: LoyaltyMutationContext,
+  ): Promise<void> {
+    const scope = await this.getLoyaltyScope(tenantId);
+    if (scope === 'shared') return;
+
+    if (!context.branchId) {
+      throw new BadRequestException(
+        'Branch context is required to redeem loyalty points for this tenant',
+      );
+    }
+
+    const branchBalance = await this.getBranchBalance(
+      tenantId,
+      customerId,
+      context.branchId,
+    );
+    if (branchBalance < points) {
+      throw new BadRequestException('Insufficient loyalty points balance');
+    }
+  }
+
   /** Awards points to a customer (positive delta). Silently no-ops on failure — never blocks a sale. */
   async awardPoints(
     tenantId: string,
     customerId: string,
     points: number,
+    context: LoyaltyMutationContext = {},
   ): Promise<void> {
     if (points <= 0) return;
     await this.assertCustomerInTenant(tenantId, customerId);
     await this.supabase.rpc('fn_adjust_loyalty_points', {
       p_customer_id: customerId,
       p_delta: points,
+      p_type: 'earn',
+      p_branch_id: context.branchId ?? null,
+      p_order_id: context.orderId ?? null,
+      p_created_by: context.createdBy ?? null,
     });
   }
 
@@ -88,14 +180,25 @@ export class LoyaltyService {
     tenantId: string,
     customerId: string,
     points: number,
+    context: LoyaltyMutationContext = {},
   ): Promise<void> {
     if (points <= 0) return;
     await this.assertCustomerInTenant(tenantId, customerId);
+    await this.assertSufficientBranchBalance(
+      tenantId,
+      customerId,
+      points,
+      context,
+    );
     const { data, error } = await this.supabase.rpc(
       'fn_adjust_loyalty_points',
       {
         p_customer_id: customerId,
         p_delta: -points,
+        p_type: 'redeem',
+        p_branch_id: context.branchId ?? null,
+        p_order_id: context.orderId ?? null,
+        p_created_by: context.createdBy ?? null,
       },
     );
     if (error) throw new Error(error.message);
@@ -194,15 +297,23 @@ export class LoyaltyService {
     tenantId: string,
     customerId: string,
     points: number,
+    context: LoyaltyMutationContext = {},
   ): Promise<void> {
     if (points <= 0) return;
     const tenant = new TenantContext(tenantId);
     await this.tenantSession.runInTenantContext(tenant, async (client) => {
       await this.assertCustomerInTenantPooled(client, tenantId, customerId);
-      await client.query('SELECT * FROM fn_adjust_loyalty_points($1, $2)', [
-        customerId,
-        points,
-      ]);
+      await client.query(
+        'SELECT * FROM fn_adjust_loyalty_points($1, $2, $3, $4, $5, $6)',
+        [
+          customerId,
+          points,
+          'earn',
+          context.branchId ?? null,
+          context.orderId ?? null,
+          context.createdBy ?? null,
+        ],
+      );
     });
   }
 
@@ -210,18 +321,71 @@ export class LoyaltyService {
     tenantId: string,
     customerId: string,
     points: number,
+    context: LoyaltyMutationContext = {},
   ): Promise<void> {
     if (points <= 0) return;
+    await this.assertSufficientBranchBalance(
+      tenantId,
+      customerId,
+      points,
+      context,
+    );
     const tenant = new TenantContext(tenantId);
     await this.tenantSession.runInTenantContext(tenant, async (client) => {
       await this.assertCustomerInTenantPooled(client, tenantId, customerId);
       const result = await client.query(
-        'SELECT * FROM fn_adjust_loyalty_points($1, $2)',
-        [customerId, -points],
+        'SELECT * FROM fn_adjust_loyalty_points($1, $2, $3, $4, $5, $6)',
+        [
+          customerId,
+          -points,
+          'redeem',
+          context.branchId ?? null,
+          context.orderId ?? null,
+          context.createdBy ?? null,
+        ],
       );
       if (result.rows.length === 0) {
         throw new BadRequestException('Insufficient loyalty points balance');
       }
     });
+  }
+
+  /**
+   * Manual/administrative adjustment (positive or negative delta), not tied
+   * to an order. Customer Domain Phase 7 (Owner-approved) — respects branch
+   * context exactly as any other mutation: a Central/global adjustment
+   * passes context.branchId = null/undefined; a branch-scoped adjustment
+   * carries its branch. No additional authorization is invented here beyond
+   * what already exists — callers are responsible for confirming the actor
+   * is allowed to make the adjustment before calling this.
+   */
+  async adjustPoints(
+    tenantId: string,
+    customerId: string,
+    delta: number,
+    context: LoyaltyMutationContext = {},
+  ): Promise<{ loyalty_points: number; lifetime_points_earned: number }> {
+    await this.assertCustomerInTenant(tenantId, customerId);
+    const { data, error } = await this.supabase.rpc(
+      'fn_adjust_loyalty_points',
+      {
+        p_customer_id: customerId,
+        p_delta: delta,
+        p_type: 'adjustment',
+        p_branch_id: context.branchId ?? null,
+        p_order_id: context.orderId ?? null,
+        p_created_by: context.createdBy ?? null,
+      },
+    );
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) {
+      throw new BadRequestException(
+        'Adjustment would result in a negative balance',
+      );
+    }
+    return data[0] as {
+      loyalty_points: number;
+      lifetime_points_earned: number;
+    };
   }
 }

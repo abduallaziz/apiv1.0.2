@@ -7,7 +7,8 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
-import { Audit } from '../../core/audit/audit.decorator';
+import { CurrentUser } from '../../shared/decorators/current-user.decorator';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('inventory/putaway')
@@ -22,12 +23,12 @@ export class PutawayController {
 
   @Post('rules')
   @RequirePermission('warehouse.manage')
-  @Audit('putaway_rule.created')
   createRule(
     @Body() dto: CreatePutawayRuleDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.putawayService.createRule(tenant.tenantId, dto);
+    return this.putawayService.createRule(tenant.tenantId, dto, user.sub);
   }
 
   @Get('suggest')

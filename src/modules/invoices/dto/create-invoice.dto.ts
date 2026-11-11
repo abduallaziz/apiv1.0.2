@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
+  ArrayUnique,
   IsArray,
   IsEnum,
   IsNumber,
@@ -9,6 +11,8 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+
+import { CustomerCaptureDto } from '../../customers/dto/customer-lookup.dto';
 
 export class InvoiceItemDto {
   @IsUUID()
@@ -33,6 +37,17 @@ export class InvoiceItemDto {
   @Min(0)
   unit_price: number;
 
+  // Set when this line was rung up by scanning a packaging-level barcode
+  // (Box/Carton/Pallet) rather than the item's own unit barcode. `quantity`
+  // is then the count of that packaging level (e.g. "1 Carton"), and
+  // InvoicesService resolves it to the storage-unit-equivalent quantity
+  // in place, before price resolution, PosEngine totals, order_items, or
+  // stock deduction ever see it — so every downstream consumer of
+  // `quantity` is automatically correct with zero further changes.
+  @IsOptional()
+  @IsUUID()
+  packaging_level_id?: string;
+
   // Optional — only present when the line is a serialized unit (item_serials).
   // Absent entirely for normal, non-serialized sales, which continue
   // completely unchanged (Migration 13.14 Phase 3).
@@ -52,6 +67,13 @@ export class InvoiceItemDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  // G4 — the worker who performed this line. The commission rate/amount
+  // are snapshotted server-side from users.commission_rate at sale time;
+  // anything the client sends for them is ignored.
+  @IsOptional()
+  @IsUUID()
+  worker_id?: string;
 }
 
 export class DiscountDto {
@@ -96,6 +118,14 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsUUID()
   customer_id?: string;
+
+  // T12 — phone/plate typed at the POS; resolved (found or created) by the
+  // server when the sale is confirmed. A phone and a plate that belong to
+  // two different customers is a 409 (customer_capture_conflict).
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CustomerCaptureDto)
+  customer_capture?: CustomerCaptureDto;
 
   @IsEnum([
     'cash',
@@ -153,4 +183,14 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsString()
   coupon_code?: string;
+
+  // Customer Domain Batch 3 Phase 11 (Owner-approved) — explicit,
+  // cashier/customer-confirmed selection. Never auto-redeemed; suggestion
+  // (GET /customers/:id/rewards) is a separate, non-mutating read.
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  redeem_reward_instance_ids?: string[];
 }

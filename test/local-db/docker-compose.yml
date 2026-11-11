@@ -1,0 +1,29 @@
+# Local, throw-away test database (Postgres + PostgREST). Loopback only.
+# Dev-only credentials below are not secrets and must never be reused elsewhere.
+name: sefay-test-db
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sefay_test
+    ports:
+      - "127.0.0.1:54332:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sefay_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:authpass@db:5432/sefay_test
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: local-test-only-jwt-secret-0123456789abcdef
+      PGRST_DB_MAX_ROWS: "100000"
+    ports:
+      - "127.0.0.1:54331:3000"

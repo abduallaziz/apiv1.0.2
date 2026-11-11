@@ -18,7 +18,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('inventory/replenishment')
@@ -33,12 +32,16 @@ export class ReplenishmentController {
 
   @Post('rules')
   @RequirePermission('warehouse.manage')
-  @Audit('replenishment_rule.created')
   createRule(
     @Body() dto: CreateReplenishmentRuleDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.replenishmentService.createRule(tenant.tenantId, dto);
+    return this.replenishmentService.createRule(
+      tenant.tenantId,
+      dto,
+      user.sub,
+    );
   }
 
   @Post('run-check')

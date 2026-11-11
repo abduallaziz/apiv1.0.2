@@ -314,6 +314,20 @@ export class PriceResolutionService {
     };
   }
 
+  /**
+   * Server-side official unit price for an item/variant (null when the item or
+   * variant does not exist, is inactive or deleted). For callers that must never
+   * trust a client-supplied price and have no override workflow (e.g. dine-in).
+   */
+  async getOfficialUnitPrice(
+    itemId: string,
+    variantId: string | undefined,
+    tenantId: string,
+  ): Promise<number | null> {
+    const official = await this.resolveOfficialPrice(itemId, variantId, tenantId);
+    return official === NOT_FOUND ? null : official;
+  }
+
   private async resolveOfficialPrice(
     itemId: string,
     variantId: string | undefined,

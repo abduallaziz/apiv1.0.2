@@ -1,19 +1,88 @@
-import { Injectable, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { BranchAuthorizationService } from '../../core/security/branch-authorization.service';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import {
   ReportQueryDto,
   ReportPeriod,
   ExportFormat,
 } from './dto/report-query.dto';
 import * as ExcelJS from 'exceljs';
+import { aggregateByMethod } from './payment-parts';
+import {
+  localDayBoundIso,
+  localDateOf,
+  startOfLocalToday,
+  safeTimezone,
+} from '../../shared/time/tenant-time.util';
+
+// T10 / R1 (owner approved 2026-11-09): every expense figure in the reports
+// comes from expenses_v2 (the module the owner actually uses), counted BEFORE
+// VAT (the amount column, not total_amount), on the expense's own date
+// (expense_date), excluding cancelled expenses. 'accepted' counts as
+// approved; 'pending_action' as pending.
+const EXPENSE_V2_APPROVED = ['approved', 'accepted'];
+
+// T10 / R12: sales_returns arrives with migration 253. Until it exists the
+// reports must keep working (a missing table means "no returns yet").
+const isMissingTable = (error: { code?: string; message?: string } | null) =>
+  !!error &&
+  (error.code === 'PGRST205' ||
+    /could not find the table|does not exist/i.test(error.message ?? ''));
 
 @Injectable()
 export class ReportsService {
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly branchAuthorization: BranchAuthorizationService,
   ) {}
+
+  // Branch System Step 5, Item 1/2/3/4/5/6 (Owner-approved) — the one
+  // shared entry point every branch-scoped report endpoint routes through
+  // on its way to BranchAuthorizationService. /reports/revenue,
+  // /reports/shifts, /reports/expenses, /reports/customer-churn,
+  // /reports/top-items, and /reports/recent-activity call this so far;
+  // the other endpoints listed in the Step 5 audit still use their raw,
+  // unvalidated (or entirely absent) query.branch_id until their own
+  // migration items land.
+  // Throws ForbiddenException on a real mismatch/cross-tenant branch —
+  // same exception type BranchValidatorService and BillingService already
+  // throw elsewhere in this codebase for the equivalent case.
+  private async resolveReportBranchScope(
+    tenant: TenantContext,
+    user: JwtPayload,
+    requestedBranchId: string | undefined,
+  ): Promise<string | null> {
+    const result = await this.branchAuthorization.resolveBranchScope(
+      {
+        tenantId: tenant.tenantId,
+        userId: user.sub,
+        branchId: user.branch_id ?? null,
+      },
+      requestedBranchId,
+      'read',
+    );
+    if (!result.allowed) {
+      // strictNullChecks is off project-wide, which degrades discriminated-
+      // union narrowing here — `result` doesn't narrow to the `reason`
+      // branch automatically, so it's read via the known-at-runtime shape
+      // instead of relying on that narrowing.
+      const { reason } = result as { reason: string };
+      throw new ForbiddenException(
+        reason === 'branch_mismatch'
+          ? 'You are not authorized to view reports for this branch.'
+          : 'Branch not found or does not belong to tenant.',
+      );
+    }
+    return result.effectiveBranchId;
+  }
 
   // Summing many already-rounded 2-decimal floats (e.g. order totals) accumulates
   // IEEE-754 drift (289.79999999999995 instead of 289.8) — round every monetary
@@ -22,25 +91,49 @@ export class ReportsService {
     return Math.round((n + Number.EPSILON) * 100) / 100;
   }
 
-  private getDateRange(query: ReportQueryDto): { from: string; to: string } {
+  // Phase 1 (owner approved 2026-11-09): day boundaries follow the tenant
+  // timezone (tenants.timezone), not UTC. Cached briefly per tenant.
+  private readonly tzCache = new Map<string, { tz: string; at: number }>();
+
+  private async getTenantTimezone(tenantId: string): Promise<string> {
+    const hit = this.tzCache.get(tenantId);
+    if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.tz;
+    const { data } = await this.supabase
+      .from('tenants')
+      .select('timezone')
+      .eq('id', tenantId)
+      .maybeSingle();
+    const tz = safeTimezone((data as { timezone?: string } | null)?.timezone);
+    this.tzCache.set(tenantId, { tz, at: Date.now() });
+    return tz;
+  }
+
+  private async getDateRange(
+    query: ReportQueryDto,
+    tenantId: string,
+  ): Promise<{ from: string; to: string; tz: string }> {
+    const tz = await this.getTenantTimezone(tenantId);
     const now = new Date();
     const to = now.toISOString();
+    const isBareDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 
     if (query.period === ReportPeriod.CUSTOM && query.from && query.to) {
-      // query.to is a bare date (e.g. "2026-06-28") with no time component.
-      // Compared against a timestamptz, that parses as midnight at the START
-      // of that day, silently excluding every event from that day onward.
-      const toEndOfDay = /^\d{4}-\d{2}-\d{2}$/.test(query.to)
-        ? `${query.to}T23:59:59.999`
+      // Bare dates (e.g. "2026-06-28") are LOCAL calendar days of the tenant:
+      // start = 00:00:00.000 local, end = 23:59:59.999 local, converted to
+      // the matching UTC instants. (Before phase 1 they were read as UTC.)
+      const fromIso = isBareDate(query.from)
+        ? localDayBoundIso(query.from, 'start', tz)
+        : query.from;
+      const toIso = isBareDate(query.to)
+        ? localDayBoundIso(query.to, 'end', tz)
         : query.to;
-      return { from: query.from, to: toEndOfDay };
+      return { from: fromIso, to: toIso, tz };
     }
 
     const from = new Date(now);
     switch (query.period) {
       case ReportPeriod.TODAY:
-        from.setHours(0, 0, 0, 0);
-        break;
+        return { from: startOfLocalToday(tz, now), to, tz };
       case ReportPeriod.WEEK:
         from.setDate(now.getDate() - 7);
         break;
@@ -50,23 +143,32 @@ export class ReportsService {
         break;
     }
 
-    return { from: from.toISOString(), to };
+    return { from: from.toISOString(), to, tz };
   }
 
-  async getRevenueReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getRevenueReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to, tz } = await this.getDateRange(query, tenant.tenantId);
 
     let q = this.supabase
       .from('orders')
       .select(
-        'id, total, subtotal, discount, tax, payment_method, created_at, branch_id',
+        'id, total, subtotal, discount, tax, payment_method, cash_amount, card_amount, created_at, branch_id',
       )
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
 
-    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+    if (effectiveBranchId) q = q.eq('branch_id', effectiveBranchId);
 
     const { data: orders, error } = await q;
     if (error) throw error;
@@ -75,22 +177,48 @@ export class ReportsService {
     const totalDiscount = orders.reduce((s, o) => s + (o.discount || 0), 0);
     const totalTax = orders.reduce((s, o) => s + (o.tax || 0), 0);
 
-    const byPaymentMethod: Record<string, { count: number; total: number }> =
-      {};
-    for (const o of orders) {
-      const m = o.payment_method || 'unknown';
-      if (!byPaymentMethod[m]) byPaymentMethod[m] = { count: 0, total: 0 };
-      byPaymentMethod[m].count++;
-      byPaymentMethod[m].total += o.total || 0;
-    }
-    for (const m of Object.keys(byPaymentMethod))
-      byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
+    // T10 / R3: split orders are decomposed into their cash and card shares.
+    const byPaymentMethod = aggregateByMethod(orders);
 
     const byDay: Record<string, number> = {};
     for (const o of orders) {
-      const day = o.created_at.substring(0, 10);
+      const day = localDateOf(o.created_at, tz);
       byDay[day] = (byDay[day] || 0) + (o.total || 0);
     }
+
+    // Phase 3a: cancelled orders of the same period/branch are reported as
+    // their own figure; they are never part of revenue above.
+    let cancelledQ = this.supabase
+      .from('orders')
+      .select('id, total')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'cancelled')
+      .gte('created_at', from)
+      .lte('created_at', to);
+    if (effectiveBranchId)
+      cancelledQ = cancelledQ.eq('branch_id', effectiveBranchId);
+    const { data: cancelledOrders, error: cancelledErr } = await cancelledQ;
+    if (cancelledErr) throw cancelledErr;
+    const cancelledRows = cancelledOrders ?? [];
+
+    // Phase 3b: returns made in the period (refunds), also shown apart from
+    // revenue.
+    let returnsQ = this.supabase
+      .from('sales_returns')
+      .select('refund_total, net_amount')
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', from)
+      .lte('created_at', to);
+    if (effectiveBranchId)
+      returnsQ = returnsQ.eq('branch_id', effectiveBranchId);
+    const { data: returnRows, error: returnsErr } = await returnsQ;
+    if (returnsErr && !isMissingTable(returnsErr)) throw returnsErr;
+    const returnsList = returnsErr ? [] : (returnRows ?? []);
+    const returnedNet = returnsList.reduce(
+      (s, r) => s + Number(r.net_amount || 0),
+      0,
+    );
 
     return {
       period: { from, to },
@@ -101,6 +229,20 @@ export class ReportsService {
         total_tax: this.round2(totalTax),
         avg_order_value:
           orders.length > 0 ? this.round2(totalRevenue / orders.length) : 0,
+        cancelled_orders: cancelledRows.length,
+        cancelled_total: this.round2(
+          cancelledRows.reduce((s, o) => s + (o.total || 0), 0),
+        ),
+        // T10 / R4: revenue WITHOUT VAT (after discounts), and after returns.
+        // VAT is not income; profit must start from these, not total_revenue.
+        net_revenue: this.round2(totalRevenue - totalTax),
+        net_revenue_after_returns: this.round2(
+          totalRevenue - totalTax - returnedNet,
+        ),
+        returned_orders: returnsList.length,
+        returned_total: this.round2(
+          returnsList.reduce((s, r) => s + Number(r.refund_total || 0), 0),
+        ),
       },
       by_payment_method: byPaymentMethod,
       daily_breakdown: Object.entries(byDay)
@@ -109,8 +251,17 @@ export class ReportsService {
     };
   }
 
-  async getShiftsReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getShiftsReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
     let q = this.supabase
       .from('shifts')
@@ -122,7 +273,7 @@ export class ReportsService {
       .lte('opened_at', to)
       .is('deleted_at', null);
 
-    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+    if (effectiveBranchId) q = q.eq('branch_id', effectiveBranchId);
 
     const { data: shifts, error } = await q;
     if (error) throw error;
@@ -130,6 +281,16 @@ export class ReportsService {
     const closed = shifts.filter((s) => s.status === 'closed');
     const totalDiscrepancy = closed.reduce(
       (s, sh) => s + Math.abs(sh.discrepancy || 0),
+      0,
+    );
+    // T10 / R8: shortage (counted < expected) and overage (counted > expected)
+    // are different things; 'total_discrepancy' above is their ABSOLUTE sum.
+    const shortageTotal = closed.reduce(
+      (s, sh) => s + Math.max(0, -(sh.discrepancy || 0)),
+      0,
+    );
+    const overageTotal = closed.reduce(
+      (s, sh) => s + Math.max(0, sh.discrepancy || 0),
       0,
     );
 
@@ -140,6 +301,9 @@ export class ReportsService {
         closed_shifts: closed.length,
         open_shifts: shifts.filter((s) => s.status === 'open').length,
         total_discrepancy: this.round2(totalDiscrepancy),
+        shortage_total: this.round2(shortageTotal),
+        overage_total: this.round2(overageTotal),
+        net_discrepancy: this.round2(overageTotal - shortageTotal),
         avg_discrepancy:
           closed.length > 0 ? this.round2(totalDiscrepancy / closed.length) : 0,
       },
@@ -158,28 +322,55 @@ export class ReportsService {
     };
   }
 
-  async getExpensesReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getExpensesReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to, tz } = await this.getDateRange(query, tenant.tenantId);
+
+    // expense_date is a plain date: compare it with the LOCAL calendar days
+    // of the requested range.
+    const fromDate = localDateOf(from, tz);
+    const toDate = localDateOf(to, tz);
 
     let q = this.supabase
-      .from('expenses')
+      .from('expenses_v2')
       .select(
-        'id, amount, status, notes, created_at, branch_id, template_id, requested_by, approved_by, resolved_at, category:expense_categories(id, name)',
+        'id, amount, approval_status, title, description, created_at, expense_date, branch_id, created_by, resolved_by, resolved_at, category:expense_categories_v2(id, name)',
       )
       .eq('tenant_id', tenant.tenantId)
-      .gte('created_at', from)
-      .lte('created_at', to)
-      .is('deleted_at', null);
+      .is('cancelled_at', null)
+      .gte('expense_date', fromDate)
+      .lte('expense_date', toDate);
 
-    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+    if (effectiveBranchId) q = q.eq('branch_id', effectiveBranchId);
 
-    const { data: expenses, error } = await q;
+    const { data: rows, error } = await q;
     if (error) throw error;
+
+    // Keep the response contract (status approved | rejected | pending).
+    const expenses = (rows ?? []).map((e) => ({
+      ...e,
+      status: EXPENSE_V2_APPROVED.includes(e.approval_status)
+        ? 'approved'
+        : e.approval_status === 'rejected'
+          ? 'rejected'
+          : 'pending',
+    }));
 
     const approved = expenses.filter((e) => e.status === 'approved');
     const rejected = expenses.filter((e) => e.status === 'rejected');
     const pending = expenses.filter((e) => e.status === 'pending');
-    const totalApproved = approved.reduce((s, e) => s + (e.amount || 0), 0);
+    const totalApproved = approved.reduce(
+      (s, e) => s + Number(e.amount || 0),
+      0,
+    );
 
     const byCategory: Record<
       string,
@@ -195,7 +386,7 @@ export class ReportsService {
           total: 0,
         };
       byCategory[key].count++;
-      byCategory[key].total += e.amount || 0;
+      byCategory[key].total += Number(e.amount || 0);
     }
     for (const key of Object.keys(byCategory))
       byCategory[key].total = this.round2(byCategory[key].total);
@@ -208,17 +399,20 @@ export class ReportsService {
         rejected_count: rejected.length,
         pending_count: pending.length,
         total_approved_amount: this.round2(totalApproved),
+        // Amounts are BEFORE VAT (owner decision 2026-11-09).
+        amount_basis: 'before_tax',
       },
       by_category: Object.values(byCategory).sort((a, b) => b.total - a.total),
       expenses: expenses.map((e) => ({
         id: e.id,
         amount: e.amount,
         status: e.status,
-        notes: e.notes,
+        notes: e.title ?? e.description ?? null,
         branch_id: e.branch_id,
-        requested_by: e.requested_by,
-        approved_by: e.approved_by,
+        requested_by: e.created_by,
+        approved_by: e.resolved_by,
         created_at: e.created_at,
+        expense_date: e.expense_date,
         resolved_at: e.resolved_at,
       })),
     };
@@ -235,39 +429,45 @@ export class ReportsService {
   ];
   private static readonly WALLET_METHODS = ['wallet', 'stc_pay', 'apple_pay'];
 
-  async getPaymentsReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getPaymentsReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
     let q = this.supabase
       .from('orders')
-      .select('id, total, payment_method, branch_id, created_at, cashier_id')
+      .select(
+        'id, total, payment_method, cash_amount, card_amount, branch_id, created_at, cashier_id',
+      )
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
 
-    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+    if (effectiveBranchId) q = q.eq('branch_id', effectiveBranchId);
 
     const { data: orders, error } = await q;
     if (error) throw error;
 
+    // T10 / R3: split orders are decomposed (cash share -> cash, card share
+    // -> card); legacy split orders without shares stay 'split_unallocated'.
+    const byMethod = aggregateByMethod(orders);
     const bucket = (methods: string[]) => {
-      const matched = orders.filter((o) => methods.includes(o.payment_method));
-      return {
-        count: matched.length,
-        total: this.round2(matched.reduce((s, o) => s + (o.total || 0), 0)),
-      };
+      let count = 0;
+      let total = 0;
+      for (const m of methods) {
+        count += byMethod[m]?.count ?? 0;
+        total += byMethod[m]?.total ?? 0;
+      }
+      return { count, total: this.round2(total) };
     };
-
-    const byMethod: Record<string, { count: number; total: number }> = {};
-    for (const o of orders) {
-      const m = o.payment_method || 'unknown';
-      if (!byMethod[m]) byMethod[m] = { count: 0, total: 0 };
-      byMethod[m].count++;
-      byMethod[m].total += o.total || 0;
-    }
-    for (const m of Object.keys(byMethod))
-      byMethod[m].total = this.round2(byMethod[m].total);
 
     return {
       period: { from, to },
@@ -279,7 +479,8 @@ export class ReportsService {
         cash: bucket(['cash']),
         card: bucket(ReportsService.CARD_NETWORK_METHODS),
         wallet: bucket(ReportsService.WALLET_METHODS),
-        split: bucket(['split']),
+        // legacy split orders whose cash/card shares were never stored
+        split: bucket(['split_unallocated']),
         tab: bucket(['tab']),
       },
       by_method: byMethod,
@@ -420,18 +621,31 @@ export class ReportsService {
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);
   }
-  async getTopItems(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getTopItems(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
-    const { data: orderItems, error } = await this.supabase
+    let q = this.supabase
       .from('order_items')
       .select(
-        'item_id, item_name, qty, total_price, orders!inner(tenant_id, status, created_at)',
+        'item_id, item_name, qty, total_price, orders!inner(tenant_id, status, created_at, branch_id)',
       )
       .eq('orders.tenant_id', tenant.tenantId)
       .eq('orders.status', 'completed')
       .gte('orders.created_at', from)
       .lte('orders.created_at', to);
+
+    if (effectiveBranchId) q = q.eq('orders.branch_id', effectiveBranchId);
+
+    const { data: orderItems, error } = await q;
 
     if (error) throw error;
 
@@ -462,14 +676,28 @@ export class ReportsService {
     };
   }
 
-  async getRecentActivity(tenant: TenantContext) {
-    const { data: orders, error: oErr } = await this.supabase
+  async getRecentActivity(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+
+    let q = this.supabase
       .from('orders')
       .select('id, total, payment_method, status, created_at')
       .eq('tenant_id', tenant.tenantId)
-      .in('status', ['completed', 'cancelled'])
-      .order('created_at', { ascending: false })
-      .limit(10);
+      .in('status', ['completed', 'cancelled']);
+
+    if (effectiveBranchId) q = q.eq('branch_id', effectiveBranchId);
+
+    q = q.order('created_at', { ascending: false }).limit(10);
+
+    const { data: orders, error: oErr } = await q;
 
     if (oErr) throw oErr;
 
@@ -500,16 +728,40 @@ export class ReportsService {
     return { activity: activity.slice(0, 8) };
   }
 
-  async getSparklines(tenant: TenantContext) {
+  async getSparklines(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    // Customer Domain Phase 13 (Owner-approved) — resolved first, before
+    // any query, matching every other migrated Reports endpoint's
+    // convention: an invalid/cross-tenant branch_id must reject with zero
+    // queries executed, not after some queries have already run. The
+    // customers series is "distinct customers whose
+    // customer_branch_relationships.first_seen_at falls on that day," not
+    // customers.created_at. A customer created long ago who first
+    // transacts at (or is created for) a branch today counts as +1 for
+    // that branch/tenant today, per the approved spec's own example.
+    // Deliberately NOT applied to the sales/orders/expenses series below —
+    // out of this phase's approved scope ("update only the customer
+    // series semantics").
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+
+    // Phase 1: the 7 days are LOCAL calendar days of the tenant timezone
+    // (looked up only after the branch check, so a rejected branch still
+    // runs zero queries).
+    const tz = await this.getTenantTimezone(tenant.tenantId);
     const days: string[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      days.push(d.toISOString().substring(0, 10));
+      days.push(localDateOf(new Date(Date.now() - i * 86400000), tz));
     }
 
-    const from = days[0] + 'T00:00:00.000Z';
-    const to = days[6] + 'T23:59:59.999Z';
+    const from = localDayBoundIso(days[0], 'start', tz);
+    const to = localDayBoundIso(days[6], 'end', tz);
 
     const { data: orders, error: oErr } = await this.supabase
       .from('orders')
@@ -521,23 +773,28 @@ export class ReportsService {
 
     if (oErr) throw oErr;
 
-    const { data: customers, error: cErr } = await this.supabase
-      .from('customers')
-      .select('created_at')
+    let relQuery = this.supabase
+      .from('customer_branch_relationships')
+      .select('customer_id, first_seen_at')
       .eq('tenant_id', tenant.tenantId)
-      .gte('created_at', from)
-      .lte('created_at', to);
+      .gte('first_seen_at', from)
+      .lte('first_seen_at', to);
+
+    if (effectiveBranchId)
+      relQuery = relQuery.eq('branch_id', effectiveBranchId);
+
+    const { data: relationships, error: cErr } = await relQuery;
 
     if (cErr) throw cErr;
 
     const { data: expenses, error: eErr } = await this.supabase
-      .from('expenses')
-      .select('amount, created_at')
+      .from('expenses_v2')
+      .select('amount, expense_date')
       .eq('tenant_id', tenant.tenantId)
-      .eq('status', 'approved')
-      .gte('created_at', from)
-      .lte('created_at', to)
-      .is('deleted_at', null);
+      .in('approval_status', EXPENSE_V2_APPROVED)
+      .is('cancelled_at', null)
+      .gte('expense_date', days[0])
+      .lte('expense_date', days[6]);
 
     if (eErr) throw eErr;
 
@@ -554,19 +811,31 @@ export class ReportsService {
     }
 
     for (const o of orders ?? []) {
-      const d = o.created_at.substring(0, 10);
+      const d = localDateOf(o.created_at, tz);
       if (salesMap[d] !== undefined) {
         salesMap[d] += o.total ?? 0;
         ordersMap[d] += 1;
       }
     }
-    for (const c of customers ?? []) {
-      const d = c.created_at.substring(0, 10);
-      if (customersMap[d] !== undefined) customersMap[d] += 1;
+    // DISTINCT per day — a customer can establish relationships with more
+    // than one branch on the same day; Central must count them once
+    // tenant-wide, not once per relationship row. A branch-scoped caller
+    // never sees more than one relationship row per customer for their own
+    // branch_id anyway (customer_branch_relationships' own uniqueness), so
+    // this Set is a no-op for that case and exactly right for Central.
+    const seenPerDay: Record<string, Set<string>> = {};
+    for (const d of days) seenPerDay[d] = new Set();
+    for (const r of relationships ?? []) {
+      const d = localDateOf(r.first_seen_at, tz);
+      if (seenPerDay[d]) seenPerDay[d].add(r.customer_id);
+    }
+    for (const d of days) {
+      customersMap[d] = seenPerDay[d].size;
     }
     for (const e of expenses ?? []) {
-      const d = e.created_at.substring(0, 10);
-      if (expensesMap[d] !== undefined) expensesMap[d] += e.amount ?? 0;
+      const d = String(e.expense_date).slice(0, 10);
+      if (expensesMap[d] !== undefined)
+        expensesMap[d] += Number(e.amount ?? 0);
     }
 
     return {
@@ -578,7 +847,7 @@ export class ReportsService {
   }
 
   async getEmployeesReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
     let q = this.supabase
       .from('orders')
@@ -586,15 +855,16 @@ export class ReportsService {
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
       .gte('created_at', from)
-      .lte('created_at', to)
-      .not('cashier_id', 'is', null);
+      .lte('created_at', to);
 
     if (query.branch_id) q = q.eq('branch_id', query.branch_id);
 
     const { data: orders, error } = await q;
     if (error) throw error;
 
-    const cashierIds = [...new Set((orders ?? []).map((o) => o.cashier_id))];
+    const cashierIds = [
+      ...new Set((orders ?? []).map((o) => o.cashier_id).filter(Boolean)),
+    ];
     const namesById: Record<string, string> = {};
     const commissionRateById: Record<string, number | null> = {};
     if (cashierIds.length > 0) {
@@ -610,13 +880,16 @@ export class ReportsService {
 
     const byCashier: Record<
       string,
-      { name: string; order_count: number; total_sales: number }
+      { name: string | null; order_count: number; total_sales: number }
     > = {};
+    // T10 / R6: orders without a cashier are kept (as one 'unassigned' row,
+    // cashier_id null) so the rows always add up to the revenue.
+    const UNASSIGNED = 'unassigned';
     for (const o of orders ?? []) {
-      const id = o.cashier_id as string;
+      const id = (o.cashier_id as string | null) ?? UNASSIGNED;
       if (!byCashier[id])
         byCashier[id] = {
-          name: namesById[id] ?? 'Unknown',
+          name: id === UNASSIGNED ? null : (namesById[id] ?? 'Unknown'),
           order_count: 0,
           total_sales: 0,
         };
@@ -628,7 +901,7 @@ export class ReportsService {
       .map(([cashier_id, v]) => {
         const commissionRate = commissionRateById[cashier_id] ?? null;
         return {
-          cashier_id,
+          cashier_id: cashier_id === UNASSIGNED ? null : cashier_id,
           name: v.name,
           order_count: v.order_count,
           total_sales: this.round2(v.total_sales),
@@ -647,7 +920,7 @@ export class ReportsService {
   }
 
   async getCustomersReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
     let q = this.supabase
       .from('orders')
@@ -709,30 +982,40 @@ export class ReportsService {
 
   async getDailyReconciliation(
     tenant: TenantContext,
+    user: JwtPayload,
     date: string,
     branchId?: string,
   ) {
-    const from = `${date}T00:00:00.000`;
-    const to = `${date}T23:59:59.999`;
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      branchId,
+    );
+    // Phase 1: `date` is a LOCAL calendar day of the tenant timezone; when
+    // omitted it means "today" in that timezone (not the UTC date).
+    const tz = await this.getTenantTimezone(tenant.tenantId);
+    const day = date || localDateOf(new Date(), tz);
+    const from = localDayBoundIso(day, 'start', tz);
+    const to = localDayBoundIso(day, 'end', tz);
 
     let ordersQ = this.supabase
       .from('orders')
-      .select('id, total, payment_method, branch_id')
+      .select('id, total, payment_method, cash_amount, card_amount, branch_id')
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
-    if (branchId) ordersQ = ordersQ.eq('branch_id', branchId);
+    if (effectiveBranchId) ordersQ = ordersQ.eq('branch_id', effectiveBranchId);
 
     let expensesQ = this.supabase
-      .from('expenses')
+      .from('expenses_v2')
       .select('id, amount, branch_id')
       .eq('tenant_id', tenant.tenantId)
-      .eq('status', 'approved')
-      .gte('created_at', from)
-      .lte('created_at', to)
-      .is('deleted_at', null);
-    if (branchId) expensesQ = expensesQ.eq('branch_id', branchId);
+      .in('approval_status', EXPENSE_V2_APPROVED)
+      .is('cancelled_at', null)
+      .eq('expense_date', day);
+    if (effectiveBranchId)
+      expensesQ = expensesQ.eq('branch_id', effectiveBranchId);
 
     // Shifts are reconciled per-shift by ShiftEngine at close time (expected_cash/discrepancy
     // already account for cash sales + expenses within that shift) — this aggregates those
@@ -747,31 +1030,57 @@ export class ReportsService {
       .gte('closed_at', from)
       .lte('closed_at', to)
       .is('deleted_at', null);
-    if (branchId) shiftsQ = shiftsQ.eq('branch_id', branchId);
+    if (effectiveBranchId) shiftsQ = shiftsQ.eq('branch_id', effectiveBranchId);
+
+    // T10 / R9: cancelled invoices and returns of the day, shown apart from
+    // sales (they are never part of the sales total above).
+    let cancelledQ = this.supabase
+      .from('orders')
+      .select('id, total')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'cancelled')
+      .gte('created_at', from)
+      .lte('created_at', to);
+    if (effectiveBranchId)
+      cancelledQ = cancelledQ.eq('branch_id', effectiveBranchId);
+    let returnsQ = this.supabase
+      .from('sales_returns')
+      .select('refund_total')
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', from)
+      .lte('created_at', to);
+    if (effectiveBranchId)
+      returnsQ = returnsQ.eq('branch_id', effectiveBranchId);
 
     const [
       { data: orders, error: ordersErr },
       { data: expenses, error: expensesErr },
       { data: shifts, error: shiftsErr },
-    ] = await Promise.all([ordersQ, expensesQ, shiftsQ]);
+      { data: cancelledRows, error: cancelledErr },
+      { data: returnRows, error: returnsErr },
+    ] = await Promise.all([ordersQ, expensesQ, shiftsQ, cancelledQ, returnsQ]);
     if (ordersErr) throw ordersErr;
     if (expensesErr) throw expensesErr;
     if (shiftsErr) throw shiftsErr;
+    if (cancelledErr) throw cancelledErr;
+    if (returnsErr && !isMissingTable(returnsErr)) throw returnsErr;
+    const returnsList = returnsErr ? [] : (returnRows ?? []);
 
-    const byPaymentMethod: Record<string, { count: number; total: number }> =
-      {};
-    for (const o of orders ?? []) {
-      const m = o.payment_method || 'unknown';
-      if (!byPaymentMethod[m]) byPaymentMethod[m] = { count: 0, total: 0 };
-      byPaymentMethod[m].count++;
-      byPaymentMethod[m].total += o.total || 0;
-    }
-    for (const m of Object.keys(byPaymentMethod))
-      byPaymentMethod[m].total = this.round2(byPaymentMethod[m].total);
+    // T10 / R3: split orders are decomposed into their cash / card shares.
+    const byPaymentMethod = aggregateByMethod(orders ?? []);
 
     return {
-      date,
+      date: day,
       sales: {
+        cancelled_count: (cancelledRows ?? []).length,
+        cancelled_amount: this.round2(
+          (cancelledRows ?? []).reduce((s, o) => s + Number(o.total || 0), 0),
+        ),
+        returned_count: returnsList.length,
+        returned_amount: this.round2(
+          returnsList.reduce((s, r) => s + Number(r.refund_total || 0), 0),
+        ),
         total_orders: (orders ?? []).length,
         total_revenue: this.round2(
           (orders ?? []).reduce((s, o) => s + (o.total || 0), 0),
@@ -795,25 +1104,47 @@ export class ReportsService {
         total_expected_cash: this.round2(
           (shifts ?? []).reduce((s, sh) => s + (sh.expected_cash || 0), 0),
         ),
+        // signed net (overage - shortage), with the two parts apart
         total_discrepancy: this.round2(
           (shifts ?? []).reduce((s, sh) => s + (sh.discrepancy || 0), 0),
+        ),
+        shortage_total: this.round2(
+          (shifts ?? []).reduce(
+            (s, sh) => s + Math.max(0, -(sh.discrepancy || 0)),
+            0,
+          ),
+        ),
+        overage_total: this.round2(
+          (shifts ?? []).reduce(
+            (s, sh) => s + Math.max(0, sh.discrepancy || 0),
+            0,
+          ),
         ),
       },
     };
   }
 
-  async getTaxReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getTaxReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to, tz } = await this.getDateRange(query, tenant.tenantId);
 
     let q = this.supabase
       .from('orders')
-      .select('id, subtotal, tax, total, branch_id, created_at')
+      .select('id, subtotal, discount, tax, total, branch_id, created_at')
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
 
-    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+    if (effectiveBranchId) q = q.eq('branch_id', effectiveBranchId);
 
     const { data: orders, error } = await q;
     if (error) throw error;
@@ -825,7 +1156,7 @@ export class ReportsService {
       { subtotal: number; tax: number; total: number; order_count: number }
     > = {};
     for (const o of orders ?? []) {
-      const day = o.created_at.substring(0, 10);
+      const day = localDateOf(o.created_at, tz);
       if (!byDay[day])
         byDay[day] = { subtotal: 0, tax: 0, total: 0, order_count: 0 };
       byDay[day].subtotal += o.subtotal || 0;
@@ -839,8 +1170,18 @@ export class ReportsService {
       tax_rate: taxRate,
       summary: {
         total_orders: (orders ?? []).length,
+        // subtotal BEFORE discount and tax; subtotal - discount + tax = grand total
         total_subtotal: this.round2(
           (orders ?? []).reduce((s, o) => s + (o.subtotal || 0), 0),
+        ),
+        total_discount: this.round2(
+          (orders ?? []).reduce((s, o) => s + (o.discount || 0), 0),
+        ),
+        net_subtotal: this.round2(
+          (orders ?? []).reduce(
+            (s, o) => s + ((o.subtotal || 0) - (o.discount || 0)),
+            0,
+          ),
         ),
         total_tax_collected: this.round2(
           (orders ?? []).reduce((s, o) => s + (o.tax || 0), 0),
@@ -870,20 +1211,42 @@ export class ReportsService {
     return data?.tax_rate ?? 0;
   }
 
-  async getCogsReport(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getCogsReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
+    // Note: this stock_movements query is intentionally left unfiltered by
+    // branch (pre-existing behavior, out of Branch Domain B3's authorization-
+    // only scope — see the Branch Batch 1 final report's noted business-
+    // logic observation). Only the orders sub-query below, which already
+    // applied query.branch_id before this change, now uses the resolved
+    // effectiveBranchId instead.
     const { data: movements, error } = await this.supabase
       .from('stock_movements')
-      .select('item_id, quantity, unit_cost, total_cost')
+      .select('item_id, quantity, unit_cost, total_cost, movement_type')
       .eq('tenant_id', tenant.tenantId)
-      .eq('movement_type', 'sale')
+      // T10 / R2: only movements that belong to a real sale: a 'sale' tied to
+      // an order, minus the stock that came back ('sale_return' from a
+      // cancelled order or a sales return). Any other 'sale' row (automated
+      // test rows, stray adjustments) is not cost of goods sold.
+      .in('movement_type', ['sale', 'sale_return'])
+      .in('reference_type', ['order', 'sales_return'])
       .gte('occurred_at', from)
       .lte('occurred_at', to);
     if (error) throw error;
 
+    const sign = (m: { movement_type: string }) =>
+      m.movement_type === 'sale_return' ? -1 : 1;
     const totalCogs = (movements ?? []).reduce(
-      (s, m) => s + (m.total_cost || 0),
+      (s, m) => s + sign(m) * Number(m.total_cost || 0),
       0,
     );
 
@@ -891,8 +1254,8 @@ export class ReportsService {
     for (const m of movements ?? []) {
       if (!byItem[m.item_id])
         byItem[m.item_id] = { quantity: 0, total_cost: 0 };
-      byItem[m.item_id].quantity += m.quantity || 0;
-      byItem[m.item_id].total_cost += m.total_cost || 0;
+      byItem[m.item_id].quantity += sign(m) * Number(m.quantity || 0);
+      byItem[m.item_id].total_cost += sign(m) * Number(m.total_cost || 0);
     }
 
     const itemIds = Object.keys(byItem);
@@ -917,23 +1280,54 @@ export class ReportsService {
 
     let ordersQ = this.supabase
       .from('orders')
-      .select('total')
+      .select('subtotal, discount, total')
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
-    if (query.branch_id) ordersQ = ordersQ.eq('branch_id', query.branch_id);
+    if (effectiveBranchId) ordersQ = ordersQ.eq('branch_id', effectiveBranchId);
     const { data: orders, error: ordersErr } = await ordersQ;
     if (ordersErr) throw ordersErr;
 
-    const totalRevenue = (orders ?? []).reduce((s, o) => s + (o.total || 0), 0);
+    // Margin is computed on NET revenue: after discounts, WITHOUT VAT (VAT is
+    // not income), minus what was returned in the period.
+    let returnsQ = this.supabase
+      .from('sales_returns')
+      .select('net_amount')
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', from)
+      .lte('created_at', to);
+    if (effectiveBranchId)
+      returnsQ = returnsQ.eq('branch_id', effectiveBranchId);
+    const { data: returnRows, error: returnsErr } = await returnsQ;
+    if (returnsErr && !isMissingTable(returnsErr)) throw returnsErr;
+    const returnedNet = returnsErr
+      ? 0
+      : (returnRows ?? []).reduce(
+          (s, r) => s + Number(r.net_amount || 0),
+          0,
+        );
+
+    const grossSalesInclTax = (orders ?? []).reduce(
+      (s, o) => s + Number(o.total || 0),
+      0,
+    );
+    const totalRevenue =
+      (orders ?? []).reduce(
+        (s, o) => s + (Number(o.subtotal || 0) - Number(o.discount || 0)),
+        0,
+      ) - returnedNet;
     const grossProfit = totalRevenue - totalCogs;
 
     return {
       period: { from, to },
       summary: {
         total_cogs: this.round2(totalCogs),
+        // Net revenue: after discounts, before VAT, after returns.
         total_revenue: this.round2(totalRevenue),
+        total_sales_incl_tax: this.round2(grossSalesInclTax),
+        revenue_basis: 'net_of_tax_after_returns',
         gross_profit: this.round2(grossProfit),
         gross_margin_pct:
           totalRevenue > 0
@@ -950,7 +1344,48 @@ export class ReportsService {
     };
   }
 
-  async getInventoryReport(tenant: TenantContext, warehouseId?: string) {
+  async getInventoryReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    warehouseId?: string,
+  ) {
+    // Branch Domain Batch 2 (Owner-approved) — warehouse_id is the only
+    // handle this endpoint has; there is no branch_id param to trust or
+    // reject directly. Resolve warehouse_id -> warehouses.branch_id first
+    // (tenant-scoped lookup, catches malformed UUIDs/non-existent/
+    // cross-tenant warehouses cleanly), then run that resolved branch id
+    // through the exact same resolveReportBranchScope every other
+    // migrated Reports endpoint uses — a restricted actor whose own
+    // branch doesn't match is rejected before the RPC ever runs, and an
+    // inactive/deleted branch is rejected the same way B5 already made
+    // login reject it (resolveReportBranchScope -> branchExists ->
+    // BranchValidatorService.validate, the identical is_active=true AND
+    // deleted_at IS NULL check).
+    if (warehouseId) {
+      const { data: warehouse, error: whErr } = await this.supabase
+        .from('warehouses')
+        .select('branch_id')
+        .eq('id', warehouseId)
+        .eq('tenant_id', tenant.tenantId)
+        .maybeSingle();
+      if (whErr || !warehouse) {
+        throw new ForbiddenException(
+          'Warehouse not found or does not belong to tenant',
+        );
+      }
+      await this.resolveReportBranchScope(tenant, user, warehouse.branch_id);
+    } else if (user.branch_id) {
+      // Restricted actor omitted warehouse_id entirely — unlike the other
+      // migrated endpoints, there is no "their own branch" fallback to
+      // silently apply here (the RPC's p_warehouse_id=null means "every
+      // warehouse tenant-wide", which would leak cross-branch inventory
+      // for a restricted actor). Same "explicit branch required" rule
+      // already established for GET /invoices/held.
+      throw new BadRequestException(
+        'warehouse_id is required to view the inventory report',
+      );
+    }
+
     const { data, error } = await this.supabase.rpc(
       'fn_inventory_stock_levels_enriched',
       {
@@ -1043,8 +1478,17 @@ export class ReportsService {
     return parseFloat((((current - previous) / previous) * 100).toFixed(1));
   }
 
-  async getPeriodComparison(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getPeriodComparison(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
     const currentFromMs = new Date(from).getTime();
     const currentToMs = new Date(to).getTime();
     const durationMs = currentToMs - currentFromMs;
@@ -1053,12 +1497,17 @@ export class ReportsService {
     const previousTo = new Date(currentFromMs - 1).toISOString();
 
     const [current, previous] = await Promise.all([
-      this.getOrderMetrics(tenant.tenantId, from, to, query.branch_id),
+      this.getOrderMetrics(
+        tenant.tenantId,
+        from,
+        to,
+        effectiveBranchId ?? undefined,
+      ),
       this.getOrderMetrics(
         tenant.tenantId,
         previousFrom,
         previousTo,
-        query.branch_id,
+        effectiveBranchId ?? undefined,
       ),
     ]);
 
@@ -1080,7 +1529,7 @@ export class ReportsService {
   }
 
   async getBranchComparison(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
     const { data: branches, error: branchError } = await this.supabase
       .from('branches')
@@ -1097,9 +1546,38 @@ export class ReportsService {
       })),
     );
 
+    // T10 / R6: orders whose branch is not in the list above (a deleted
+    // branch) would silently vanish; report them as one unassigned row so
+    // the branches always add up to the tenant total.
+    const tenantTotal = await this.getOrderMetrics(tenant.tenantId, from, to);
+    const listedRevenue = results.reduce((s, r) => s + r.revenue, 0);
+    const listedOrders = results.reduce((s, r) => s + r.order_count, 0);
+    const otherOrders = tenantTotal.order_count - listedOrders;
+    const rows: {
+      branch_id: string | null;
+      branch_name: string | null;
+      unassigned?: boolean;
+      revenue: number;
+      order_count: number;
+      avg_order_value: number;
+      unique_customers: number;
+    }[] = [...results];
+    if (otherOrders > 0) {
+      const otherRevenue = this.round2(tenantTotal.revenue - listedRevenue);
+      rows.push({
+        branch_id: null,
+        branch_name: null,
+        unassigned: true,
+        revenue: otherRevenue,
+        order_count: otherOrders,
+        avg_order_value: this.round2(otherRevenue / otherOrders),
+        unique_customers: 0,
+      });
+    }
+
     return {
       period: { from, to },
-      branches: results.sort((a, b) => b.revenue - a.revenue),
+      branches: rows.sort((a, b) => b.revenue - a.revenue),
     };
   }
 
@@ -1434,30 +1912,47 @@ export class ReportsService {
     };
   }
 
-  async getCustomerChurn(tenant: TenantContext, query: ReportQueryDto) {
-    const { from, to } = this.getDateRange(query);
+  async getCustomerChurn(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    const effectiveBranchId = await this.resolveReportBranchScope(
+      tenant,
+      user,
+      query.branch_id,
+    );
+    const { from, to } = await this.getDateRange(query, tenant.tenantId);
     const currentFromMs = new Date(from).getTime();
     const durationMs = new Date(to).getTime() - currentFromMs;
     const previousFrom = new Date(currentFromMs - durationMs).toISOString();
     const previousTo = new Date(currentFromMs - 1).toISOString();
 
+    let currentQ = this.supabase
+      .from('orders')
+      .select('customer_id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .not('customer_id', 'is', null);
+    if (effectiveBranchId)
+      currentQ = currentQ.eq('branch_id', effectiveBranchId);
+
+    let previousQ = this.supabase
+      .from('orders')
+      .select('customer_id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'completed')
+      .gte('created_at', previousFrom)
+      .lte('created_at', previousTo)
+      .not('customer_id', 'is', null);
+    if (effectiveBranchId)
+      previousQ = previousQ.eq('branch_id', effectiveBranchId);
+
     const [currentOrders, previousOrders] = await Promise.all([
-      this.supabase
-        .from('orders')
-        .select('customer_id')
-        .eq('tenant_id', tenant.tenantId)
-        .eq('status', 'completed')
-        .gte('created_at', from)
-        .lte('created_at', to)
-        .not('customer_id', 'is', null),
-      this.supabase
-        .from('orders')
-        .select('customer_id')
-        .eq('tenant_id', tenant.tenantId)
-        .eq('status', 'completed')
-        .gte('created_at', previousFrom)
-        .lte('created_at', previousTo)
-        .not('customer_id', 'is', null),
+      currentQ,
+      previousQ,
     ]);
 
     if (currentOrders.error) throw currentOrders.error;

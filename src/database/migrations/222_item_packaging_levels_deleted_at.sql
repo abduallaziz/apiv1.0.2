@@ -1,0 +1,12 @@
+-- 222. Fixes a confirmed defect in migration 221 found via real HTTP
+-- runtime testing (Sub-phase 2b): ItemPackagingLevelsRepository extends
+-- ScopedRepository, whose scopedQuery() unconditionally appends
+-- .is('deleted_at', null) to every SELECT — but item_packaging_levels
+-- (221) never got a deleted_at column, so every read (findAllForItem/
+-- findById/findRootForItem) failed with Postgres 42703 "column
+-- deleted_at does not exist". Same pattern already established for
+-- units/brands (093): "never written; required by ScopedRepository
+-- filter" — the column exists purely to satisfy the shared query helper,
+-- since packaging levels are hard-deleted (with dependency protection in
+-- ItemPackagingLevelsService.remove()), not soft-deleted.
+ALTER TABLE item_packaging_levels ADD COLUMN deleted_at TIMESTAMPTZ;

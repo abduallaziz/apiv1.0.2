@@ -1,0 +1,32 @@
+{
+  "title": "Register Close Report",
+  "revision": "Revision",
+  "legacy_note": "Older register: only the cash count was recorded",
+  "branch": "Branch",
+  "cashier": "Cashier",
+  "opened_at": "Opened",
+  "closed_at": "Closed",
+  "invoices": "Invoices",
+  "items": "Items / services sold",
+  "total_sales": "Total sales",
+  "discounts": "Discounts",
+  "tax": "Tax",
+  "expenses": "Cash expenses",
+  "cancelled": "Cancelled invoices",
+  "returned": "Returns",
+  "opening_cash": "Opening cash",
+  "method": "Payment method",
+  "sales": "Sales",
+  "returns_col": "Returns",
+  "expected": "Expected",
+  "counted": "Counted",
+  "difference": "Difference",
+  "notes": "Notes",
+  "methods": {
+    "cash": "Cash",
+    "mada": "Mada",
+    "visa": "Visa",
+    "mastercard": "Mastercard",
+    "other": "Other electronic"
+  }
+}

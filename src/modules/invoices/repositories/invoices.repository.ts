@@ -22,6 +22,10 @@ export interface PooledInvoiceItem {
   // price_override_audit inside the same transaction as its order_item,
   // using that row's real (returned) id — never for a Normal Sale line.
   override?: PooledOverrideAudit;
+  // G4 — worker + commission snapshot for this line.
+  worker_id?: string | null;
+  commission_rate?: number | null;
+  commission_amount?: number | null;
 }
 
 export interface PooledOverrideAudit {
@@ -69,9 +73,10 @@ export class InvoicesRepository extends ScopedRepository {
         `INSERT INTO orders (
            tenant_id, branch_id, shift_id, cashier_id, customer_id, status,
            subtotal, discount, tax, total, payment_method, notes,
-           coupon_code, sale_attempt_id, cash_amount, card_amount
+           coupon_code, sale_attempt_id, cash_amount, card_amount,
+           vehicle_id, plate_snapshot, vehicle_size
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          RETURNING id`,
         [
           tenant.tenantId,
@@ -90,6 +95,9 @@ export class InvoicesRepository extends ScopedRepository {
           orderPayload.sale_attempt_id,
           orderPayload.cash_amount ?? null,
           orderPayload.card_amount ?? null,
+          orderPayload.vehicle_id ?? null,
+          orderPayload.plate_snapshot ?? null,
+          orderPayload.vehicle_size ?? null,
         ],
       );
       const orderId = orderResult.rows[0].id;
@@ -105,9 +113,10 @@ export class InvoicesRepository extends ScopedRepository {
         const itemResult = await client.query<{ id: string }>(
           `INSERT INTO order_items (
              order_id, item_id, item_name, qty, price, total_price,
-             variant_id, variant_name, official_price_snapshot
+             variant_id, variant_name, official_price_snapshot,
+             worker_id, commission_rate, commission_amount
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING id`,
           [
             orderId,
@@ -119,6 +128,9 @@ export class InvoicesRepository extends ScopedRepository {
             item.variant_id ?? null,
             item.variant_name ?? null,
             item.official_price_snapshot,
+            item.worker_id ?? null,
+            item.commission_rate ?? null,
+            item.commission_amount ?? null,
           ],
         );
         const orderItemId = itemResult.rows[0].id;
@@ -183,12 +195,18 @@ export class InvoicesRepository extends ScopedRepository {
     tenant: TenantContext,
     id: string,
     cancelledBy: string,
+    reason?: string | null,
   ): Promise<{ id: string; status: string }> {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
       const result = await client.query<{ id: string; status: string }>(
-        `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2
+        `UPDATE orders
+            SET status = 'cancelled',
+                cancelled_at = now(),
+                cancelled_by = $3,
+                cancel_reason = $4
+          WHERE id = $1 AND tenant_id = $2
          RETURNING id, status`,
-        [id, tenant.tenantId],
+        [id, tenant.tenantId, cancelledBy, reason?.trim() || null],
       );
       if (result.rows.length === 0) {
         throw new NotFoundException('Order not found');
@@ -232,6 +250,8 @@ export class InvoicesRepository extends ScopedRepository {
     tax, total,
     payment_method, notes, created_at,
     cashier_id, customer_id, branch_id,
+    cancelled_at, cancel_reason,
+    vehicle_id, plate_snapshot, vehicle_size,
     held, held_visibility, held_by, held_at,
     cashier:users!orders_cashier_id_fkey(name),
     customer:customers!orders_customer_id_fkey(full_name)
@@ -242,7 +262,8 @@ export class InvoicesRepository extends ScopedRepository {
     quantity:qty,
     unit_price:price,
     total_price,
-    variant_id, variant_name
+    variant_id, variant_name,
+    worker_id, commission_rate, commission_amount
   `;
 
   private ordersQuery(tenant: TenantContext) {
@@ -332,6 +353,40 @@ export class InvoicesRepository extends ScopedRepository {
     return data;
   }
 
+  // G4 — commission rates (fraction 0..1) of the active users of this
+  // tenant. A requested id that is missing here is not a valid worker.
+  async getWorkerRates(
+    tenantId: string,
+    ids: string[],
+  ): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('id, commission_rate')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .in('id', ids);
+    if (error) throw error;
+    return new Map(
+      (data ?? []).map((u) => [u.id as string, Number(u.commission_rate ?? 0)]),
+    );
+  }
+
+  // G6 — the ONLY post-sale edit of an invoice: its non-financial note.
+  async updateNote(tenant: TenantContext, id: string, note: string | null) {
+    const { data, error } = await this.supabase
+      .from('orders')
+      .update({ notes: note })
+      .eq('id', id)
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
+      .select('id, notes')
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
   async create(tenant: TenantContext, payload: Record<string, unknown>) {
     const { data, error } = await this.supabase
       .from('orders')
@@ -365,6 +420,9 @@ export class InvoicesRepository extends ScopedRepository {
       variant_id: item.variant_id ?? null,
       variant_name: item.variant_name ?? null,
       official_price_snapshot: item.official_price_snapshot,
+      worker_id: item.worker_id ?? null,
+      commission_rate: item.commission_rate ?? null,
+      commission_amount: item.commission_amount ?? null,
     }));
 
     const { data, error } = await this.supabase
@@ -489,15 +547,41 @@ export class InvoicesRepository extends ScopedRepository {
     const scoped = tenant.tenantId
       ? query.eq('tenant_id', tenant.tenantId)
       : query;
-    const { data, error } = await scoped.select('id').maybeSingle();
+    // branch_id added alongside id (Branch System Step 5) — same query, no
+    // extra round trip, so the caller can audit-log the resource's real
+    // branch instead of nothing.
+    const { data, error } = await scoped.select('id, branch_id').maybeSingle();
     if (error) throw error;
     return data;
   }
 
-  async cancel(tenant: TenantContext, id: string, cancelledBy: string) {
+  // Phase 3b: an order that has returns cannot also be cancelled (the
+  // cancel path reverses the WHOLE sale posting and stock, which would
+  // double-reverse the returned part).
+  async countReturns(tenantId: string, orderId: string): Promise<number> {
+    const { count } = await this.supabase
+      .from('sales_returns')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('order_id', orderId)
+      .is('deleted_at', null);
+    return count ?? 0;
+  }
+
+  async cancel(
+    tenant: TenantContext,
+    id: string,
+    cancelledBy: string,
+    reason?: string | null,
+  ) {
     const query = this.supabase
       .from('orders')
-      .update({ status: 'cancelled' })
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: cancelledBy,
+        cancel_reason: reason?.trim() || null,
+      })
       .eq('id', id);
 
     // tenantId is null only for superadmin callers — intentional cross-tenant access

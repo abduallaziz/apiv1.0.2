@@ -9,24 +9,25 @@ export class PlansService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  async findAll() {
-    const { data, error } = await this.supabase
-      .from('plans')
-      .select('*')
-      .order('price_monthly', { ascending: true });
+  async findAll(includeInactive = false) {
+    let query = this.supabase.from('plans').select('*');
+    if (!includeInactive) query = query.eq('is_active', true);
+    const { data, error } = await query.order('price_monthly', {
+      ascending: true,
+    });
 
     if (error) throw new Error(error.message);
     return data ?? [];
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, includeInactive = false) {
     const { data, error } = await this.supabase
       .from('plans')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (error || !data) throw new NotFoundException('Plan not found');
+    if (error || !data || (!includeInactive && !data.is_active)) throw new NotFoundException('Plan not found');
     return data;
   }
 

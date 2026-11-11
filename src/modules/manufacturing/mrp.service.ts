@@ -114,13 +114,17 @@ export class MrpService {
     if (!allowed)
       throw new ForbiddenException('Permission denied: manufacturing.manage');
 
-    const po = await this.productionOrdersService.create(tenantId, {
-      warehouse_id: order.warehouse_id,
-      bom_id: order.bom_id,
-      order_number: `PO-MRP-${Date.now()}`,
-      quantity_planned: Number(order.quantity),
-      notes: 'Generated from MRP planned order',
-    });
+    const po = await this.productionOrdersService.create(
+      tenantId,
+      {
+        warehouse_id: order.warehouse_id,
+        bom_id: order.bom_id,
+        order_number: `PO-MRP-${Date.now()}`,
+        quantity_planned: Number(order.quantity),
+        notes: 'Generated from MRP planned order',
+      },
+      requestedBy,
+    );
     return this.mrpRepo.updateStatus(id, tenantId, 'converted', {
       referenceType: 'production_order',
       referenceId: po.id,

@@ -9,6 +9,7 @@
  * direct RPC calls.
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -205,6 +206,10 @@ describe('serial number tracking regression (Migration 13.14)', () => {
         customer_id: customerId,
         status: 'completed',
         total: 100,
+        // Migration 187 (post-13.14) made this NOT NULL + unique per
+        // tenant — this fixture predates that migration and never picked
+        // up the change until now.
+        sale_attempt_id: randomUUID(),
       })
       .select()
       .single();
@@ -227,16 +232,18 @@ describe('serial number tracking regression (Migration 13.14)', () => {
     );
     serialIds.push(serial.id);
 
-    const { data: order } = await supabase
+    const { data: order, error: orderErr } = await supabase
       .from('orders')
       .insert({
         tenant_id: TEST_TENANT_ID,
         customer_id: customerId,
         status: 'completed',
         total: 100,
+        sale_attempt_id: randomUUID(),
       })
       .select()
       .single();
+    if (orderErr) throw orderErr;
     orderIds.push(order.id);
 
     await serialsRepo.sell(serial.id, order.id, null);
@@ -253,16 +260,18 @@ describe('serial number tracking regression (Migration 13.14)', () => {
     );
     serialIds.push(serial.id);
 
-    const { data: order } = await supabase
+    const { data: order, error: orderErr } = await supabase
       .from('orders')
       .insert({
         tenant_id: TEST_TENANT_ID,
         customer_id: customerId,
         status: 'completed',
         total: 100,
+        sale_attempt_id: randomUUID(),
       })
       .select()
       .single();
+    if (orderErr) throw orderErr;
     orderIds.push(order.id);
     await serialsRepo.sell(serial.id, order.id, 6);
 
@@ -292,16 +301,18 @@ describe('serial number tracking regression (Migration 13.14)', () => {
       TEST_TENANT_ID,
     );
     serialIds.push(activeSerial.id);
-    const { data: order1 } = await supabase
+    const { data: order1, error: order1Err } = await supabase
       .from('orders')
       .insert({
         tenant_id: TEST_TENANT_ID,
         customer_id: customerId,
         status: 'completed',
         total: 100,
+        sale_attempt_id: randomUUID(),
       })
       .select()
       .single();
+    if (order1Err) throw order1Err;
     orderIds.push(order1.id);
     await serialsRepo.sell(activeSerial.id, order1.id, 12); // 12 months from now -> active
 

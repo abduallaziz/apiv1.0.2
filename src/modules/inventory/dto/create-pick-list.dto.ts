@@ -21,4 +21,11 @@ export class CreatePickListDto {
   @ArrayMinSize(1)
   @IsUUID('4', { each: true })
   shipment_ids: string[];
+
+  // Inventory #7 / 7-2 (Owner-approved) — pick-list operational parity
+  // with warehouse_tasks.priority. Defaults to 'medium' server-side
+  // (fn_create_pick_list) when omitted.
+  @IsIn(['low', 'medium', 'high', 'urgent'])
+  @IsOptional()
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
 }

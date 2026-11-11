@@ -1,0 +1,20 @@
+-- Inventory #7 / 7-9 (Owner-approved) — Scalability verification fix #2.
+--
+-- Measured, not speculative: the original 7-9 pass flagged
+-- `pick_list_shipments.shipment_id` (used by fn_record_short_pick,
+-- fn_record_damage, fn_record_lost_item, and fn_confirm_pick's sibling
+-- pattern to find every pick list a shipment belongs to) as having no
+-- dedicated index — only the composite UNIQUE(pick_list_id, shipment_id)
+-- constraint exists, whose leading column is pick_list_id. At that time
+-- (~9,000 rows) EXPLAIN showed Postgres could still service a
+-- shipment_id-only lookup via an Index Only Scan of the whole composite
+-- index in 0.55ms, so no index was added, per the explicit instruction
+-- not to add indexes without a measured bottleneck.
+--
+-- At a real 50,000-shipment dataset (40,985 pick_list_shipments rows),
+-- the same query now measures 182.8ms — a ~330x increase for only ~4.5x
+-- more rows, confirming the theoretical risk is now a real, material
+-- bottleneck (this query runs inside every short-pick/damage/lost-item
+-- transaction, so 180ms+ under an active row lock is a genuine
+-- correctness/throughput concern, not just a slow read).
+CREATE INDEX idx_pick_list_shipments_shipment ON pick_list_shipments(shipment_id);

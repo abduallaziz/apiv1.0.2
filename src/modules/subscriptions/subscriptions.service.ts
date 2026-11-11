@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { BillingService } from '../../core/billing/billing.service';
 import { BillingCycle } from '../../core/billing/billing.types';
 import { TenantContext } from '../../core/tenant/tenant.context';
@@ -29,12 +33,40 @@ export class SubscriptionsService {
   }
 
   async upgrade(tenant: TenantContext, dto: CreateSubscriptionDto) {
+    // Reject unknown / deactivated plans before anything financial happens.
+    let plan;
+    try {
+      plan = await this.billingService.getPlanById(dto.plan_id);
+    } catch {
+      throw new NotFoundException('Plan not found');
+    }
+    if (!plan.is_active) {
+      throw new BadRequestException('Plan is not available for subscription');
+    }
+
+    // Idempotent: re-requesting the plan/cycle already paid for and still
+    // running must not issue another charge.
+    const cycle = dto.billing_cycle ?? BillingCycle.MONTHLY;
+    const current = await this.billingService.getActiveSubscription(
+      tenant.tenantId,
+    );
+    if (
+      current &&
+      current.status === 'active' &&
+      current.plan_id === dto.plan_id &&
+      current.billing_cycle === cycle &&
+      current.current_period_end &&
+      new Date(current.current_period_end) > new Date()
+    ) {
+      return { success: true, already_active: true };
+    }
+
     const tenantData = await this.getTenantData(tenant.tenantId);
 
     await this.billingService.activateSubscription(
       tenant.tenantId,
       dto.plan_id,
-      dto.billing_cycle ?? BillingCycle.MONTHLY,
+      cycle,
       tenantData.email,
       tenantData.name,
     );

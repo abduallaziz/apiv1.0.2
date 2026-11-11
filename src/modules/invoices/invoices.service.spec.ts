@@ -28,6 +28,7 @@ function buildService(overrides: {
     findById: jest
       .fn()
       .mockResolvedValue({ id: 'order-1', status: 'completed', total: 100 }),
+    countReturns: jest.fn().mockResolvedValue(0),
     cancel: jest.fn().mockResolvedValue({ id: 'order-1', status: 'cancelled' }),
     cancelPooled: jest
       .fn()
@@ -53,7 +54,12 @@ function buildService(overrides: {
     { processCashPayment: jest.fn() } as any, // paymentEngine
     { log: jest.fn().mockResolvedValue(undefined) } as any, // auditService
     { recordInvoice: jest.fn() } as any, // metricsService
-    { getTaxRate: jest.fn().mockResolvedValue(0) } as any, // tenantsRepo
+    {
+      getTaxRate: jest.fn().mockResolvedValue(0),
+      getTaxConfig: jest
+        .fn()
+        .mockResolvedValue({ tax_rate: 0, tax_inclusive_pricing: false }),
+    } as any, // tenantsRepo
     { getSettings: jest.fn().mockResolvedValue({ enabled: false }) } as any, // loyaltyService
     {} as any, // couponsService (unused — no coupon_code in these tests)
     { findById: jest.fn().mockResolvedValue(null) } as any, // customersService
@@ -66,6 +72,13 @@ function buildService(overrides: {
     {} as any, // expiredBatchesRepo
     { findSoldByOrder: jest.fn().mockResolvedValue([]) } as any, // serialsRepo
     priceResolutionService as any,
+    { onOrderCompleted: jest.fn().mockResolvedValue(undefined) } as any, // rewardEligibilityService
+    {
+      previewSelection: jest.fn(),
+      redeemSelected: jest.fn(),
+      attachOrder: jest.fn().mockResolvedValue(undefined),
+    } as any, // rewardRedemptionService
+    {} as any, // packagingLevelsRepo (unused — no packaging_level_id in these tests)
   );
 
   return { service, repo, priceResolutionService };
@@ -810,10 +823,12 @@ describe('InvoicesService.create — D01-M7 Price Resolution integration', () =>
         'device',
       );
 
+      // Phase 3a: the cancellation reason is now persisted on the order.
       expect(repo.cancelPooled).toHaveBeenCalledWith(
         TENANT,
         'order-1',
         'user-1',
+        'test',
       );
       expect(repo.cancel).not.toHaveBeenCalled();
     });
@@ -835,8 +850,36 @@ describe('InvoicesService.create — D01-M7 Price Resolution integration', () =>
         'device',
       );
 
-      expect(repo.cancel).toHaveBeenCalledWith(TENANT, 'order-1', 'user-1');
+      expect(repo.cancel).toHaveBeenCalledWith(
+        TENANT,
+        'order-1',
+        'user-1',
+        'test',
+      );
       expect(repo.cancelPooled).not.toHaveBeenCalled();
+    });
+
+    it('an order that has returns cannot be cancelled (phase 3b)', async () => {
+      const resolvePrice = jest.fn();
+      const { service, repo } = buildService({
+        resolvePrice,
+        pooledWritesEnabled: true,
+      });
+      repo.countReturns.mockResolvedValue(1);
+
+      await expect(
+        service.cancel(
+          TENANT,
+          'order-1',
+          { reason: 'test' } as any,
+          'user-1',
+          'owner',
+          '1.2.3.4',
+          'device',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.cancelPooled).not.toHaveBeenCalled();
+      expect(repo.cancel).not.toHaveBeenCalled();
     });
 
     it('already-cancelled order is rejected before any repo write', async () => {

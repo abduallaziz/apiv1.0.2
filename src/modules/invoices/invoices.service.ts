@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
@@ -17,6 +18,7 @@ import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { LoyaltyService } from '../../core/loyalty/loyalty.service';
 import { CouponsService, Coupon } from '../coupons/coupons.service';
 import { CustomersService } from '../customers/customers.service';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { NotificationService } from '../../core/notification/notification.service';
 import {
   NOTIFICATION_TYPES,
@@ -38,6 +40,12 @@ import {
 import { EffectiveRole } from '../../core/pricing/effective-role.resolver';
 import { PooledOverrideAudit } from './repositories/invoices.repository';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
+import { RewardEligibilityService } from '../rewards/reward-eligibility.service';
+import { ItemPackagingLevelsRepository } from '../items/repositories/item-packaging-levels.repository';
+import {
+  RewardRedemptionService,
+  FreeItemGrant,
+} from '../rewards/reward-redemption.service';
 
 const INVOICES_LIST_TTL = 240; // 4 minutes
 const invoicesListCacheKey = (
@@ -74,6 +82,9 @@ export class InvoicesService {
     private readonly expiredBatchesRepo: ExpiredBatchesRepository,
     private readonly serialsRepo: SerialsRepository,
     private readonly priceResolutionService: PriceResolutionService,
+    private readonly rewardEligibilityService: RewardEligibilityService,
+    private readonly rewardRedemptionService: RewardRedemptionService,
+    private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
   ) {}
 
   async create(
@@ -105,20 +116,68 @@ export class InvoicesService {
     // البيع ممنوع بلا جلسة صندوق مفتوحة — الحد المالي لكل بيع هو جلسة الصندوق النشطة،
     // وليس مجرد اختياريًا كما كان الحال. لازم يُفحَص هنا أولًا قبل أي عمل آخر (كوبون/بطاقة
     // هدايا/نقاط ولاء) حتى لا تُنفَّذ أي آثار جانبية لبيع سيُرفَض لاحقًا لعدم وجود جلسة.
-    await this.shiftsService.assertOpenSession(tenant.tenantId, shiftId);
+    await this.shiftsService.assertOpenSession(
+      tenant.tenantId,
+      shiftId,
+      cashierId,
+      branchId,
+    );
+
+    // T11/G8 - a method the owner switched off is rejected before any side
+    // effect. Cash is always allowed. A missing value means "all methods".
+    if (tenant.tenantId && dto.payment_method !== 'cash') {
+      const enabledMethods = await this.tenantsRepo.getEnabledPaymentMethods(
+        tenant.tenantId,
+      );
+      if (enabledMethods && !enabledMethods.includes(dto.payment_method)) {
+        throw new BadRequestException({
+          message: 'This payment method is disabled for this business',
+          reasonCode: 'payment_method_disabled',
+          payment_method: dto.payment_method,
+        });
+      }
+    }
+
+    // T12 - customer/car captured at the POS are resolved BEFORE anything
+    // else uses dto.customer_id (loyalty, rewards, branch activity). The same
+    // phone/plate always resolves to the same rows, so a retried sale never
+    // duplicates; a phone+plate of different customers is a 409.
+    let capturedVehicle: {
+      id: string;
+      plate: string;
+      size: string | null;
+    } | null = null;
+    if (dto.customer_capture) {
+      const resolved = await this.customersService.resolveCapture(
+        tenant,
+        {
+          sub: cashierId,
+          role: actorRole,
+          branch_id: branchId,
+        } as unknown as JwtPayload,
+        dto.customer_capture,
+        dto.customer_id,
+      );
+      if (resolved) {
+        dto.customer_id = resolved.customer_id;
+        capturedVehicle = resolved.vehicle;
+      }
+    }
 
     // ثلاثة استعلامات مستقلة تمامًا عن بعضها (فحص ملكية العميل، نسبة الضريبة، إعدادات
     // الولاء) — كانت تُنفَّذ بالتسلسل رغم عدم اعتماد أي منها على نتيجة الآخر، فتضيف
     // زمن استجابة (round-trip) إضافيًا لكل عملية بيع واحدة. تُنفَّذ الآن بالتوازي.
-    const [, taxRate, loyaltySettings] = await Promise.all([
+    const [, taxConfig, loyaltySettings] = await Promise.all([
       dto.customer_id
-        ? this.customersService.findById(tenant, dto.customer_id)
+        ? this.customersService.findByIdUnrestricted(tenant, dto.customer_id)
         : Promise.resolve(null),
       tenant.tenantId
-        ? this.tenantsRepo.getTaxRate(tenant.tenantId)
-        : Promise.resolve(0),
+        ? this.tenantsRepo.getTaxConfig(tenant.tenantId)
+        : Promise.resolve({ tax_rate: 0, tax_inclusive_pricing: false }),
       this.loyaltyService.getSettings(tenant.tenantId),
     ]);
+    const taxRate = taxConfig.tax_rate;
+    const taxInclusive = taxConfig.tax_inclusive_pricing;
 
     let loyaltyDiscountAmount = 0;
     if (dto.redeem_points) {
@@ -171,6 +230,26 @@ export class InvoicesService {
     let anyApprovedOverride = false;
     const priceResolutions: PriceResolutionResult[] = [];
     const hasInvoiceLevelDiscount = !!dto.discount;
+
+    // Sub-phase 2b (Owner-approved, Item #2) — a line rung up via a
+    // packaging-level barcode (e.g. one Carton scanned at the register)
+    // carries a quantity meaning "1 Carton," not "1 Piece." Resolve it to
+    // the item's storage-unit-equivalent quantity here, before ANYTHING
+    // else touches it — price resolution, PosEngine subtotal/total,
+    // order_items persistence, and stock deduction below all read
+    // item.quantity, so mutating it once at this single boundary makes
+    // every one of those automatically correct with zero further changes,
+    // exactly mirroring how goods-receipt's unit_id conversion (migration
+    // 114) already works at its own entry boundary.
+    for (const item of dto.items) {
+      if (item.packaging_level_id) {
+        item.quantity = await this.packagingLevelsRepo.resolveToStorageQty(
+          item.item_id,
+          item.packaging_level_id,
+          item.quantity,
+        );
+      }
+    }
 
     for (const item of dto.items) {
       const result = await this.priceResolutionService.resolvePrice({
@@ -227,6 +306,40 @@ export class InvoicesService {
           : result.approvedUnitPrice;
     }
 
+    // G4 - worker + commission snapshot per line, from the FINAL (server-
+    // resolved) price: commission_amount = line total x users.commission_rate
+    // (before invoice-level discount/tax). An unknown/inactive worker is a
+    // 400. Client-sent rates are never read.
+    const workerIds = [
+      ...new Set(
+        dto.items.map((i) => i.worker_id).filter((w): w is string => !!w),
+      ),
+    ];
+    const workerRates =
+      workerIds.length > 0
+        ? await this.repo.getWorkerRates(tenant.tenantId, workerIds)
+        : new Map<string, number>();
+    for (const id of workerIds) {
+      if (!workerRates.has(id)) {
+        throw new BadRequestException({
+          message: 'Unknown or inactive worker',
+          worker_id: id,
+          reasonCode: 'invalid_worker',
+        });
+      }
+    }
+    const lineWorkers = dto.items.map((item) => {
+      if (!item.worker_id) return null;
+      const rate = workerRates.get(item.worker_id) ?? 0;
+      return {
+        worker_id: item.worker_id,
+        commission_rate: rate,
+        commission_amount: parseFloat(
+          (item.unit_price * item.quantity * rate).toFixed(2),
+        ),
+      };
+    });
+
     // Feature-flagged, defaults to false everywhere until DATABASE_URL is
     // provisioned and migration 075 applied (see STATUS.md §78/§79,
     // TASKS.md "SAFETY & SCALE INITIATIVE"). Do not remove the PostgREST
@@ -268,27 +381,72 @@ export class InvoicesService {
       );
     }
 
+    // Customer Domain Batch 3 Phase 11 (Owner-approved) — pricing preview
+    // only, no instance mutated yet (see RewardRedemptionService.previewSelection).
+    // Throws on any invalid selection, same as coupon validate() — a
+    // rejected reward selection must block checkout, not silently apply
+    // nothing, since the customer/cashier explicitly opted to redeem it.
+    let rewardDiscountAmount = 0;
+    let freeItemGrants: FreeItemGrant[] = [];
+    if (dto.redeem_reward_instance_ids?.length) {
+      if (!dto.customer_id) {
+        throw new BadRequestException(
+          'customer_id required to redeem reward instances',
+        );
+      }
+      const preview = await this.rewardRedemptionService.previewSelection(
+        tenant,
+        dto.customer_id,
+        branchId,
+        dto.redeem_reward_instance_ids,
+        manualBuilt.subtotal,
+      );
+      rewardDiscountAmount = preview.discountAmount;
+      freeItemGrants = preview.freeItemGrants;
+    }
+
     const combinedDiscountAmount = Math.min(
       manualBuilt.discount_amount +
         loyaltyDiscountAmount +
-        couponDiscountAmount,
+        couponDiscountAmount +
+        rewardDiscountAmount,
       manualBuilt.subtotal,
     );
+    // manualBuilt.subtotal is deliberately computed WITHOUT taxInclusive
+    // above (buildInvoice's default) — it stays the raw pre-discount item-
+    // price sum (gross under inclusive mode, net under exclusive), which is
+    // exactly the basis coupon/reward discount percentages are already
+    // computed against, unchanged. Only this final tax/total computation,
+    // using the real combined discount, needs to be mode-aware — its
+    // manualBuilt/tax_amount/total from the call above were never used.
     const taxAmount = this.posEngine.applyTax(
       manualBuilt.subtotal,
       combinedDiscountAmount,
       taxRate,
+      taxInclusive,
     );
+    const totalAmount = this.posEngine.calculateTotal(
+      manualBuilt.subtotal,
+      combinedDiscountAmount,
+      taxAmount,
+      taxInclusive,
+    );
+    // Stored subtotal always means the PRE-discount net figure — required
+    // by the accounting-posting engine's unconditional invariant
+    // (subtotal - discount + tax = total, fn_post_sales_order, migration
+    // 184). Since total already has combinedDiscountAmount baked in,
+    // solving that identity gives subtotal = rawSubtotal - tax, which
+    // reconciles by construction. See pos.engine.ts buildInvoice for the
+    // full reasoning (same formula, same invariant).
+    const finalSubtotal = taxInclusive
+      ? parseFloat((manualBuilt.subtotal - taxAmount).toFixed(2))
+      : manualBuilt.subtotal;
     const built = {
       items: manualBuilt.items,
-      subtotal: manualBuilt.subtotal,
+      subtotal: finalSubtotal,
       discount_amount: combinedDiscountAmount,
       tax_amount: taxAmount,
-      total: this.posEngine.calculateTotal(
-        manualBuilt.subtotal,
-        combinedDiscountAmount,
-        taxAmount,
-      ),
+      total: totalAmount,
     };
 
     const storedPaymentMethod = dto.payment_method;
@@ -356,19 +514,43 @@ export class InvoicesService {
     // الرصيد فعليًا بين الفحص المبكر أعلاه وهذه اللحظة) يفشل الطلب لكن الفاتورة تبقى محفوظة.
     // هذا هو أقرب موضع ممكن لعملية الإنشاء الفعلية مع إبقاء الاسترداد قبلها لا بعدها.
     if (dto.redeem_points) {
+      // Customer Domain Phase 6/7 (Owner-approved) — order_id is
+      // deliberately omitted here: redemption executes before the order
+      // row exists (see the comment above), so there is nothing to pass
+      // yet. branch_id is the one piece of transaction context already
+      // known at this point.
+      const loyaltyContext = { branchId, createdBy: cashierId };
       if (this.config.get<boolean>('POOLED_LOYALTY_WRITES_ENABLED')) {
         await this.loyaltyService.redeemPointsPooled(
           tenant.tenantId,
           dto.customer_id,
           dto.redeem_points,
+          loyaltyContext,
         );
       } else {
         await this.loyaltyService.redeemPoints(
           tenant.tenantId,
           dto.customer_id,
           dto.redeem_points,
+          loyaltyContext,
         );
       }
+    }
+
+    // Customer Domain Batch 3 Phase 11 (Owner-approved) — the actual atomic
+    // state transition, at the same point in the flow as Loyalty redemption
+    // above and for the identical reason: order_id doesn't exist yet, and
+    // this is the last point before invoice creation where a later failure
+    // (payment validation already passed above) could still roll the sale
+    // back. fn_redeem_reward_instances is all-or-nothing — either every
+    // selected instance transitions or the whole call throws and none do.
+    if (dto.redeem_reward_instance_ids?.length && dto.customer_id) {
+      await this.rewardRedemptionService.redeemSelected(
+        tenant.tenantId,
+        dto.customer_id,
+        branchId,
+        dto.redeem_reward_instance_ids,
+      );
     }
 
     let invoice: { id: string };
@@ -398,6 +580,9 @@ export class InvoicesService {
           return {
             ...item,
             official_price_snapshot: resolution.officialUnitPrice,
+            worker_id: lineWorkers[i]?.worker_id ?? null,
+            commission_rate: lineWorkers[i]?.commission_rate ?? null,
+            commission_amount: lineWorkers[i]?.commission_amount ?? null,
             override,
           };
         });
@@ -420,6 +605,9 @@ export class InvoicesService {
             sale_attempt_id: dto.sale_attempt_id,
             cash_amount: persistedCashAmount,
             card_amount: persistedCardAmount,
+            vehicle_id: capturedVehicle?.id ?? null,
+            plate_snapshot: capturedVehicle?.plate ?? null,
+            vehicle_size: capturedVehicle?.size ?? null,
           },
           pooledItems,
         );
@@ -440,6 +628,9 @@ export class InvoicesService {
           sale_attempt_id: dto.sale_attempt_id,
           cash_amount: persistedCashAmount,
           card_amount: persistedCardAmount,
+          vehicle_id: capturedVehicle?.id ?? null,
+          plate_snapshot: capturedVehicle?.plate ?? null,
+          vehicle_size: capturedVehicle?.size ?? null,
         });
 
         // D01-M7 — official_price_snapshot per line (Normal Sale only can
@@ -455,6 +646,9 @@ export class InvoicesService {
             quantity: item.quantity,
             unit_price: item.unit_price,
             official_price_snapshot: priceResolutions[i].officialUnitPrice,
+            worker_id: lineWorkers[i]?.worker_id ?? null,
+            commission_rate: lineWorkers[i]?.commission_rate ?? null,
+            commission_amount: lineWorkers[i]?.commission_amount ?? null,
             total_price: parseFloat(
               (item.unit_price * item.quantity).toFixed(2),
             ),
@@ -502,6 +696,18 @@ export class InvoicesService {
       throw err;
     }
 
+    // Customer Domain Phase 3 (Owner-approved) — orders.branch_id is
+    // always authoritative for the transaction; this only records/
+    // refreshes the fact that this customer has now interacted with this
+    // branch. Never blocks the sale (see CustomersService.recordBranchActivity).
+    if (dto.customer_id) {
+      await this.customersService.recordBranchActivity(
+        tenant,
+        dto.customer_id,
+        branchId,
+      );
+    }
+
     await this.auditService.log({
       tenant_id: tenant.tenantId,
       actor_id: cashierId,
@@ -509,6 +715,9 @@ export class InvoicesService {
       action: 'invoice.create',
       resource_type: 'invoice',
       resource_id: invoice.id,
+      // Resource branch — the exact branch this order was created for
+      // (the value actually persisted on the row), not the actor's.
+      branch_id: dto.branch_id,
       after_data: {
         total: built.total,
         payment_method: storedPaymentMethod,
@@ -522,6 +731,42 @@ export class InvoicesService {
 
     if (coupon) {
       await this.couponsService.redeem(coupon.id, invoice.id);
+    }
+
+    // Customer Domain Batch 3 Phase 9/12 (Owner-approved) — purchase_count/
+    // spend_threshold/product_category reward eligibility, evaluated after
+    // the order exists (order_id is required for the idempotency dedup
+    // key). Best-effort/non-blocking, same pattern as coupon redemption
+    // immediately above — a reward evaluation failure must never affect an
+    // already-completed sale. Independent of Loyalty mutation entirely
+    // (loyalty_points trigger is evaluated separately below, chained onto
+    // the loyalty award itself).
+    if (dto.customer_id) {
+      await this.rewardEligibilityService.onOrderCompleted(tenant, {
+        customerId: dto.customer_id,
+        branchId,
+        orderId: invoice.id,
+        orderTotal: built.total,
+        itemIds: built.items.map((item) => item.item_id),
+      });
+    }
+
+    // Phase 11 — backfill redeemed_order_id on the instances already
+    // redeemed atomically above. Purely enrichment (the real state
+    // transition already happened and is final); a failure here must not
+    // affect the already-completed sale.
+    if (dto.redeem_reward_instance_ids?.length) {
+      await this.rewardRedemptionService
+        .attachOrder(dto.redeem_reward_instance_ids, invoice.id)
+        .catch((err: unknown) => {
+          this.logger.warn(
+            `Reward redemption order-linkage failed for invoice ${invoice.id}: ${
+              err && typeof err === 'object' && 'message' in err
+                ? String(err.message)
+                : String(err)
+            }`,
+          );
+        });
     }
 
     // خصم المخزون: أفضل-محاولة (best-effort) — مشكلة بالمخزون لا توقف بيعًا مكتمِلًا أبدًا
@@ -705,6 +950,16 @@ export class InvoicesService {
     })[]) {
       if (!item.serial_id) continue;
       try {
+        // fn_sell_serial takes no tenant argument: a client-supplied serial id
+        // must belong to this tenant before it is transitioned.
+        if (
+          !(await this.serialsRepo.belongsToTenant(
+            item.serial_id,
+            tenant.tenantId,
+          ))
+        ) {
+          throw new Error('Serial not found for this tenant');
+        }
         await this.serialsRepo.sell(
           item.serial_id,
           invoice.id,
@@ -740,6 +995,14 @@ export class InvoicesService {
         dto.customer_id,
       );
       const pointsEarned = Math.floor(basePoints * tierMultiplier);
+      // Customer Domain Phase 6/7 (Owner-approved) — invoice.id is
+      // available here (unlike at redemption time above), since the order
+      // has already been created by this point in the method.
+      const loyaltyContext = {
+        branchId,
+        orderId: invoice.id,
+        createdBy: cashierId,
+      };
       const awardCall = this.config.get<boolean>(
         'POOLED_LOYALTY_WRITES_ENABLED',
       )
@@ -747,13 +1010,32 @@ export class InvoicesService {
             tenant.tenantId,
             dto.customer_id,
             pointsEarned,
+            loyaltyContext,
           )
         : this.loyaltyService.awardPoints(
             tenant.tenantId,
             dto.customer_id,
             pointsEarned,
+            loyaltyContext,
           );
-      awardCall.catch(() => {});
+      // Phase 12 — loyalty_points reward trigger, chained onto the award
+      // itself (not onOrderCompleted above) since it needs the customer's
+      // POST-award lifetime_points_earned, which fn_process_loyalty_points_
+      // reward_event reads live from the customers row — this only has to
+      // run after the award commits, not before. Stays fire-and-forget,
+      // same non-blocking characteristics as the award call it's chained
+      // onto; a reward-evaluation failure here must never surface to the
+      // sale response.
+      const customerId = dto.customer_id;
+      awardCall
+        .then(() =>
+          this.rewardEligibilityService.onLoyaltyPointsAwarded(
+            tenant,
+            customerId,
+            branchId,
+          ),
+        )
+        .catch(() => {});
     }
 
     // إشعار داخلي للكاشير عند إتمام الفاتورة
@@ -772,8 +1054,27 @@ export class InvoicesService {
     return {
       id: invoice.id,
       total: built.total,
+      // Additive, read-only fields (Owner-approved residual-gap fix) —
+      // the receipt previously fell back to the client-side `cart` preview
+      // for subtotal/discount/tax/line-items, which can silently diverge
+      // from what was actually charged (coupon consumed by a race, reward
+      // discount applied server-side, etc.). These mirror `built` exactly,
+      // the same authoritative figures already used to post this invoice's
+      // accounting entry (fn_post_sales_order) — no new calculation.
+      subtotal: built.subtotal,
+      discount_amount: built.discount_amount,
+      tax: built.tax_amount,
+      // Named distinctly from the full persisted-row `items` field the GET
+      // endpoints return (id/total_price) — these are BuiltInvoice's lighter
+      // line shape, exactly what the receipt needs.
+      receipt_items: built.items,
       tax_rate: taxRate,
       stock_warning: stockWarning,
+      // Documented backend contract for the free_item reward type (see
+      // RewardRedemptionService) — the cashier/POS UI is expected to add
+      // these as manual $0 lines; this batch does not insert order lines
+      // automatically (Frontend Scope — backend-only).
+      free_item_grants: freeItemGrants,
     };
   }
 
@@ -825,6 +1126,41 @@ export class InvoicesService {
     return invoice;
   }
 
+  // G6 - edits ONLY the non-financial note (completed invoices included).
+  async updateNote(
+    tenant: TenantContext,
+    id: string,
+    note: string,
+    actorId: string,
+    actorRole: string,
+    ip: string,
+    device: string,
+  ) {
+    const before = await this.findById(tenant, id);
+    const newNote = note.trim() === '' ? null : note.trim();
+    const updated = await this.repo.updateNote(tenant, id, newNote);
+    if (!updated) throw new NotFoundException('Invoice not found');
+
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: actorId,
+      actor_role: actorRole,
+      action: 'invoice.note',
+      resource_type: 'invoice',
+      resource_id: id,
+      branch_id: (before as { branch_id?: string | null }).branch_id ?? null,
+      before_data: {
+        notes: (before as { notes?: string | null }).notes ?? null,
+      },
+      after_data: { notes: newNote },
+      ip_address: ip,
+      device,
+    });
+
+    await this.invalidateList(tenant.tenantId);
+    return { id, notes: newNote };
+  }
+
   async cancel(
     tenant: TenantContext,
     id: string,
@@ -840,6 +1176,12 @@ export class InvoicesService {
       throw new BadRequestException('Invoice already cancelled');
     }
 
+    if ((await this.repo.countReturns(tenant.tenantId, id)) > 0) {
+      throw new BadRequestException(
+        'This invoice has returns and can no longer be cancelled',
+      );
+    }
+
     // M184 — reversal can only be attempted atomically with the status
     // change via the pooled path, mirroring create()'s own gating: a
     // sale can only ever have been posted to Accounting in the first
@@ -849,8 +1191,8 @@ export class InvoicesService {
       'POOLED_INVOICE_WRITES_ENABLED',
     );
     const updated = usePooledCancel
-      ? await this.repo.cancelPooled(tenant, id, actorId)
-      : await this.repo.cancel(tenant, id, actorId);
+      ? await this.repo.cancelPooled(tenant, id, actorId, dto.reason)
+      : await this.repo.cancel(tenant, id, actorId, dto.reason);
 
     if (!updated) {
       throw new BadRequestException('Cannot cancel this invoice');
@@ -863,6 +1205,8 @@ export class InvoicesService {
       action: 'invoice.cancel',
       resource_type: 'invoice',
       resource_id: id,
+      // Resource branch — the order's own branch, loaded fresh above.
+      branch_id: (before as { branch_id?: string | null }).branch_id ?? null,
       before_data: { status: before.status, total: before.total },
       after_data: { status: 'cancelled', reason: dto.reason },
       ip_address: ip,
@@ -940,6 +1284,14 @@ export class InvoicesService {
       held_visibility: dto.held_visibility ?? HeldOrderVisibility.SELF,
       held_by: actorId,
       held_at: new Date().toISOString(),
+      // orders.sale_attempt_id is NOT NULL with no DB default (migration
+      // 187 drops the default deliberately, forcing every order-creating
+      // path to supply its own value) — a hold isn't a financial charge
+      // subject to the same double-submit risk create() guards against
+      // via a client-supplied id, so a fresh server-generated one here
+      // just satisfies the column contract without adding client-facing
+      // idempotency semantics that holds don't need.
+      sale_attempt_id: randomUUID(),
     });
 
     await this.repo.insertItems(
@@ -953,6 +1305,7 @@ export class InvoicesService {
       action: 'invoice.hold',
       resource_type: 'invoice',
       resource_id: order.id,
+      branch_id: dto.branch_id,
       after_data: {
         branch_id: dto.branch_id,
         items_count: dto.items.length,
@@ -1013,6 +1366,7 @@ export class InvoicesService {
       action: 'invoice.hold_cancel',
       resource_type: 'invoice',
       resource_id: id,
+      branch_id: cancelled.branch_id ?? null,
     });
 
     return { id, held: false };

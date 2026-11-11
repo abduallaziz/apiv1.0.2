@@ -64,6 +64,8 @@ export class SuperAdminSubscriptionsService {
       email,
       name,
       dto.amount,
+      // Offline payment recorded by a platform operator: keep legacy behaviour.
+      { requirePaymentSuccess: false },
     );
 
     return { success: true };

@@ -14,11 +14,106 @@ import * as crypto from 'crypto';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { AccountingBootstrapService } from './accounting-bootstrap.service';
 import { AuditService } from '../../core/audit/audit.service';
+import { BranchValidatorService } from '../../core/security/branch-validator.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+
+// Narrow row shapes for the two `users` selects below — passed as the
+// postgrest-js select() generic so `data`/`error` come back properly typed
+// instead of `any`, without introducing a cast or touching any other query
+// in this file.
+interface LoginUserRow {
+  id: string;
+  email: string;
+  password_hash: string | null;
+  role: string;
+  tenant_id: string | null;
+  is_active: boolean;
+  name: string;
+  branch_id: string | null;
+}
+
+interface MeUserRow {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  tenant_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  branch_id: string | null;
+}
+
+// Remaining narrow row shapes for every other `.select()` in this file whose
+// result flows into a typed sink (a typed object literal, a typed function
+// parameter, `new Date(...)`, etc.) — same reasoning as LoginUserRow/
+// MeUserRow above, kept minimal and query-local rather than one shared "User"
+// type, since each query selects different columns.
+interface RoleNameRow {
+  role: { name: string } | null;
+}
+
+interface TenantBusinessTypeRow {
+  business_type: string | null;
+  activity: string | null;
+}
+
+interface IdRow {
+  id: string;
+}
+
+interface PlanRow {
+  id: string;
+  trial_days: number;
+}
+
+interface RegisterUserRow {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  tenant_id: string | null;
+}
+
+interface RefreshTokenRow {
+  id: string;
+  user_id: string;
+  session_id: string;
+  is_used: boolean;
+  expires_at: string;
+}
+
+interface RefreshSessionRow {
+  id: string;
+  is_revoked: boolean;
+  user_id: string;
+  tenant_id: string | null;
+}
+
+interface RefreshUserRow {
+  id: string;
+  email: string;
+  role: string;
+  tenant_id: string | null;
+  branch_id: string | null;
+}
+
+interface DeviceSessionWithJoinsRow {
+  id: string;
+  device_name: string;
+  device_type: string;
+  ip_address: string | null;
+  last_active_at: string;
+  is_revoked: boolean;
+  created_at: string;
+  user_id: string;
+  tenant_id: string | null;
+  user: { name: string; email: string } | null;
+  tenant: { name: string } | null;
+}
 
 const ACTIVITY_SECTION_TO_BUSINESS_TYPE: Record<string, string> = {
   restaurant: 'restaurant',
@@ -65,7 +160,12 @@ export class AuthService {
   // Anon-key client used only to exchange a magiclink token_hash for a real Supabase
   // session (verifyOtp) — a separate, lightweight instance rather than adding a second
   // DI-provided client for one narrow purpose. Never used for any data access.
-  private readonly realtimeAnonClient: SupabaseClient;
+  // `ReturnType<typeof createClient>` rather than the bare `SupabaseClient`
+  // import — createClient()'s inferred generic instantiation doesn't
+  // structurally match the bare-imported type's default generics on this
+  // supabase-js version, which otherwise flags every assignment below as
+  // unsafe even though both sides are the same real client type.
+  private readonly realtimeAnonClient: ReturnType<typeof createClient>;
 
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
@@ -73,6 +173,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
     private readonly auditService: AuditService,
+    private readonly branchValidator: BranchValidatorService,
   ) {
     this.realtimeAnonClient = createClient(
       this.config.getOrThrow<string>('SUPABASE_URL'),
@@ -148,12 +249,12 @@ export class AuthService {
   private async getUserRoleNames(userId: string): Promise<string[]> {
     const { data, error } = await this.supabase
       .from('user_roles')
-      .select('role:roles!user_roles_role_id_fkey(name)')
+      .select<string, RoleNameRow>('role:roles!user_roles_role_id_fkey(name)')
       .eq('user_id', userId);
 
     if (error || !data) return [];
     return data
-      .map((row: any) => row.role?.name as string | undefined)
+      .map((row) => row.role?.name)
       .filter((name): name is string => !!name);
   }
 
@@ -174,7 +275,7 @@ export class AuthService {
 
     const { data: subscription } = await this.supabase
       .from('subscriptions')
-      .select('plan_id')
+      .select<string, { plan_id: string }>('plan_id')
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
       .maybeSingle();
@@ -218,7 +319,7 @@ export class AuthService {
 
     const { data } = await this.supabase
       .from('tenants')
-      .select('business_type, activity')
+      .select<string, TenantBusinessTypeRow>('business_type, activity')
       .eq('id', tenantId)
       .is('deleted_at', null)
       .single();
@@ -232,7 +333,10 @@ export class AuthService {
   async login(dto: LoginDto, ip: string, userAgent: string) {
     const { data: user, error } = await this.supabase
       .from('users')
-      .select('id, email, password_hash, role, tenant_id, is_active, name')
+      .select<
+        string,
+        LoginUserRow
+      >('id, email, password_hash, role, tenant_id, is_active, name, branch_id')
       .eq('email', dto.email)
       .is('deleted_at', null)
       .single();
@@ -243,6 +347,20 @@ export class AuthService {
 
     if (!user.is_active) {
       throw new ForbiddenException('Account is inactive');
+    }
+
+    // Branch Domain Batch 2, B5 (Owner-approved) — a restricted user
+    // (branch_id set) whose assigned branch has since gone inactive or
+    // been soft-deleted must not receive a working session at all; without
+    // this, they got a valid JWT and then hit a confusing wall of
+    // cascading 403/404s on every branch-scoped endpoint (the exact
+    // symptom found in the earlier real-user E2E audit). Reuses
+    // BranchValidatorService.validate() — the same is_active=true AND
+    // deleted_at IS NULL check every other branch-scoped path already
+    // relies on — rather than a second, parallel check. Central users
+    // (branch_id null) are entirely unaffected.
+    if (user.branch_id) {
+      await this.branchValidator.validate(user.branch_id, user.tenant_id);
     }
 
     const valid = await bcrypt.compare(dto.password, user.password_hash);
@@ -272,8 +390,12 @@ export class AuthService {
         last_active_at: new Date().toISOString(),
         is_revoked: false,
       })
-      .select('id')
+      .select<string, IdRow>('id')
       .single();
+
+    if (!session) {
+      throw new ServiceUnavailableException('Failed to create session');
+    }
 
     const { business_type, activity } = await this.getTenantBusinessType(
       user.tenant_id,
@@ -289,6 +411,7 @@ export class AuthService {
       session_id: session.id,
       business_type,
       activity,
+      branch_id: user.branch_id,
     };
 
     const access_token = this.jwtService.sign(payload);
@@ -336,6 +459,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
         tenant_id: user.tenant_id,
+        branch_id: user.branch_id,
         session_id: session.id,
         business_type,
         activity,
@@ -359,7 +483,7 @@ export class AuthService {
 
     const { data: plan, error: planError } = await this.supabase
       .from('plans')
-      .select('id, trial_days')
+      .select<string, PlanRow>('id, trial_days')
       .eq('is_active', true)
       .order('price_monthly', { ascending: true })
       .limit(1)
@@ -393,7 +517,7 @@ export class AuthService {
         address: dto.city ?? null,
         currency,
       })
-      .select('id')
+      .select<string, IdRow>('id')
       .single();
 
     if (tenantError || !tenant) {
@@ -430,7 +554,7 @@ export class AuthService {
           language,
           is_active: true,
         })
-        .select('id, email, name, role, tenant_id')
+        .select<string, RegisterUserRow>('id, email, name, role, tenant_id')
         .single();
 
       if (userError || !user) {
@@ -465,7 +589,7 @@ export class AuthService {
           address: dto.city ?? null,
           is_active: true,
         })
-        .select('id')
+        .select<string, IdRow>('id')
         .single();
 
       if (branchError || !branch) {
@@ -512,8 +636,12 @@ export class AuthService {
           last_active_at: new Date().toISOString(),
           is_revoked: false,
         })
-        .select('id')
+        .select<string, IdRow>('id')
         .single();
+
+      if (!session) {
+        throw new ServiceUnavailableException('Failed to create session');
+      }
 
       const roleNames = await this.getUserRoleNames(user.id);
 
@@ -526,6 +654,9 @@ export class AuthService {
         session_id: session.id,
         business_type: businessType,
         activity: dto.activity,
+        // The owner row created above never sets branch_id on insert, so it
+        // is null (Central) by definition — no extra fetch needed here.
+        branch_id: null,
       };
 
       const access_token = this.jwtService.sign(payload);
@@ -573,6 +704,7 @@ export class AuthService {
           email: user.email,
           role: user.role,
           tenant_id: user.tenant_id,
+          branch_id: null,
           session_id: session.id,
           business_type: businessType,
           activity: dto.activity,
@@ -594,7 +726,10 @@ export class AuthService {
 
     const { data: tokenRecord } = await this.supabase
       .from('refresh_tokens')
-      .select('id, user_id, session_id, is_used, expires_at')
+      .select<
+        string,
+        RefreshTokenRow
+      >('id, user_id, session_id, is_used, expires_at')
       .eq('token_hash', token_hash)
       .single();
 
@@ -628,7 +763,7 @@ export class AuthService {
 
     const { data: session } = await this.supabase
       .from('device_sessions')
-      .select('id, is_revoked, user_id, tenant_id')
+      .select<string, RefreshSessionRow>('id, is_revoked, user_id, tenant_id')
       .eq('id', tokenRecord.session_id)
       .single();
 
@@ -638,7 +773,7 @@ export class AuthService {
 
     const { data: user } = await this.supabase
       .from('users')
-      .select('id, email, role, tenant_id')
+      .select<string, RefreshUserRow>('id, email, role, tenant_id, branch_id')
       .eq('id', tokenRecord.user_id)
       .is('deleted_at', null)
       .single();
@@ -666,6 +801,7 @@ export class AuthService {
       session_id: session.id,
       business_type,
       activity,
+      branch_id: user.branch_id,
     };
 
     const access_token = this.jwtService.sign(payload);
@@ -733,7 +869,10 @@ export class AuthService {
   async me(userId: string) {
     const { data: user, error } = await this.supabase
       .from('users')
-      .select('id, name, email, role, tenant_id, is_active, created_at')
+      .select<
+        string,
+        MeUserRow
+      >('id, name, email, role, tenant_id, is_active, created_at, branch_id')
       .eq('id', userId)
       .is('deleted_at', null)
       .single();
@@ -755,6 +894,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       tenant_id: user.tenant_id,
+      branch_id: user.branch_id,
       is_active: user.is_active,
       created_at: user.created_at,
       business_type,
@@ -823,7 +963,7 @@ export class AuthService {
   async revokeAllSessionsForUser(userId: string, tenantId: string) {
     const { data: sessions } = await this.supabase
       .from('device_sessions')
-      .select('id')
+      .select<string, IdRow>('id')
       .eq('user_id', userId)
       .eq('tenant_id', tenantId)
       .eq('is_revoked', false);
@@ -845,15 +985,16 @@ export class AuthService {
   async getSessions(userId: string) {
     const { data: sessions, error } = await this.supabase
       .from('device_sessions')
-      .select(
-        'id, device_name, device_type, ip_address, last_active_at, is_revoked, created_at, user_id, tenant_id, user:users!device_sessions_user_id_fkey(name, email), tenant:tenants!device_sessions_tenant_id_fkey(name)',
-      )
+      .select<
+        string,
+        DeviceSessionWithJoinsRow
+      >('id, device_name, device_type, ip_address, last_active_at, is_revoked, created_at, user_id, tenant_id, user:users!device_sessions_user_id_fkey(name, email), tenant:tenants!device_sessions_tenant_id_fkey(name)')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    return (sessions ?? []).map((s: any) => ({
+    return (sessions ?? []).map((s) => ({
       id: s.id,
       device_name: s.device_name,
       device_type: s.device_type,

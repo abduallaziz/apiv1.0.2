@@ -65,7 +65,9 @@ describe('purchase order approval engine + receipt gate (migration 120)', () => 
       approvalHistory,
     );
     const locRepo = new LocationsRepository(supabase);
-    const locService = new LocationsService(locRepo, null);
+    const locService = new LocationsService(locRepo, null, {
+      log: () => Promise.resolve(),
+    } as any);
     const grRepo = new GoodsReceiptsRepository(supabase);
     grService = new GoodsReceiptsService(
       grRepo,
@@ -74,6 +76,9 @@ describe('purchase order approval engine + receipt gate (migration 120)', () => 
       {} as any,
       {} as any,
       {} as any,
+      { findById: async () => ({ branch_id: null }) } as any,
+      { log: async () => undefined } as any,
+      {} as any, // ItemPackagingLevelsRepository — unused by this suite
     );
 
     const { data: wh } = await supabase
@@ -148,7 +153,7 @@ describe('purchase order approval engine + receipt gate (migration 120)', () => 
             unit_cost: 5,
           },
         ],
-      } as any),
+      } as any, userId),
     ).rejects.toThrow(/must be approved first/);
   }, 30_000);
 
@@ -171,7 +176,7 @@ describe('purchase order approval engine + receipt gate (migration 120)', () => 
           unit_cost: 5,
         },
       ],
-    });
+    }, userId);
     cleanupGrIds.push(gr.id);
     expect(gr.id).toBeTruthy();
   }, 30_000);
@@ -198,7 +203,7 @@ describe('purchase order approval engine + receipt gate (migration 120)', () => 
             unit_cost: 5,
           },
         ],
-      } as any),
+      } as any, userId),
     ).rejects.toThrow(/must be approved first/);
   }, 30_000);
 

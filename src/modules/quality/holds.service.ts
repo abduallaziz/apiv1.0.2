@@ -19,6 +19,23 @@ export class HoldsService {
     private readonly auditService: AuditService,
   ) {}
 
+  // Branch System Step 5 (Owner-approved) — see identical helper in
+  // ProductionOrdersService for the full rationale.
+  private async resolveBranchForWarehouse(
+    warehouseId: string,
+    tenantId: string,
+  ): Promise<string | null> {
+    try {
+      const warehouse = await this.warehousesService.findById(
+        warehouseId,
+        tenantId,
+      );
+      return warehouse?.branch_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   findAll(tenantId: string) {
     return this.holdsRepo.findAll(tenantId);
   }
@@ -41,7 +58,7 @@ export class HoldsService {
     await this.warehousesService.findById(dto.warehouse_id, tenantId);
     await this.itemsService.findById(dto.item_id, tenantId);
 
-    return this.holdsRepo.create(tenantId, {
+    const hold = await this.holdsRepo.create(tenantId, {
       warehouse_id: dto.warehouse_id,
       item_id: dto.item_id,
       variant_id: dto.variant_id ?? null,
@@ -55,6 +72,22 @@ export class HoldsService {
       quality_inspection_id: dto.quality_inspection_id ?? null,
       created_by: createdBy,
     });
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: createdBy,
+        action: 'quality_hold.created',
+        resource_type: 'quality_hold',
+        resource_id: (hold as { id: string }).id,
+        branch_id: await this.resolveBranchForWarehouse(
+          dto.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
+    return hold;
   }
 
   // active -> released (restores availability) OR active -> rejected
@@ -89,6 +122,10 @@ export class HoldsService {
           action: 'quality_hold.released',
           resource_type: 'quality_hold',
           resource_id: id,
+          branch_id: await this.resolveBranchForWarehouse(
+            (hold as { warehouse_id?: string | null }).warehouse_id,
+            tenantId,
+          ),
           before_data: hold,
           after_data: released,
         })
@@ -115,6 +152,10 @@ export class HoldsService {
         action: 'quality_hold.rejected',
         resource_type: 'quality_hold',
         resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          (hold as { warehouse_id?: string | null }).warehouse_id,
+          tenantId,
+        ),
         before_data: hold,
         after_data: rejected,
       })

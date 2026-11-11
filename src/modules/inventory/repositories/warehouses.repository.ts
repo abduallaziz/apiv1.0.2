@@ -11,6 +11,19 @@ import {
   isForeignKeyViolation,
 } from '../../../shared/supabase/postgrest-error.util';
 
+export interface Warehouse {
+  id: string;
+  tenant_id: string;
+  branch_id: string | null;
+  code: string;
+  name: string;
+  address: string | null;
+  is_active: boolean;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Translates known Postgres constraint violations into actionable HTTP errors
 // instead of letting them fall through to the generic 500 handler.
 function toHttpError(error: unknown): unknown {
@@ -33,16 +46,16 @@ export class WarehousesRepository extends ScopedRepository {
     return { tenantId } as TenantContext;
   }
 
-  async findAll(tenantId: string) {
+  async findAll(tenantId: string): Promise<Warehouse[]> {
     const { data, error } = await this.scopedQuery(
       'warehouses',
       this.ctx(tenantId),
     ).order('name');
     if (error) throw error;
-    return data;
+    return (data ?? []) as Warehouse[];
   }
 
-  async findById(id: string, tenantId: string) {
+  async findById(id: string, tenantId: string): Promise<Warehouse | null> {
     const { data, error } = await this.scopedQuery(
       'warehouses',
       this.ctx(tenantId),
@@ -50,7 +63,7 @@ export class WarehousesRepository extends ScopedRepository {
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
-    return data;
+    return data as Warehouse | null;
   }
 
   async create(tenantId: string, payload: Record<string, unknown>) {

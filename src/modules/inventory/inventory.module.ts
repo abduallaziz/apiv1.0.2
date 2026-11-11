@@ -53,6 +53,10 @@ import { WmsController } from './wms.controller';
 import { WmsService } from './wms.service';
 import { WmsRepository } from './repositories/wms.repository';
 
+import { WmsDashboardController } from './wms-dashboard.controller';
+import { WmsDashboardService } from './wms-dashboard.service';
+import { WmsDashboardRepository } from './repositories/wms-dashboard.repository';
+
 import { PlanningController } from './planning.controller';
 import { PlanningService } from './planning.service';
 import { PlanningRepository } from './repositories/planning.repository';
@@ -101,6 +105,7 @@ import { ReplenishmentRepository } from './repositories/replenishment.repository
     AnalyticsController,
     ReportsController,
     WmsController,
+    WmsDashboardController,
     PlanningController,
     AdvancedAnalyticsController,
     SnapshotsController,
@@ -122,6 +127,7 @@ import { ReplenishmentRepository } from './repositories/replenishment.repository
     AnalyticsService,
     ReportsService,
     WmsService,
+    WmsDashboardService,
     PlanningService,
     AdvancedAnalyticsService,
     SnapshotsService,
@@ -192,6 +198,12 @@ import { ReplenishmentRepository } from './repositories/replenishment.repository
     {
       provide: WmsRepository,
       useFactory: (supabase: SupabaseClient) => new WmsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: WmsDashboardRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new WmsDashboardRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
     {

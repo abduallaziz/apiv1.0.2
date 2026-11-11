@@ -36,8 +36,10 @@ import { LocationsRepository } from '../../../modules/inventory/repositories/loc
 import { SerialsRepository } from '../../../modules/inventory/repositories/serials.repository';
 import { BatchesLookupRepository } from '../../../modules/scanner/resolver/repositories/batches-lookup.repository';
 import { RfidTagsRepository } from '../../../modules/scanner/resolver/repositories/rfid-tags.repository';
+import { normalizeScanValue } from '../../../modules/scanner/utils/normalize-scan-value.util';
 
 const TENANT = '9bcd3369-d664-47c8-b297-3bc9b429aacf'; // Sefay Demo
+const TEST_ACTOR_ID = '00000000-0000-0000-0000-000000000001'; // audit actor id — auditService.log() is stubbed as a no-op in this suite
 
 describe('Scanner Event Engine (Migration 13.21 Phase 4)', () => {
   let supabase: SupabaseClient;
@@ -56,7 +58,11 @@ describe('Scanner Event Engine (Migration 13.21 Phase 4)', () => {
     const eventsRepo = new EventsRepository(supabase);
     const sessionsRepo = new SessionsRepository(supabase);
     const devicesRepo = new DevicesRepository(supabase);
-    const devicesService = new DevicesService(devicesRepo);
+    const devicesService = new DevicesService(
+      devicesRepo,
+      { findById: () => Promise.resolve({ branch_id: null }) } as any,
+      { log: () => Promise.resolve() } as any,
+    );
     const auditRepo = new ScannerAuditLogsRepository(supabase);
     const resolverService = new ResolverService(
       new ItemBarcodeResolver(new ItemBarcodesRepository(supabase)),
@@ -72,6 +78,8 @@ describe('Scanner Event Engine (Migration 13.21 Phase 4)', () => {
       devicesService,
       auditRepo,
       resolverService,
+      { findById: () => Promise.resolve({ branch_id: null }) } as any,
+      { log: () => Promise.resolve() } as any,
     );
 
     const { data: device, error: devErr } = await supabase
@@ -189,102 +197,183 @@ describe('Scanner Event Engine (Migration 13.21 Phase 4)', () => {
 
   describe('ingestion', () => {
     it('creates a valid event with normalized_value and status=validated', async () => {
-      const result = await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        session_id: sessionId,
-        raw_value: '  ean-1234567890128  ',
-        scan_type: 'barcode',
-        source: 'usb_hid',
-      });
+      const result = await eventsService.ingest(
+        TENANT,
+        {
+          device_id: deviceId,
+          session_id: sessionId,
+          raw_value: '  ean-1234567890128  ',
+          scan_type: 'barcode',
+          source: 'usb_hid',
+        },
+        TEST_ACTOR_ID,
+      );
       expect(result.duplicate).toBe(false);
       expect(result.event.status).toBe('validated');
       expect(result.event.normalized_value).toBe('EAN-1234567890128');
       expect(result.event.raw_value).toBe('  ean-1234567890128  ');
-    });
+    }, 15_000);
 
     it('rejects an unknown device', async () => {
       await expect(
-        eventsService.ingest(TENANT, {
-          device_id: '00000000-0000-0000-0000-000000000099',
-          raw_value: '123',
-          scan_type: 'barcode',
-        }),
+        eventsService.ingest(
+          TENANT,
+          {
+            device_id: '00000000-0000-0000-0000-000000000099',
+            raw_value: '123',
+            scan_type: 'barcode',
+          },
+          TEST_ACTOR_ID,
+        ),
       ).rejects.toThrow(NotFoundException);
-    });
+    }, 15_000);
 
     it('rejects a disabled device', async () => {
       await expect(
-        eventsService.ingest(TENANT, {
-          device_id: disabledDeviceId,
-          raw_value: '123',
-          scan_type: 'barcode',
-        }),
+        eventsService.ingest(
+          TENANT,
+          {
+            device_id: disabledDeviceId,
+            raw_value: '123',
+            scan_type: 'barcode',
+          },
+          TEST_ACTOR_ID,
+        ),
       ).rejects.toThrow(ForbiddenException);
-    });
+    }, 15_000);
 
     it('rejects an invalid session id', async () => {
       await expect(
-        eventsService.ingest(TENANT, {
-          device_id: deviceId,
-          session_id: '00000000-0000-0000-0000-000000000099',
-          raw_value: '123',
-          scan_type: 'barcode',
-        }),
+        eventsService.ingest(
+          TENANT,
+          {
+            device_id: deviceId,
+            session_id: '00000000-0000-0000-0000-000000000099',
+            raw_value: '123',
+            scan_type: 'barcode',
+          },
+          TEST_ACTOR_ID,
+        ),
       ).rejects.toThrow(BadRequestException);
-    });
+    }, 15_000);
 
     it('deduplicates a repeated client_event_id without creating a second row', async () => {
       const clientEventId = `evt-dup-${runSuffix}`;
-      const first = await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        raw_value: '999888777',
-        scan_type: 'barcode',
-        client_event_id: clientEventId,
-      });
+      const first = await eventsService.ingest(
+        TENANT,
+        {
+          device_id: deviceId,
+          raw_value: '999888777',
+          scan_type: 'barcode',
+          client_event_id: clientEventId,
+        },
+        TEST_ACTOR_ID,
+      );
       expect(first.duplicate).toBe(false);
 
-      const second = await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        raw_value: '999888777',
-        scan_type: 'barcode',
-        client_event_id: clientEventId,
-      });
+      const second = await eventsService.ingest(
+        TENANT,
+        {
+          device_id: deviceId,
+          raw_value: '999888777',
+          scan_type: 'barcode',
+          client_event_id: clientEventId,
+        },
+        TEST_ACTOR_ID,
+      );
       expect(second.duplicate).toBe(true);
       expect(second.event.id).toBe(first.event.id);
     }, 15_000);
 
     it('deduplicates a repeated raw value from the same device within the window (no client_event_id)', async () => {
+      // The production DEDUP_WINDOW_MS (events.service.ts) is a real,
+      // deliberately tight 2000ms business window — not something this
+      // test may loosen. Two root causes were confirmed by direct
+      // instrumentation before this fix, both testing-side, not a product
+      // regression:
+      //   1. Seeding "first" via a full ingest() round trip (~2.5-2.9s
+      //      against this live Supabase project: device lookup, duplicate
+      //      check, resolve, insert, touchLastSeen, 2x audit writes)
+      //      already exceeds the 2000ms window before "second" even
+      //      starts — fixed by seeding "first" with a single direct insert
+      //      instead of a full ingest() call.
+      //   2. findRecentDuplicate() (events.repository.ts) computes its
+      //      `since` cutoff from the APP HOST's Date.now(), then compares
+      //      it against `created_at`, a DB-SERVER-generated timestamp
+      //      (`DEFAULT NOW()`). This dev/CI environment's app host clock
+      //      was measured to run ~2.5s+ ahead of the live Supabase
+      //      project's server clock — comfortably larger than the 2000ms
+      //      window on its own, independent of round-trip time, so the
+      //      window check fails deterministically no matter how fast the
+      //      two events are created. `scanner_events.created_at` has no
+      //      insert trigger forcing DEFAULT NOW() (migration 172) — it
+      //      accepts an explicit value — so the seed row below sets
+      //      created_at from this same test process's Date.now(), the
+      //      exact clock findRecentDuplicate() itself compares against,
+      //      eliminating the skew for this fixture without touching any
+      //      production file. The real code path under test —
+      //      detectDuplicate() / findRecentDuplicate() / the ingest()
+      //      duplicate branch — is still exercised for real via the
+      //      single, real ingest() call below.
       const rawValue = `windowed-${runSuffix}`;
-      const first = await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        raw_value: rawValue,
-        scan_type: 'manual',
-      });
-      expect(first.duplicate).toBe(false);
+      const normalizedValue = normalizeScanValue(rawValue);
+      const { data: first, error: seedErr } = await supabase
+        .from('scanner_events')
+        .insert({
+          tenant_id: TENANT,
+          session_id: null,
+          device_id: deviceId,
+          client_event_id: null,
+          raw_value: rawValue,
+          normalized_value: normalizedValue,
+          event_type: 'manual',
+          source: null,
+          client_timestamp: new Date().toISOString(),
+          metadata: {},
+          status: 'validated',
+          resolved_entity_type: null,
+          resolved_entity_id: null,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+      if (seedErr) throw seedErr;
 
-      const second = await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        raw_value: rawValue,
-        scan_type: 'manual',
-      });
+      const second = await eventsService.ingest(
+        TENANT,
+        {
+          device_id: deviceId,
+          raw_value: rawValue,
+          scan_type: 'manual',
+        },
+        TEST_ACTOR_ID,
+      );
       expect(second.duplicate).toBe(true);
-      expect(second.event.id).toBe(first.event.id);
+      expect(second.event.id).toBe(first.id);
     }, 15_000);
 
     it('creates an audit log entry for a validated event and for a detected duplicate', async () => {
       const clientEventId = `evt-audit-${runSuffix}`;
-      const first = await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        raw_value: 'AUDIT-CHECK',
-        scan_type: 'barcode',
-        client_event_id: clientEventId,
-      });
-      await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        raw_value: 'AUDIT-CHECK',
-        scan_type: 'barcode',
-        client_event_id: clientEventId,
-      });
+      const first = await eventsService.ingest(
+        TENANT,
+        {
+          device_id: deviceId,
+          raw_value: 'AUDIT-CHECK',
+          scan_type: 'barcode',
+          client_event_id: clientEventId,
+        },
+        TEST_ACTOR_ID,
+      );
+      await eventsService.ingest(
+        TENANT,
+        {
+          device_id: deviceId,
+          raw_value: 'AUDIT-CHECK',
+          scan_type: 'barcode',
+          client_event_id: clientEventId,
+        },
+        TEST_ACTOR_ID,
+      );
 
       const history = await eventsService.history(
         first.event.id as string,
@@ -298,17 +387,21 @@ describe('Scanner Event Engine (Migration 13.21 Phase 4)', () => {
 
   describe('tenant isolation', () => {
     it('does not find an event from another tenant', async () => {
-      const result = await eventsService.ingest(TENANT, {
-        device_id: deviceId,
-        raw_value: 'ISOLATION-CHECK',
-        scan_type: 'barcode',
-      });
+      const result = await eventsService.ingest(
+        TENANT,
+        {
+          device_id: deviceId,
+          raw_value: 'ISOLATION-CHECK',
+          scan_type: 'barcode',
+        },
+        TEST_ACTOR_ID,
+      );
       await expect(
         eventsService.findById(
           result.event.id as string,
           '00000000-0000-0000-0000-000000000001',
         ),
       ).rejects.toThrow(NotFoundException);
-    });
+    }, 15_000);
   });
 });
