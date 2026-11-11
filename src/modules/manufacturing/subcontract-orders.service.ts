@@ -7,6 +7,7 @@ import { SubcontractOrdersRepository } from './repositories/subcontract-orders.r
 import { SuppliersService } from '../purchasing/suppliers.service';
 import { WarehousesService } from '../inventory/warehouses.service';
 import { ItemsService } from '../items/items.service';
+import { AuditService } from '../../core/audit/audit.service';
 import { CreateSubcontractOrderDto } from './dto/create-subcontract-order.dto';
 import { CreateSubcontractCostDto } from './dto/create-subcontract-cost.dto';
 import { throwFromRpcError } from '../inventory/rpc-error.util';
@@ -18,7 +19,25 @@ export class SubcontractOrdersService {
     private readonly suppliersService: SuppliersService,
     private readonly warehousesService: WarehousesService,
     private readonly itemsService: ItemsService,
+    private readonly auditService: AuditService,
   ) {}
+
+  // Branch System Step 5 (Owner-approved) — see identical helper in
+  // ProductionOrdersService for the full rationale.
+  private async resolveBranchForWarehouse(
+    warehouseId: string,
+    tenantId: string,
+  ): Promise<string | null> {
+    try {
+      const warehouse = await this.warehousesService.findById(
+        warehouseId,
+        tenantId,
+      );
+      return warehouse?.branch_id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   findAll(tenantId: string, status?: string) {
     return this.subcontractOrdersRepo.findAll(tenantId, status);
@@ -55,7 +74,7 @@ export class SubcontractOrdersService {
       await this.itemsService.findById(line.output_item_id, tenantId); // 404 if missing
     }
 
-    return this.subcontractOrdersRepo.create(
+    const order = await this.subcontractOrdersRepo.create(
       tenantId,
       createdBy,
       {
@@ -74,21 +93,75 @@ export class SubcontractOrdersService {
         output_quantity: line.output_quantity,
       })),
     );
+
+    if (createdBy) {
+      await this.auditService
+        .log({
+          tenant_id: tenantId,
+          actor_id: createdBy,
+          action: 'subcontract_order.created',
+          resource_type: 'subcontract_order',
+          resource_id: (order as unknown as { id: string }).id,
+          branch_id: await this.resolveBranchForWarehouse(
+            dto.warehouse_id,
+            tenantId,
+          ),
+        })
+        .catch(() => {});
+    }
+
+    return order;
   }
 
   async send(id: string, tenantId: string, actorId: string | null) {
-    await this.findById(id, tenantId); // 404 before hitting the RPC
+    const existing = await this.findById(id, tenantId); // 404 before hitting the RPC
     try {
-      return await this.subcontractOrdersRepo.send(tenantId, id, actorId);
+      const sent = await this.subcontractOrdersRepo.send(tenantId, id, actorId);
+      if (actorId) {
+        await this.auditService
+          .log({
+            tenant_id: tenantId,
+            actor_id: actorId,
+            action: 'subcontract_order.sent',
+            resource_type: 'subcontract_order',
+            resource_id: id,
+            branch_id: await this.resolveBranchForWarehouse(
+              (existing as unknown as { warehouse_id: string }).warehouse_id,
+              tenantId,
+            ),
+          })
+          .catch(() => {});
+      }
+      return sent;
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
     }
   }
 
   async receive(id: string, tenantId: string, actorId: string | null) {
-    await this.findById(id, tenantId);
+    const existing = await this.findById(id, tenantId);
     try {
-      return await this.subcontractOrdersRepo.receive(tenantId, id, actorId);
+      const received = await this.subcontractOrdersRepo.receive(
+        tenantId,
+        id,
+        actorId,
+      );
+      if (actorId) {
+        await this.auditService
+          .log({
+            tenant_id: tenantId,
+            actor_id: actorId,
+            action: 'subcontract_order.received',
+            resource_type: 'subcontract_order',
+            resource_id: id,
+            branch_id: await this.resolveBranchForWarehouse(
+              (existing as unknown as { warehouse_id: string }).warehouse_id,
+              tenantId,
+            ),
+          })
+          .catch(() => {});
+      }
+      return received;
     } catch (error) {
       throwFromRpcError(error as { message: string; code?: string });
     }
@@ -116,10 +189,33 @@ export class SubcontractOrdersService {
         `Cannot add a cost to subcontract order with status "${order.status}" — costs must be added before the order is received`,
       );
     }
-    return this.subcontractOrdersRepo.addCost(id, tenantId, createdBy, {
-      cost_type: dto.cost_type,
-      amount: dto.amount,
-      notes: dto.notes ?? null,
-    });
+    const cost = await this.subcontractOrdersRepo.addCost(
+      id,
+      tenantId,
+      createdBy,
+      {
+        cost_type: dto.cost_type,
+        amount: dto.amount,
+        notes: dto.notes ?? null,
+      },
+    );
+
+    if (createdBy) {
+      await this.auditService
+        .log({
+          tenant_id: tenantId,
+          actor_id: createdBy,
+          action: 'subcontract_order.cost_added',
+          resource_type: 'subcontract_order',
+          resource_id: id,
+          branch_id: await this.resolveBranchForWarehouse(
+            order.warehouse_id,
+            tenantId,
+          ),
+        })
+        .catch(() => {});
+    }
+
+    return cost;
   }
 }

@@ -18,10 +18,21 @@ import { UserRole } from '../../shared/types/enums';
 import { BillingService } from '../../core/billing/billing.service';
 import { AuthService } from '../auth/auth.service';
 import { PermissionsService } from '../../core/permissions/permissions.service';
+import { BranchValidatorService } from '../../core/security/branch-validator.service';
 import {
   isUniqueViolation,
   isForeignKeyViolation,
 } from '../../shared/supabase/postgrest-error.util';
+
+// Branch System Step 4 (Owner-approved) — the users repository's `findById`
+// selects `branch_id` via a dynamic Supabase column-list string, which
+// Supabase's typings can't statically infer past `any`. This narrows just
+// the one field this service reads off `existing` for branch-reassignment
+// detection, without re-typing the repository's whole existing (pre-Step-4)
+// loosely-typed return shape.
+interface ExistingUserBranch {
+  branch_id: string | null;
+}
 
 @Injectable()
 export class UsersService {
@@ -31,7 +42,19 @@ export class UsersService {
     private readonly billingService: BillingService,
     private readonly authService: AuthService,
     private readonly permissionsService: PermissionsService,
+    private readonly branchValidator: BranchValidatorService,
   ) {}
+
+  // NULL is the valid "Central user" value and must bypass validation —
+  // only a non-null assignment needs to be checked against the tenant's
+  // active branches.
+  private async validateBranchAssignment(
+    branchId: string | null | undefined,
+    tenantId: string,
+  ) {
+    if (branchId === undefined || branchId === null) return;
+    await this.branchValidator.validate(branchId, tenantId);
+  }
 
   // Disabling or deleting an employee must immediately cut them off, not just at
   // their next login: revoke the personal attendance link/device binding and kill
@@ -182,8 +205,10 @@ export class UsersService {
     }
 
     await this.assertNoDuplicates(dto, tenant.tenantId, id);
+    await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
 
     const updates: Record<string, unknown> = {};
+    if (dto.branch_id !== undefined) updates.branch_id = dto.branch_id;
     if (dto.name !== undefined) updates.name = dto.name;
     if (dto.avatar_url !== undefined) updates.avatar_url = dto.avatar_url;
     if (dto.employee_number !== undefined)
@@ -229,6 +254,17 @@ export class UsersService {
     ) {
       await this.usersRepository.revokeAttendanceAccess(id, tenant.tenantId);
     }
+    // Branch System Step 4 (Owner-approved): a branch reassignment changes
+    // which data this user's JWT authorizes them for, so any already-issued
+    // token is now stale for authorization purposes. Application sessions
+    // only — attendance-link auth is a separate, token-based identity model
+    // untouched here (see revokeAttendanceAccess above for that).
+    const branchReassigned =
+      dto.branch_id !== undefined &&
+      dto.branch_id !== (existing as ExistingUserBranch).branch_id;
+    if (branchReassigned) {
+      await this.authService.revokeAllSessionsForUser(id, tenant.tenantId);
+    }
 
     await this.auditService.log({
       tenant_id: tenant.tenantId,
@@ -236,6 +272,13 @@ export class UsersService {
       action: 'employee.updated',
       resource_type: 'employee',
       resource_id: id,
+      // Branch System Step 5 (Owner-approved): every other employee.updated
+      // field is tenant-wide user/role administration (null), but a branch
+      // reassignment specifically IS the event of "this employee now belongs
+      // to branch B" — dto.branch_id (the new value, possibly null for a
+      // reassignment back to Central) is the correct resource-branch value
+      // for exactly that case, never the actor's own branch.
+      branch_id: branchReassigned ? (dto.branch_id ?? null) : null,
       before_data: { name: existing.name, is_active: existing.is_active },
       after_data: updates,
     });
@@ -259,6 +302,8 @@ export class UsersService {
       );
     }
 
+    await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
+
     const password_hash = await bcrypt.hash(dto.password, 12);
 
     const { data, error } = await this.usersRepository.create({
@@ -268,6 +313,7 @@ export class UsersService {
       name: dto.name,
       role: dto.role,
       is_active: true,
+      branch_id: dto.branch_id ?? null,
     });
 
     if (error) throw new BadRequestException(error.message);
@@ -296,6 +342,7 @@ export class UsersService {
     await this.billingService.checkUserLimit(tenant.tenantId);
 
     await this.assertNoDuplicates(dto, tenant.tenantId);
+    await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
 
     const { data, error } = await this.usersRepository.create({
       tenant_id: tenant.tenantId,
@@ -305,6 +352,7 @@ export class UsersService {
       role: UserRole.NONE,
       is_active: true,
       is_employee_profile: true,
+      branch_id: dto.branch_id ?? null,
       employee_number: dto.employee_number ?? null,
       phone: dto.phone ?? null,
       identity_number: dto.identity_number ?? null,
@@ -360,9 +408,12 @@ export class UsersService {
   ) {
     const existing = await this.findOne(id, tenant);
 
+    await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
+
     const updates: Record<string, unknown> = {};
     if (dto.name) updates.name = dto.name;
     if (dto.is_active !== undefined) updates.is_active = dto.is_active;
+    if (dto.branch_id !== undefined) updates.branch_id = dto.branch_id;
     if (dto.password)
       updates.password_hash = await bcrypt.hash(dto.password, 12);
     if (dto.commission_rate !== undefined)
@@ -421,12 +472,27 @@ export class UsersService {
       await this.usersRepository.revokeAttendanceAccess(id, tenant.tenantId);
     }
 
+    // Branch System Step 4 (Owner-approved): a branch reassignment changes
+    // which data this user's JWT authorizes them for, so any already-issued
+    // token is now stale for authorization purposes. Application sessions
+    // only — attendance-link auth is untouched here.
+    const branchReassigned =
+      dto.branch_id !== undefined &&
+      dto.branch_id !== (existing as ExistingUserBranch).branch_id;
+    if (branchReassigned) {
+      await this.authService.revokeAllSessionsForUser(id, tenant.tenantId);
+    }
+
     await this.auditService.log({
       tenant_id: tenant.tenantId,
       actor_id: actorId,
       action: 'user.update',
       resource_type: 'user',
       resource_id: id,
+      // Branch System Step 5 (Owner-approved) — see employee.updated above
+      // for the same reasoning: only the reassignment itself carries the
+      // new branch; every other user.update field stays tenant-wide (null).
+      branch_id: branchReassigned ? (dto.branch_id ?? null) : null,
       before_data: { name: existing.name, is_active: existing.is_active },
       after_data: updates,
     });

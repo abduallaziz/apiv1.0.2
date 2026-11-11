@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
@@ -24,10 +25,17 @@ import { RequirePermission } from '../../core/permissions/require-permission.dec
 export class BranchesController {
   constructor(private readonly service: BranchesService) {}
 
+  // `active_only=true` is for branch-assignment selectors (Employee Wizard,
+  // Employee Detail, Create User) — they must only offer branches that can
+  // actually be assigned. Branch Management's own list omits it on purpose,
+  // since administering branches requires seeing inactive ones too.
   @Get()
   @RequirePermission('branches.view')
-  findAll(@GetTenant() tenant: TenantContext) {
-    return this.service.findAll(tenant);
+  findAll(
+    @GetTenant() tenant: TenantContext,
+    @Query('active_only') activeOnly?: string,
+  ) {
+    return this.service.findAll(tenant, activeOnly === 'true');
   }
 
   @Get(':id')

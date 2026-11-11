@@ -42,7 +42,7 @@ export class ItemsService {
       page: number;
       perPage: number;
     }>(cacheKey);
-    if (cached) return cached;
+    if (cached) return this.withLiveStock(tenantId, cached);
 
     const { data, total } = await this.itemsRepo.findAll(
       tenantId,
@@ -56,7 +56,37 @@ export class ItemsService {
       perPage: pagination.perPage,
     };
     await this.cache.set(cacheKey, envelope, ITEMS_LIST_TTL);
-    return envelope;
+    return this.withLiveStock(tenantId, envelope);
+  }
+
+  // Stock changes with every sale, so it is attached AFTER the 5-minute list
+  // cache (never cached with it). Only items that track inventory and have no
+  // variants get a stock_quantity — same rule as findById; the POS uses it to
+  // flag out-of-stock items.
+  private async withLiveStock<
+    T extends { data: unknown[] },
+  >(tenantId: string, envelope: T): Promise<T> {
+    type Row = {
+      id: string;
+      has_inventory?: boolean;
+      has_variants?: boolean;
+      stock_quantity?: number;
+    };
+    const rows = envelope.data as Row[];
+    const tracked = rows.filter((r) => r.has_inventory && !r.has_variants);
+    if (tracked.length === 0) return envelope;
+    const totals = await this.itemsRepo.sumStockForItems(
+      tenantId,
+      tracked.map((r) => r.id),
+    );
+    return {
+      ...envelope,
+      data: rows.map((r) =>
+        r.has_inventory && !r.has_variants
+          ? { ...r, stock_quantity: totals.get(r.id) ?? 0 }
+          : r,
+      ),
+    };
   }
 
   async getStats(tenantId: string) {

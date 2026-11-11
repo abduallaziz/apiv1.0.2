@@ -3,11 +3,14 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class DiscountEngine {
   applyPercentageDiscount(subtotal: number, percent: number): number {
-    return parseFloat(((subtotal * percent) / 100).toFixed(2));
+    // A percentage discount can never exceed 100% (would make the total
+    // negative) nor be negative (would act as a surcharge).
+    const pct = Math.min(Math.max(percent, 0), 100);
+    return parseFloat(((subtotal * pct) / 100).toFixed(2));
   }
 
   applyFixedDiscount(subtotal: number, amount: number): number {
-    return parseFloat(Math.min(amount, subtotal).toFixed(2));
+    return parseFloat(Math.max(Math.min(amount, subtotal), 0).toFixed(2));
   }
 
   checkMaxDiscount(discount: number, maxAllowed: number): number {

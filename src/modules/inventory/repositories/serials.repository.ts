@@ -116,6 +116,18 @@ export class SerialsRepository {
     return data;
   }
 
+  /** True only if the serial exists in this tenant. */
+  async belongsToTenant(serialId: string, tenantId: string): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('item_serials')
+      .select('id')
+      .eq('id', serialId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error) throw error;
+    return !!data;
+  }
+
   async sell(serialId: string, orderId: string, warrantyMonths: number | null) {
     const { data, error } = await this.supabase.rpc('fn_sell_serial', {
       p_serial_id: serialId,

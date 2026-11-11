@@ -112,4 +112,20 @@ export class GoodsReceiptsRepository extends ScopedRepository {
     if (error) throw error;
     return data;
   }
+
+  // Inventory Stage 1 / I4 (Owner-approved) — reverses a posted receipt's
+  // stock/cost-layer/PO effects. Mirrors post()'s call shape; the actual
+  // safety checks (cost-layer traceability, no consumption since receipt)
+  // live in fn_reverse_goods_receipt itself.
+  async reverse(id: string, actorId: string) {
+    const { data, error } = await this.supabase.rpc(
+      'fn_reverse_goods_receipt',
+      {
+        p_goods_receipt_id: id,
+        p_actor_id: actorId,
+      },
+    );
+    if (error) throw error;
+    return data;
+  }
 }

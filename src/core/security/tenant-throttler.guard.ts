@@ -3,16 +3,10 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { decodeTenantId } from './decode-tenant.util';
 import { isLoadTestMode } from './load-test-mode';
+import { isQaTenant } from './qa-tenant';
 
-// Internal QA/demo tenant ("Sefay Demo", owner@sefay.com) — also exempted from
-// PermissionGuard (see permission.guard.ts) so it can exercise every feature
-// from one account. It gets hit far harder than a real tenant during manual
-// testing (rapid clicks across multiple independent save buttons, repeated
-// diagnostic API calls, etc.), which was tripping its own tenant-scoped
-// throttle bucket even after raising the global limit. Exempting it here has
-// zero blast radius on real customers since it's keyed by this one tenant_id.
-const UNTHROTTLED_TEST_TENANT_IDS = ['9bcd3369-d664-47c8-b297-3bc9b429aacf'];
-
+// QA/demo tenant exemption: see qa-tenant.ts (non-production only, and only
+// for a signature-verified tenant id).
 @Injectable()
 export class TenantThrottlerGuard extends ThrottlerGuard {
   protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
@@ -30,7 +24,9 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
 
     const req = context.switchToHttp().getRequest();
     const tenantId = decodeTenantId(req);
-    return !!tenantId && UNTHROTTLED_TEST_TENANT_IDS.includes(tenantId);
+    // Exemption only for a signature-verified QA tenant, and never in
+    // production (decodeTenantId verifies; isQaTenant checks NODE_ENV).
+    return isQaTenant(tenantId);
   }
 
   protected async getTracker(req: Record<string, unknown>): Promise<string> {

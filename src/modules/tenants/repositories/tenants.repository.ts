@@ -9,7 +9,7 @@ export class TenantsRepository {
   ) {}
 
   private static readonly PROFILE_COLUMNS =
-    'id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, customer_capture_enabled, name_field_enabled, logo_url, tax_number, invoice_footer, printer_settings, notification_preferences, loyalty_points_per_currency, loyalty_redemption_value, loyalty_enabled';
+    'id, name, business_type, activity, status, trial_ends_at, created_at, currency_code, currency_symbol, tax_rate, tax_inclusive_pricing, customer_capture_enabled, name_field_enabled, logo_url, tax_number, invoice_footer, printer_settings, notification_preferences, loyalty_points_per_currency, loyalty_redemption_value, loyalty_enabled, enabled_payment_methods';
 
   async findById(tenantId: string) {
     const { data, error } = await this.supabase
@@ -35,6 +35,42 @@ export class TenantsRepository {
     return data.tax_rate ?? 0;
   }
 
+  // Tax Pricing Phase 1 (Owner-approved) — used only by the main POS
+  // checkout path (invoices.service.ts create()). Deliberately separate
+  // from getTaxRate() above rather than changing its return shape, since
+  // getTaxRate() has other real callers (dine-in.service.ts) not in this
+  // phase's approved scope and must keep their exact current behavior.
+  async getTaxConfig(
+    tenantId: string,
+  ): Promise<{ tax_rate: number; tax_inclusive_pricing: boolean }> {
+    const { data, error } = await this.supabase
+      .from('tenants')
+      .select('tax_rate, tax_inclusive_pricing')
+      .eq('id', tenantId)
+      .is('deleted_at', null)
+      .single();
+
+    if (error || !data) return { tax_rate: 0, tax_inclusive_pricing: false };
+    return {
+      tax_rate: data.tax_rate ?? 0,
+      tax_inclusive_pricing: data.tax_inclusive_pricing ?? false,
+    };
+  }
+
+  // T11/G8 — methods the owner left switched on. 'cash' is always present
+  // (DB CHECK); a legacy/missing value means "all methods".
+  async getEnabledPaymentMethods(tenantId: string): Promise<string[] | null> {
+    const { data, error } = await this.supabase
+      .from('tenants')
+      .select('enabled_payment_methods')
+      .eq('id', tenantId)
+      .is('deleted_at', null)
+      .single();
+    if (error || !data) return null;
+    const value = data.enabled_payment_methods as unknown;
+    return Array.isArray(value) ? (value as string[]) : null;
+  }
+
   async updateProfile(
     tenantId: string,
     updates: {
@@ -43,6 +79,7 @@ export class TenantsRepository {
       currency_code?: string;
       currency_symbol?: string;
       tax_rate?: number;
+      tax_inclusive_pricing?: boolean;
       customer_capture_enabled?: boolean;
       name_field_enabled?: boolean;
       logo_url?: string;
@@ -53,6 +90,7 @@ export class TenantsRepository {
       loyalty_points_per_currency?: number;
       loyalty_redemption_value?: number;
       loyalty_enabled?: boolean;
+      enabled_payment_methods?: string[];
     },
   ) {
     const { data, error } = await this.supabase
@@ -113,17 +151,6 @@ export class TenantsRepository {
   async countUsers(tenantId: string): Promise<number> {
     const { count, error } = await this.supabase
       .from('users')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .is('deleted_at', null);
-
-    if (error) throw error;
-    return count ?? 0;
-  }
-
-  async countBranches(tenantId: string): Promise<number> {
-    const { count, error } = await this.supabase
-      .from('branches')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
       .is('deleted_at', null);

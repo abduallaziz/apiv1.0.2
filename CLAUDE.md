@@ -55,35 +55,39 @@ Any multi-item roadmap/plan (e.g. the 24-point Inventory scope) MUST be executed
 
 This rule persists across every session, same as the Execution Gate above.
 
-## Application Layer Deferral (permanent, no exceptions) — decided 2026-08-08
+## Application / Mobile Execution Rule (supersedes the former "Application Layer Deferral") — updated 2026-08-20
 
-Do NOT implement any user-facing application (mobile, desktop, or otherwise) before the Sefay Core Platform is complete. This applies without exception to every application, including but not limited to:
+Frontend, Mobile, and Application-layer work is **not globally deferred**. An Application-layer capability may be implemented once its required contracts and dependencies are ready — execution order is determined by actual dependency graphs, not by a global "Core Platform complete" gate.
 
-- Mobile Inventory App
-- Mobile POS / Cashier App
-- Scanner Mobile App
-- Attend App
-- Employee App
-- Customer App
-- Any future frontend/mobile/desktop application
+**Before implementing any Frontend/Mobile capability, verify:**
+1. Required backend API exists, or is explicitly part of the same approved implementation phase.
+2. Required DTO/API contracts are defined.
+3. Authorization and tenant/branch/warehouse rules are defined.
+4. Required business logic is approved and stable enough for the feature.
+5. Required database/schema dependencies exist, or are included in the same approved phase.
+6. The feature has an explicit Source-of-Truth specification.
+7. Runtime validation can be performed.
+8. No known architectural blocker exists.
 
-**Reason:** an application layer must only be built on top of a stable platform — business domains, database schema, APIs, permissions, authentication, workflows, notifications, integrations, and security rules all need to be settled first. Building an app against a still-moving core forces rework.
+If all eight are satisfied, Application/Mobile implementation is allowed for that capability.
 
-**Immediate consequence for the Sefay Universal Device Platform (#21):** Phases 1–7 (Architectural Audit, Database Foundation, Device Management, Scanner Event Engine, Resolver Engine, Adapter Framework, Action Framework, Authorization Completion Patch) are complete and remain **backend infrastructure only**. **Phase 8 (Mobile Scanner Application) and every later phase are on hold — do not start any mobile application work** until the Core Platform is declared complete.
+**Architectural safety is unchanged by this rule.** Removing the global gate does NOT mean:
+- frontend may invent business logic or API contracts
+- frontend may bypass authorization or tenant/branch/warehouse scope
+- frontend may create fake data or a second Source of Truth
+- frontend may implement business logic independently of backend
+- mobile clients may bypass Device Platform contracts
 
-**New execution priority, effective immediately:**
-1. Audit current Sefay Core domains.
-2. Identify missing business modules.
-3. Create an execution roadmap for Core completion.
-4. Complete backend/core architecture.
-5. Validate: database, APIs, permissions, tests, runtime, documentation.
-6. Only after Core completion does Application Layer work begin.
+Sefay's backend remains the sole Source of Truth; Frontend/Mobile only consumes approved backend contracts.
 
-**Application implementation order, once Core completion is declared** (not before):
-1. Android — mobile, tablet, touch POS, device integrations
-2. iOS — iPhone, iPad
-3. Windows — desktop/POS when required
+**Mobile applications** are treated as a normal Application Layer capability, gated per-feature on the 8-point check above — e.g. Mobile Warehouse is allowed once warehouse APIs, barcode/device contracts, authorization, and sync/idempotency behavior exist. A mobile app must never be blocked solely because an unrelated Core Platform capability elsewhere remains unfinished.
 
-No exceptions for "small" applications — every application, regardless of size or scope, follows this same rule.
+**Device Platform backend and Mobile Device integration** may evolve together once their contracts are defined: `Device Backend → Device Contract → Mobile Consumer`, not `Core Platform Complete → Mobile allowed`.
 
-This rule persists across every session, same as the Execution Gate above. Do not assume it has been superseded just because a later message discusses an application feature — remain in Core-only mode until an explicit Core Platform completion declaration is given.
+**Dependency-first execution** for every Application/Mobile feature: `Dependency Audit → Contract Validation → Authorization Validation → Implementation → Runtime Validation`.
+
+**Scope control is unchanged.** All Application/Mobile work still follows: `Architectural Audit → Migration Matrix → Execution Protocol → Validation Gates`. No architecture or business-logic change without approval, per the Architectural Approval Protocol above.
+
+> Application and Mobile layers are not globally deferred. They may be implemented when their required contracts, authorization, dependencies, and validation paths are ready. Application work must consume Sefay's approved backend contracts and may not invent or duplicate business logic.
+
+This rule persists across every session, same as the Execution Gate above.

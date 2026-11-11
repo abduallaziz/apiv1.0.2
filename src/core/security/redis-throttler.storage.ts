@@ -48,12 +48,29 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     const timeToExpire = Math.max(0, Math.ceil(pttl / 1000));
 
     if (totalHits > limit && blockDuration > 0) {
-      await this.redis.set(blockKey, '1', 'EX', blockDuration);
+      // Inventory #7 / F3 residual (Owner-approved) — `blockDuration` is
+      // always in milliseconds here: NestJS's ThrottlerGuard passes
+      // `blockDuration ?? ttl`, and `ttl` is configured in ms throughout
+      // throttler.config.ts (WINDOW_MS = 60000). `EX` takes seconds, so the
+      // intended 60s block was being stored as a 60000-SECOND (~16.7 hour)
+      // block — every other call in this file already correctly uses the
+      // millisecond APIs (PTTL/PEXPIRE); this was the one outlier. `PX`
+      // takes milliseconds, matching blockDuration's actual unit and every
+      // other Redis call here — no policy value changes, this only fixes
+      // the unit bug uniformly across all four tiers (global/global-ip/
+      // auth/session), since they all share this one storage class.
+      await this.redis.set(blockKey, '1', 'PX', blockDuration);
       return {
         totalHits,
         timeToExpire,
         isBlocked: true,
-        timeToBlockExpire: blockDuration,
+        // Seconds, matching the already-blocked branch above (which derives
+        // this from PTTL/1000) and the HTTP Retry-After convention the
+        // guard forwards this value into verbatim — returning raw
+        // millisecond `blockDuration` here would give a Retry-After header
+        // 1000x too large, the client-facing symptom of the same bug fixed
+        // above.
+        timeToBlockExpire: Math.max(0, Math.ceil(blockDuration / 1000)),
       };
     }
 

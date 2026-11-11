@@ -12,7 +12,7 @@ export class UsersRepository extends ScopedRepository {
   }
 
   private static readonly PAYROLL_FIELDS =
-    'base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value, attendance_token, attendance_device_fingerprint, attendance_enabled, shift_pattern_id, custom_days_of_week, custom_shifts, custom_day_overrides, schedule_start_date, department, job_title, avatar_url, employee_number, phone, identity_number, manager_name, employment_type, join_date, city, address, gps_radius_meters, is_employee_profile';
+    'base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value, attendance_token, attendance_device_fingerprint, attendance_enabled, shift_pattern_id, custom_days_of_week, custom_shifts, custom_day_overrides, schedule_start_date, department, job_title, avatar_url, employee_number, phone, identity_number, manager_name, employment_type, join_date, city, address, gps_radius_meters, is_employee_profile, branch_id';
 
   async findAll(tenant: TenantContext) {
     return this.scopedQuery('users', tenant)

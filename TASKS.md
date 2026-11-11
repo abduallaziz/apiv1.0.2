@@ -738,3 +738,409 @@ export const HARDCODED_PLATFORM_ONLY_KEYS = new Set(['analytics.view.all', 'audi
 - أي مرحلة أو بند تنفيذ جديد يتطلب **قرار مالك صريح ومنفصل** قبل البدء.
 
 راجع STATUS.md (الإدخالات المُلحَقة اعتبارًا من commit `5998e20`) للتفاصيل الكاملة والأدلة الداعمة لكل بند أعلاه.
+---
+
+## 🧾 الطلبات المعلقة (Held/Pending Orders) — 2026-11-08
+
+بلاغ المالك بلقطة شاشة: صفوف «معلقة» تظهر في صفحة الطلبات رغم حذفها من شاشة الطلبات المعلقة في الكاشير. التشخيص الكامل (المصدران الوحيدان لـ`status='pending'`، السبب الجذري، نطاق الأثر المؤكَّد على التقارير، طرق الإكمال الفعلية) في `STATUS.md` — قسم «الطلبات المعلقة (Held/Pending Orders)» بتاريخ 2026-11-08.
+
+- [x] **إصلاح الصفوف الشبحية** — `InvoicesRepository.findAll()` لم يكن يفلتر `deleted_at` إطلاقًا، بعكس `findHeldOrders()`. أُضيف `.is('deleted_at', null)`. تعديل استعلام فقط: بلا Schema/Migration/DDL/تغيير عقد API. محليًا فقط، غير مدفوع. لم يُختبَر بالمتصفح — المالك هو المُختبِر.
+- [ ] ⏸️ **مؤجَّل بقرار المالك (2026-11-08)** — إخفاء الطلبات المعلقة الحيّة (`held=true`) من قائمة الطلبات لتبقى حصرًا في شاشة الكاشير. قرار منتجي: يغيّر معنى حبة الفلترة «معلقة» (ستقتصر على طاولات dine-in المفتوحة).
+- [ ] ⏸️ **مؤجَّل بقرار المالك (2026-11-08)** — تصحيح دلالة الحالة في `cancelHeldOrder` (يترك `status='pending'` للأبد على سجل محذوف). أثر مرئي صفر اليوم؛ يتطلب التفريق بين مساري الحذف والاستئناف لأن نفس الدالة تخدمهما معًا.
+
+نص قرار الإيقاف الحرفي: **«وقف وثق الي سويتها في ملفات التوثيق وراح نعمل عليه»**.
+
+
+---
+
+<!-- HISTORICAL-RECONSTRUCTION-2026-11-08 -->
+## 📍 Reconstructed Position (2026-11-08)
+- Committed & pushed (GitHub main == local HEAD, both repos): everything through api `ebb1d9d` and the current web HEAD.
+- Local only, uncommitted: api migrations 197-250 and modules rewards / expenses-v2 / branches / WMS (see STATUS.md "Historical Reconstruction" A-C); web rewards, expenses-v2, branches, i18n.
+- Risk: `start:prod` runs `migrate.js`; pushing 197-250 applies them to the live DB at deploy. Applied status today is UNVERIFIED.
+- Open owner decisions: fate of uncommitted code (split into commits vs push as-is vs keep local); 4 api + 1 web unmerged GitHub branches; owner@sefay.com credential literals in public `testsprite_tests/`.
+- Retention fixed 2026-11-08 (`cleanupPeriodDays: 3650`); the 5 surviving Sefay transcripts are recorded in `C:\Fp\session-history\`.
+
+
+- **Update 2026-11-08 (verified):** migrations 197-250 ARE applied on the live DB (249/249, see STATUS.md "Live-DB verification"). Remaining risk is the uncommitted code, not the schema.
+
+
+---
+
+<!-- DEFECT-BACKLOG-2026-11-08 -->
+## Defect Backlog (2026-11-08) - found by reading code, NOT fixed
+
+Verification pass 2026-11-08: D1-D7 and the listed parts of D8/D10 re-checked directly in code (see row notes). Unchecked: D9, D11, D12, birthday/campaign, cancel/wave parts.
+
+Source: code-derived documentation in STATUS.md ("Code-Derived Behavior Documentation 2026-11-08"). Status column: VERIFIED = checked directly in code by me; AGENT-REPORTED = from a read-only agent report, re-check before fixing. Nothing below has been changed; each fix needs owner approval (Execution Gate).
+
+### P1 - feature does not work at all
+| # | Defect | Status | Where |
+|---|---|---|---|
+| D1 | spend_threshold rewards never unlock: web sends `trigger_config.threshold`, DB function reads `amount` | VERIFIED | web RewardFormModal.tsx:83 vs api migration 217 line 51 |
+| D2 | Category rewards need `count` in trigger_config; form does not send it | VERIFIED 2026-11-08 | form sends only category_id (RewardFormModal.tsx:85); fn reads count (migration 216:47) |
+| D3 | `tenants.rewards_enabled` is never read; birthday and campaign rewards are created but never evaluated | VERIFIED for rewards_enabled (only in migration 205, no .ts reads it); birthday/campaign not evaluated still agent-reported | api/src rewards |
+
+### P2 - data or security correctness
+| # | Defect | Status | Where |
+|---|---|---|---|
+| D4 | Branch-scope check missing in expenses-v2: only list is @BranchScoped; findOne/update/cancel/confirm-payment/stop-recurring/attachments take only tenant+id | VERIFIED 2026-11-08 (controller) | api/src/modules/expenses-v2 |
+| D5 | Reward redemption happens before invoice creation, no rollback if invoice fails | VERIFIED 2026-11-08: invoices.service.ts:467 redeems, repo.create at :528, catch block :575-603 has no release | rewards redemption |
+| D6 | User permissions (migration 090) are shadow-only unless `ENFORCE_HYBRID_PERMISSIONS=true` | VERIFIED 2026-11-08 (permission-resolution.util.ts:18 + guard spec) | migration 090 |
+| D7 | Variant SKU counter wraps at 100 (`seq % 100`), duplicate SKUs possible | VERIFIED 2026-11-08: items/utils/sku.util.ts:10 uses sequence % 100 | migration 139 |
+| D8 | `fn_confirm_pick` ignores pick-list status; cancel acts on whole shipments; wave auto-completes after its only pick list is cancelled | fn_confirm_pick pick-list-status gap VERIFIED 2026-11-08 (migration 243 reads the line only, no pick_lists.status check); cancel and wave parts still agent-reported | WMS migrations |
+| D9 | Company-level transfer leaves the blocking layer in place (146) | AGENT-REPORTED | migration 146 |
+
+### P3 - quality and gaps
+| # | Defect | Status |
+|---|---|---|
+| D10 | expenses-v2 and branches have no specs; no expense approval workflow; tax re-run issue | no specs VERIFIED 2026-11-08 (0 spec files in expenses-v2 and branches); approval workflow/tax re-run still agent-reported |
+| D11 | WMS tests run against the live DB and are not in CI | AGENT-REPORTED |
+| D12 | Analytics (143) double-counting; supplier items ignored by safety stock (159); dine-in tax ignores tax_inclusive_pricing; subcontracting statuses unreachable (157) | AGENT-REPORTED |
+
+### Open decisions for owner
+- Order of work and whether to start with D1-D3 (rewards).
+- Fate of the uncommitted code (see Reconstructed Position above): fixes should land together with that decision.
+
+### Verification pass 2 (2026-11-08) - corrections to the backlog above (append-only)
+- D3 birthday/campaign: reclassified BY DESIGN. reward-eligibility.service.ts:14-30 states they are configurable via CRUD but intentionally not evaluated (no automatic event); only purchase_count, spend_threshold, product_category are order-evaluated, loyalty_points via a separate path. Only the rewards_enabled finding stays a defect (flag unused).
+- D8 wave auto-completion: VERIFIED but matches an owner-specified rule (migration 248 lines 189-197: completed + cancelled = wave completed; counts only pick lists not in completed/cancelled). Open question only: a wave whose ONLY pick list is cancelled becomes `completed` rather than `cancelled`. Not a bug against the stated rule.
+- D11 CI: VERIFIED and WIDER than reported: .github/workflows/api.yml runs only `npm ci` and `npm run build` (lines 28-31); NO test step at all, not just WMS tests.
+- D12 safety stock: PARTLY VERIFIED: fn_calculate_safety_stock (159) takes lead time from inventory_reorder_points then purchase_orders/goods-receipt history, never supplier_items.
+- STILL UNVERIFIED (agent-reported only): D9 (146 company transfer leaves blocking layer), fn_cancel_shipment acting on whole shipments, 143 double counting, 157 unreachable statuses, dine-in tax ignoring tax_inclusive_pricing, expense approval workflow gap (only an approval_status column exists in expenses-v2; no approve endpoint seen), expense tax re-run.
+
+
+---
+
+<!-- DEFECT-BACKLOG-POS-SHIFTS-EXPENSES-PRINTER-2026-11-08 -->
+## Defect Backlog 2 (2026-11-08) - POS, cash drawer/shifts, expenses, printing
+
+Source: code-only review (no runtime test, no live DB). Full reports in the session scratchpad (review_pos_printer.md, review_shifts.md, review_expenses.md). V = I re-read the exact code myself; A = subagent report, file:line evidence in its report, not re-checked by me. Nothing here is fixed. Fixes need owner approval (Execution Gate).
+
+Decision 2026-11-08 (owner): the legacy expenses page is NOT wanted in the sidebar; expenses-v2 is the one to use. Done in web: sidebar now links /dashboard/expenses-v2/expenses (nav.config.ts, DashboardSidebar.tsx). Legacy page and the dashboard "new expense" button (DashboardOverview.tsx:680) still point to legacy.
+
+### POS (invoices)
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| P1 | HIGH | Loyalty points and reward instances are consumed before the order transaction and never refunded if insert/accounting fails; web keeps the same sale_attempt_id so a retry burns them again | A |
+| P2 | HIGH | PaymentModal uses remainingDue = cart.total (loyalty/reward discounts ignored): split payment sends a card amount that mismatches the server total -> 400; cash change on receipt understated | V (PaymentModal.tsx:97-110) |
+| P3 | MED | No return/refund path, only full cancel; cancel does not reverse loyalty, coupon or reward redemptions | A |
+| P4 | MED | Stock deduction is best-effort after commit; silently skipped when branch has no default_warehouse_id; COGS not in sale journal (flagged for reconciliation only) | A |
+| P5 | MED | Dine-in checkout is a weaker separate path: no accounting posting, no shift check, no idempotency, split not persisted, tax always exclusive; fn_checkout_dine_in_table frees the table even if the order update matches no rows | A |
+| P6 | MED | Cancel and GET :id have no @BranchScoped (cross-branch access inside a tenant) | A (inferred) |
+| P7 | LOW | No minimum item count on DTO; coupon race loss only logged; free_item rewards not added as order lines; orders list omits cash_amount/card_amount; 409 "already created" on retry does not open the receipt | A |
+
+### Cash drawer / shifts
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| S1 | HIGH | No unique constraint for one open shift per cashier (only non-unique idx_shifts_cashier_open, 001:726); check is read-then-insert -> race gives two open shifts | V |
+| S2 | HIGH | assertOpenSession checks only that the shift is open in the tenant, not cashier or branch; shift_id comes from the client body | V (shifts.service.ts:196-211) |
+| S3 | HIGH | Expenses reduce expected cash only if expense.shift_id is set; it is optional and no web expenses code passes it; all approved expenses treated as cash with no payment source -> expected cash likely wrong | A |
+| S4 | HIGH | No cash-in/out and no refund handling; only status=completed orders count; cancel after close does not adjust expected_cash; no cash movements table | A |
+| S5 | MED | wallet, mada, visa and other methods fall in neither cash nor card in the summary | A |
+| S6 | MED | Close is not atomic (summary read then update, no status=open guard) -> sale between reads excluded, double close can overwrite | A |
+| S7 | MED | Close notes accepted but never saved; no accounting entry for variance; closed-shift immutability only in app code, no DB trigger | A |
+| S8 | MED | GET /shifts/current with branch scope returns any cashier's open shift; another cashier's POS sells into it and then gets "Not your shift" on close | A |
+| S9 | LOW | Shift summary has no ownership check and recomputes live (can differ from stored expected_cash); web types say close returns Shift but API returns {shift, summary}; CloseShiftModal shows no expected cash or variance; repo reads swallow errors and return null/[]; no shifts specs | A |
+
+### Expenses (v2 is now the active module)
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| E1 | HIGH | Inclusive-tax edit divides twice: stored amount is pre-tax, edit form preloads it (ExpenseFormSheet.tsx:137) and resends with tax_mode inclusive, update() treats it as the total (expenses-v2.service.ts:468-480) -> amount shrinks on every save | V |
+| E2 | HIGH | Same bug in recurring generation (service ~691-696) for inclusive-tax sources | A |
+| E3 | MED | Possible duplicate recurring runs: occurrence inserted, then next_occurrence_date update unchecked, no lock/unique (source,date), multi-instance cron risk | A |
+| E4 | MED | No accounting (journal) and no shift cash-drawer link anywhere in expenses-v2; dashboard reads legacy data only | A |
+| E5 | MED | Paid expenses editable with no old-value history; recurring_end_date/expense_date not range-checked; changing frequency does not recompute next_occurrence_date | A |
+| E6 | MED | Only findAll is @BranchScoped; findOne/update/cancel/confirm-payment/stop-recurring/attachments take tenant+id only; no spec files | V (see Backlog 1, D4/D10) |
+| E7 | LOW | findAll has no pagination/totals, search wildcards unescaped; attachments no MIME allow-list, allowed on cancelled expenses, orphan file on failed insert; scheduler uses UTC dates; UPDATEs lack status predicate; cancelling a recurring source leaves is_recurring true; no deleted_at/delete endpoint (inferred) | A |
+| E8 | CHECK | Runtime checks needed: migration 199 widening tax_mode CHECK to allow none; expense_activity CHECK list (edited, payment_confirmed, department_changed) - insert failures are swallowed | A |
+| E9 | MED | Legacy expenses module still registered and reachable; dashboard "new expense" button still links to legacy | V |
+
+### Printing
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| R1 | HIGH | Only browser window.print() exists (ReceiptModal, OrderDetailsModal, OrdersPage); no ESC/POS, thermal, WebUSB/Serial/Bluetooth anywhere | A |
+| R2 | HIGH | No print CSS (no @media print / print: / @page) in POS or receipt files -> prints likely the whole page, not an 80mm slip | V (no match outside Attend/Settings pages); behavior itself unverified |
+| R3 | MED | Settings paper width (58/80) and auto-print toggle are saved to tenants.printer_settings but nothing reads them; printer_name exists only in the web type | V (only SettingsPage + settings.api reference them) |
+| R4 | MED | Receipt ignores stored business name, logo, tax number, footer; invoice number is last 6 chars of UUID; tab payments labelled "card" | A |
+
+### Needs runtime check by owner
+Split payment with loyalty/reward (expect 400); what window.print() prints from POS and Orders; points lost when posting fails; null default_warehouse_id behavior; POOLED_INVOICE_WRITES_ENABLED true in production (default false, local .env true); accounting role/branch assignment exists per tenant; whether a later migration changed shifts constraints; role permissions seed shift.*.
+
+### Open decisions for owner
+Fix order (suggested: E1/E2 first since v2 is now live, then S1-S4 cash correctness, then P1/P2, then printing); whether dashboard "new expense" button moves to v2; whether legacy expenses module is retired.
+
+
+
+---
+
+<!-- SUNMI-PRINTING-TASKS-2026-11-08 -->
+## Printing + Sunmi pilot - task list (2026-11-08, nothing built yet)
+
+Full research and sources: STATUS.md section "Sunmi Printing - researched method and decisions (2026-11-08)".
+
+| # | Task | Status |
+|---|---|---|
+| T1 | Web: receipt template + print CSS 58/80 mm (business name, logo, tax number, footer, invoice fields; English numerals) | not started, awaiting owner go-ahead |
+| T2 | Web: single printReceipt() with drivers: Sunmi via sunmi-js-sdk (JS USDK on device) -> fallback browser print | not started |
+| T3 | Web: make printer_settings real (paper width, auto print), per-device choice Sunmi/phone/tablet/computer stored locally, reprint from Orders | not started |
+| T4 | Owner test on a real Sunmi device: https page -> ws://localhost:7070, JS USDK on the model, ARABIC printing, silent auto-print | owner action, after T1-T3 |
+| T5 | pos_m (Expo WebView + maintained Sunmi library) | only if T4 fails or native features are needed; location C:\Fp\pos_m per docs |
+| T6 | Before the free pilot: fix or disclose S1-S4, E1/E2, P2 (Defect Backlog 2) | open decision |
+| T7 | Update the STATUS.md top "Application Layer Deferral" text to point to the 2026-08-20 rule in CLAUDE.md | optional, owner decision |
+
+
+
+---
+
+<!-- TASK-T8-S3-2026-11-08 -->
+## Task T8 (owner order 2026-11-08): fix S3 - cash expenses must reduce expected cash at shift close
+
+- Priority: HIGH, before the free car wash pilot. Status: OPEN, design not yet written.
+- Why: expenses are entered by the owner on the website only (not in the Android app), and expenses-v2 has no link to shifts, so a cash expense paid from the drawer is not deducted from expected cash (shortage appears at close).
+- Next step: architectural review (Audit, Database Design, Business Rules, State Machine, Migration Matrix) covering S1-S6 together; options are listed in STATUS.md section "Owner decisions 2026-11-08". No code or migration before the exact message "Approved - Proceed with Implementation".
+- Also recorded: Android app scope decisions (expenses not in the app; screens for v1; Kotlin recommended but not yet confirmed) - see the same STATUS.md section.
+
+
+
+---
+
+<!-- POS-RUNTIME-TEST-2026-11-09 -->
+## POS runtime test results (2026-11-09) - local api (3001) + local web (3000), live Supabase, demo tenant 9bcd3369
+
+Provenance: tested in the in-app browser as owner@sefay.com, Redis local container, POOLED_INVOICE_WRITES_ENABLED=true. Test data written to the LIVE demo tenant (owner approved): 5 invoices by the assistant (#544033 cash 28.75 with 50 tendered, #9E04D1 mada 5.75, #CC04C2 split 28.75, #0BB436 split+coupon 25.88, #7079A2 cash 5.75 cancelled) plus about 5 earlier invoices by the owner in the same shift; coupon TESTCOUPON-F851F428 consumed (1/1); one shift opened 00:45 and closed 01:11 (closing 60.00, expected 67.42, discrepancy -7.42). Old PASSWORD of owner@sefay.com was reset by the owner in SQL for this test (tell the owner to change it).
+
+### Passed
+- Shift open (201). Cash sale exact and with larger tendered amount (change 21.25 correct, shown on receipt). Mada. Split cash+card. Valid coupon 10% (tax computed after discount: 25.00 - 2.50 -> VAT 3.38 -> 25.88). Expired coupon rejected (400). Double-click on Confirm created ONE invoice only. Cancel invoice (200, status cancelled, today's revenue dropped by 5.75; cancelled order excluded from shift summary - verified by SQL). Shift close stored closing 60.00 / expected 67.42 / discrepancy -7.42 correctly. Expected cash 67.42 verified by hand against SQL (45.42 cash invoices + 22.00 cash share of splits).
+
+### Defects found (new, by runtime)
+- N1 (HIGH, confirms S5): shift summary Card Sales (38.38) counts only the card share of SPLIT orders. Mada (2 invoices, 11.50) and wallet (1, 5.75) appear in no bucket: cash + card = 105.80 but Total Sales = 123.05 (gap 17.25).
+- N2 (MEDIUM): closed-shift summary stays STALE in the browser after closing (showed closing 0.00 / discrepancy -67.42 until page reload; database was correct). Query cache not invalidated on close.
+- N3 (MEDIUM): Close Register dialog shows only opening cash and a blank field - no expected cash, no sales summary (blind close). Summary of an OPEN shift shows "Discrepancy -67.42" in red (misleading).
+- N4 (HIGH for pilot): invoice create takes 5.4-6.5 seconds each (POST /invoices) on this setup.
+- N5 (MEDIUM): receipt lacks business name, tax number, cashier name, cash tendered; split payment shows only "Cash + Card" without the two amounts; in the Arabic receipt the item line and date/time render in broken order (bidi); cart item name truncated on the left in RTL.
+- N6 (LOW): cancel dialog shows the full UUID instead of the short invoice number; reason is optional.
+- N7 (LOW): dashboard showed Sales 0.00 right after sales while Orders page showed today's revenue 4,527.25 (stale or different source; not investigated).
+- N8: Print button = browser print only (no Sunmi) - see SUNMI-PRINTING-TASKS.
+- N9: the PUBLISHED stack is down: Railway trial expired (api + Redis offline) so https://sefayv1-0-2.vercel.app cannot log anyone in; Vercel rewrites /api/v1 to NEXT_PUBLIC_API_URL. Pilot needs paid/other API hosting first.
+- N10 (note): SQL count of public.invoices returned 2 while the Orders page shows 50 invoices (orders table); invoices vs orders naming - not investigated.
+
+### Not tested / not reproduced
+- P2 (split + LOYALTY/reward discount): not tested (account has 0 points). P2 with a COUPON works.
+- S1 race (two simultaneous shift opens): not testable from UI; sequential second open is blocked by the service.
+- Card refund/void effect on expected cash (S4), cash expenses vs expected cash (S3), wallet/STC/Apple Pay/Visa flows beyond mada, partial/returns, customer selection, hold/resume order, printing on a real device, cashier role (non-owner) permissions.
+
+
+<!-- POS-RUNTIME-TEST-2026-11-09-N7-RESOLVED -->
+## N7 resolved (2026-11-09): dashboard/reports day boundary is UTC, not the tenant timezone (HIGH for pilot)
+- Evidence (runtime): GET /reports/revenue?from=2026-11-09&to=2026-11-09 returned all zeros; the same report for 2026-11-03..2026-11-09 returned 10 orders / 123.05 with daily_breakdown date 2026-11-08. Orders were created 00:45-01:11 local (UTC+3) = 21:45-22:11 UTC of the previous day.
+- Effect: sales between 00:00 and 03:00 local time show under the PREVIOUS day on the dashboard and reports; "Sales today" can read 0 right after midnight. Amounts are correct, only the day bucket is wrong. Matters for a car wash working past midnight.
+- Not fixed. Needs a decision: use the tenant/branch timezone for day boundaries (reports + dashboard + shift summary), design review first if it touches schema (tenants timezone column).
+
+
+<!-- TASK-T9-REGISTER-CLOSE-DESIGN-2026-11-09 -->
+## Task T9 (owner order 2026-11-09): merge register + shift, close-with-counts daily report (print / PDF share), returns + cancellations figure, tenant-timezone day
+- Status: ARCHITECTURE REVIEW WRITTEN, awaiting owner answers Q1-Q6 and the exact message "Approved - Proceed with Implementation". Nothing implemented.
+- Full design: STATUS.md section "DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09". Includes T8/S3, S1, S2, S4, S5/N1, S6, N2, N3, N7.
+
+
+<!-- PHASE-1-IMPLEMENTED-2026-11-09 -->
+## T9 phase 1 DONE in code (2026-11-09): N7 (tenant-timezone days) and N1/S5 (all payment methods in shift summary). Local only, tests green (124). Next phase per design: close-with-counts + report PDF/print (phase 2). Details: STATUS.md PHASE-1-IMPLEMENTED-2026-11-09.
+
+
+<!-- PHASE-2-IMPLEMENTED-2026-11-09 -->
+## T9 phase 2 DONE in code (2026-11-09): close with per-method counts + PDF report (print / share). Local only, tests green (135). BLOCKER for use: apply migration 251 on the live DB (`npm run migrate` in api) - the owner must run it. Also needs Chrome/Chromium + an Arabic font on whatever server hosts the API. Details: STATUS.md PHASE-2-IMPLEMENTED-2026-11-09. Next: phase 3 (cancellation fields + returns document, cancelled/returned in every report).
+
+
+<!-- PHASE-3A-IMPLEMENTED-2026-11-09 -->
+## T9 phase 3a DONE in code (2026-11-09): cancellation fields (who/when/why) + cancelled figure in the revenue report and order details. BLOCKER for use: apply migration 252 (`npm run migrate` in api, owner must run it). Phase 3b (partial returns document with refund, stock restock and journal entry) awaits the owner's confirmation of its accounting/stock design (see chat 2026-11-09).
+
+
+<!-- PHASE-3B-IMPLEMENTED-2026-11-09 -->
+## T9 phase 3b DONE in code (2026-11-09): partial sales returns (stock, journal entry, register, reports, web action). BLOCKER for use: apply migration 253 (`cd C:\Fp\api; npm run migrate`, the owner must run it). Tested on a local scratch DB, not yet on the live DB. Next: phase 4 (unique open register per cashier + atomic close function S1/S2/S6), phase 5 (T8/S3 cash expenses vs the register).
+
+
+<!-- TASKS-T10-T11-2026-11-09 -->
+## Two new owner orders (2026-11-09), added to the repair plan - NOT started, review mode (Execution Gate)
+
+### T10 - Reports page: figures are wrong and disorganised (owner report)
+- Owner statement: the reports page shows incorrect, badly organised figures; must be inside the repair plan.
+- Already fixed by T9 (phase 1/3a/3b, local, awaiting owner review): day boundaries now use the tenant timezone, shift/report totals include every payment method, cancelled and returned figures are reported apart from revenue.
+- Still unknown: WHICH figures the owner sees as wrong. First step = audit: owner supplies screenshots or the figure + expected value; compare each report endpoint (revenue, payments, shifts, expenses, tax, top items, daily reconciliation, sparklines) against the database by SQL; list every mismatch with its cause; then a design review for the fixes and a re-organised page layout. No change before that audit and the exact message "Approved - Proceed with Implementation".
+- Known suspects to check first: reports that still bucket by UTC date outside the paths fixed in phase 1; revenue by payment method for split orders (counted under "split" only); returns/cancellations not netted anywhere except the new figures; dashboard "sales" vs Orders page "today's revenue" using different sources (N7 note); tax report/COGS report semantics.
+
+### T11 - Payment methods configurable per tenant (owner request)
+- Owner statement: in settings, payment methods can only be enabled or disabled; the owner decides which methods he wants and disables the ones he does not.
+- Proposed design points to review (not decided): a per-tenant list of enabled methods stored with the tenant settings (cash cannot be disabled); POS payment screen shows only enabled methods; the API rejects a sale paid with a disabled method; shift close counts only enabled counted methods (cash + enabled of mada/visa/mastercard, others fold into "other"); reports/filters keep showing historical methods; default for existing tenants = all current methods enabled so nothing changes until the owner turns one off; Settings page gets a simple on/off list. Needs a schema change (tenant settings column or table) -> Architectural Audit, Database Design, Business Rules, Migration Matrix first.
+- Depends on / touches: T9 phase 2 (close counts), POS PaymentModal, tenants settings API/page, invoice creation validation.
+
+
+
+---
+
+<!-- T10-REPORTS-AUDIT-2026-11-09 -->
+## T10 - Reports audit results (2026-11-09) - AUDIT ONLY, no fix made, awaiting "Approved - Proceed with Implementation"
+
+Method: the REAL ReportsService was run against the live database (read-only, demo tenant 9bcd3369, periods: all time, 9 Nov, 8 Nov) and every figure was compared with an independent SQL calculation on the same data. The reports page shows 13 sections (4 KPIs, revenue chart, payment methods, expenses by category, employee performance, tax summary, COGS, period comparison, branch comparison, customer churn, top customers, daily reconciliation) plus the dashboard and the Orders page KPIs.
+
+### Verified CORRECT (no action)
+- Revenue base: 113 completed orders = 60,352.01 (service = SQL); 9 Nov: 10 orders = 123.05; 8 Nov: 0. Day boundaries follow the tenant timezone (phase 1).
+- Payments report totals, shifts count (47 closed), daily reconciliation cash figures for 9 Nov (opening 0, counted 60, expected 67.42, difference -7.42), 7-day sparklines (local days), period comparison arithmetic, customers list.
+
+### HIGH - the figure is wrong or means something else
+- R1 Expenses read the OLD table everywhere. Reports "total expenses", expenses by category, dashboard Net Profit and expenses KPI, daily reconciliation expenses, sparklines expenses and the register expected cash all read the legacy `expenses` table (80 approved = 139,110.00, test data) while the owner records in `expenses_v2` (35 approved: 6,310.00 before VAT, 7,127.50 with VAT; 0 rows with shift_id). Also: reports filter by created_at, v2 has expense_date (the real date); v2.payment_method has inconsistent values ('Cash' vs 'cash'); v2 has no deleted_at; whether reports use amount (ex VAT) or total_amount is undecided.
+- R2 COGS is nonsense: 7,550,187 cost vs 60,352 revenue (margin -12,410%); 9 Nov shows 200,624 cost for 123.05 revenue. Cause: the report sums EVERY stock_movements row of type 'sale' regardless of reference; the table holds 1,980 such rows (14,099,259 cost) mostly reference_type 'test_sale' (items "AA72 ABC Item A (80k)", quantities 80,000/15,000) written by the automated regression specs on the live database - two of them by the full jest run of 2026-11-09 23:27 and 23:30 (see disclosure below). Returns/cancellation restocks ('sale_return') are not netted. Fix direction: count only movements whose reference is an order (and subtract their returns).
+- R3 Payment-method breakdown hides cash and card inside "split": split orders are their own bucket (12 orders = 35,754.51, 59% of all revenue) in revenue, payments and daily-reconciliation reports; their parts are decomposed only in the register engine. Older split orders have NULL parts (cash_part total 25.00 / card_part 41.13 vs 35,754.51), so they cannot be decomposed at all. Cash and card totals are therefore understated. Fix direction: decompose split by its stored shares; show legacy split without parts as "split (not allocated)".
+- R4 Dashboard "Net Profit" is revenue (VAT inclusive) minus the old expenses table: not a profit (no COGS, VAT counted as income).
+- R5 Orders page KPI "Today's Revenue" (4,527.25 on 9 Nov while the real figure was 123.05) is the sum of whatever orders the list loaded (latest 50 across dates), not today.
+
+### MEDIUM - figures do not add up
+- R6 Employee performance omits 4 orders without a cashier (370.00): listed 59,982.01 vs revenue 60,352.01. Branch comparison omits 1 order (200.00) belonging to a deleted branch ("Branch 2 Updated"): 60,152.01 vs 60,352.01. Neither shows an "unassigned" line.
+- R7 Tax section: "subtotal before tax" is before DISCOUNT: 110.00 + tax 16.05 = 126.05 but total is 123.05 (discount 3.00 not shown) on 9 Nov. Needs a discount line or a net subtotal.
+- R8 "Discrepancy" has two meanings: the shifts report sums ABSOLUTE values (2,758.52 all time; 7.42 on 9 Nov) while the daily reconciliation shows the SIGNED total (-7.42 on 9 Nov; 2,514.68 signed all time). Show shortage and overage separately.
+- R9 Cancelled and returned sales are not shown or netted in the older sections (revenue summary, daily reconciliation, tax, dashboard); phase 3a/3b only added figures to revenue + register report.
+- R10 Data oddity: order 8a61d19f (2026-06-08) has subtotal 36 - discount 0 + tax 0 = 36 but total 31.
+
+### LOW - organisation of the page
+- R11 13 sections in one long page with no grouping and no reconciliation between sections. Proposed groups: Sales (revenue, methods, returns/cancellations, tax), Cash and registers (registers, discrepancies, daily reconciliation), Costs (expenses by category from expenses_v2, COGS), People (employees, customers, churn), Places (branches, comparison); each group with its own total that ties to the sales total.
+- R12 My own phase 3b code makes the revenue report fail with "table sales_returns not found" until migration 253 is applied (it also breaks the dashboard sales card). Make that query tolerant, or apply 253 before starting the new API.
+
+### Disclosure (owner must know)
+The full jest run I executed on 2026-11-09 (twice) wrote test rows into the LIVE demo tenant through the regression specs under src/database/migrations/__tests__ (e.g. stock movements 'test_sale' 80,000 + 15,000 + ... at 23:27 and 23:30 UTC). Those specs do not clean up after themselves (1,980 such movements exist since August). I did not delete anything. Do not run the full jest suite against this database again; run focused specs only. Cleaning the test rows needs the owner's explicit approval.
+
+### Proposed fix order (after approval)
+1) R1 expenses from expenses_v2 (decide amount vs total_amount and expense_date) 2) R2 COGS source filter 3) R3 split decomposition 4) R5/R4 Orders KPI and dashboard profit 5) R6/R7/R8 reconciliation lines 6) R11 page re-organisation 7) R12 resilience. R1 also unlocks T8/S3 (cash expenses vs the register).
+
+
+<!-- T10-DECISION-EXPENSES-BASIS-2026-11-09 -->
+### T10 decision (owner, 2026-11-09): expenses in reports are counted BEFORE VAT (expenses_v2.amount, not total_amount). On the demo tenant that is 6,310.00 (not 7,127.50). Fixes still await the exact message "Approved - Proceed with Implementation".
+
+
+<!-- T10-FIXES-IMPLEMENTED-2026-11-09 -->
+## T10 DONE in code (2026-11-09): reports fixes R1-R9, R11, R12 (see STATUS.md T10-FIXES-IMPLEMENTED). Open: R10 data oddity; cleanup of automated test rows in the live demo tenant needs owner approval; register expenses (T8/S3) still reads the old expenses table. Pending owner actions: apply migration 253 (cd C:\Fp\api; npm run migrate).
+
+
+<!-- PHASE-4-IMPLEMENTED-2026-11-09 -->
+## T9 phase 4 DONE in code (2026-11-09): S1 unique open register, S2 register must belong to cashier+branch, S6 atomic close. BLOCKER for use: apply migrations 253 + 254 (`cd C:\Fp\api; npm run migrate`, owner). Open next: phase 5 = T8/S3 cash expenses vs the register (now possible: reports read expenses_v2); T11 payment methods per tenant; cleanup of automated test rows (owner approval).
+
+
+<!-- APP-SALE-FLOW-2026-11-09 -->
+## Owner spec 2026-11-09: sale flow of the cashier app (recorded, nothing implemented)
+Sequence: choose product(s) -> Next -> FIELDS page (shown only when enabled; includes any enabled custom field) -> payment method -> confirm payment -> invoice -> automatic print when enabled, then back to the product list; when printing is manual: Print then back, or back without printing -> then adding an invoice comment and returning to it. Then: verify the web POS and add the features the owner may have forgotten; then a ChatGPT prompt to design the app look (written: api/docs/APP_UI_PROMPT.md).
+Web POS today vs this flow:
+- EXISTS: product grid and cart; checkout; customer/fields step (CustomerPickerModal: name field + enabled custom fields from the settings field definitions, shown when customer_capture_enabled; plate_number / visit_date / odometer are customer fields); payment method + confirm (cash tendered/change, split); receipt modal with print; "New Order" back to products; order note typed in the cart BEFORE payment.
+- MISSING: automatic print (Settings stores printer_settings.auto_print but nothing reads it = printing tasks T1-T3); a comment on an invoice AFTER the sale (no endpoint; Orders "Edit" is a disabled placeholder; needs a small design: notes are non-financial so editable, with audit); payment methods on/off per tenant (T11); the vehicle plate is saved on the CUSTOMER only, not on the invoice, so the receipt/orders cannot show which car was washed.
+- NOT YET TESTED at runtime in this session: customer/fields step, hold/resume, price override/discount flow, loyalty redemption, order note, barcode scanner, tables. Tested OK: shift open, cash (with change), mada, split, coupon, double-click, cancel, close, return (SQL level).
+Features proposed for a car wash that the owner may have forgotten (proposals, none approved): ZATCA tax-invoice QR on the receipt (none exists in the code; mandatory for KSA tax invoices - verify the legal requirement with the owner/accountant); plate + vehicle size on the invoice and size-based pricing; queue board (waiting/washing/ready) with "car ready" notification; worker per service line + commission; prepaid wash packages / subscriptions; account customers (companies/fleets) paid later (tab) with monthly invoice; manager PIN for discounts/price changes; quick reprint of the last invoice; WhatsApp share of the invoice; tips; hold/resume (exists in web); error states (printer out of paper, no network, payment failed); large-text and dark modes; offline mode is OUT of v1 (owner).
+
+
+<!-- TASKS-T12-CUSTOMER-AUTO-RECOGNITION-2026-11-09 -->
+## T12 (owner request 2026-11-09): customers saved automatically and recognised by plate or phone - DESIGN DRAFT, not started
+Owner wording: a new customer is registered once with plate and phone; next time typing only the plate OR the phone finds the saved customer and nothing else needs to be completed.
+Today (verified in code): customers have phone + plate_number (also as custom fields); search = partial ilike on name, phone and custom fields; duplicate phone is rejected on create (findByPhone); no exact normalised lookup; a new customer is created by a separate "quick add" step before payment, not automatically with the sale; the plate is on the customer only, not on the order/invoice.
+Proposed (needs Architectural Audit / DB design / approval): one smart box (plate or phone) -> instant match card (name, plate, visit count, last visit) -> confirm; new customer saved automatically when the sale is confirmed; normalised matching (phone digits only incl. Arabic-Indic digits and leading zero; plate without spaces/dashes and case); plate (and vehicle size) stored on each order so invoice and visit reports show the car; if the plate matches customer A and the phone customer B show both, never auto-merge. Proposed data: customer_vehicles (customer_id, plate, plate_normalized, size, model) so one customer can have several cars, phone_normalized on customers with a unique-per-tenant index, orders.vehicle_id/plate snapshot. Open questions to the owner: (1) several cars per customer? (recommended yes) (2) before or after phase 5 (T8)? Same API serves web POS and the app.
+
+
+<!-- T12-OWNER-DECISION-2026-11-09 -->
+### T12 owner decision (2026-11-09): NO duplicates - one customer per phone AND one customer per plate
+The plate and the phone can never belong to two different customers (that would be a duplicate customer): both are UNIQUE per tenant (normalised). Entering a phone of customer A with a plate of customer B is rejected as a data error (no merge, no second customer). The earlier customer_vehicles idea is dropped: one customer = one phone + one plate. Consequence to tell the owner: a person with a second car cannot be saved with the same phone (register that car without a phone, or decide later). Live data check (read-only, 2026-11-09): 57 customers, 5 with phone, 1 with plate, no duplicate phone or plate (digits-only / space-and-case-insensitive) so the unique indexes can be created safely. Matching rule: phone = last 9 digits (covers 05..., 5..., +9665..., Arabic-Indic digits); plate = no spaces/dashes, case-insensitive. Awaiting: before or after phase 5; then design review + "Approved - Proceed with Implementation".
+
+
+<!-- T12-OWNER-DECISION-2-2026-11-09 -->
+### T12 owner decision 2 (2026-11-09) - supersedes the "one plate per customer" part above
+One customer = ONE phone (unique per tenant) but ANY number of cars (1, 2, 3 ...), all under the same customer data. Each PLATE is unique per tenant and belongs to exactly one customer (a plate can never exist under two customers: that is a duplicate). So the customer_vehicles table is BACK: customer_vehicles(customer_id, plate, plate_normalized UNIQUE per tenant, size, model, deleted_at). Lookup: by plate -> the customer + that car; by phone -> the customer + the list of his cars to pick from (one car = automatic); a phone of customer A with a plate of customer B is rejected as a data error (no merge). A new car for an existing customer is added with his phone (or by his existing plate) without creating a second customer. The sale stores which car was washed (orders.vehicle_id + plate snapshot). Existing customers.plate_number values migrate into customer_vehicles. Still awaiting: before or after phase 5; then design review + "Approved - Proceed with Implementation".
+
+
+<!-- TASKS-T13-INVOICE-AND-KITCHEN-TICKET-DESIGNER-2026-11-09 -->
+## T13 (owner request 2026-11-09): invoice customisation page + kitchen ticket (button + customisation page) - DESIGN DRAFT, not started
+Owner wording: fields so the merchant can add his logo; tax number NOT mandatory; the other business details too; a dedicated page to edit and customise the invoice; a "kitchen printer" button; a page to edit and customise the kitchen ticket.
+Today (verified in code): tenants already store logo_url, tax_number, invoice_footer, address, phone, email and printer_settings (paper width, auto_print); the Settings page edits them, but the logo is a plain URL text box (no upload; a StorageService exists in the API), and the receipt shown/printed at the POS (ReceiptModal) uses NONE of them (no logo, no tax number, no business name, no footer). There is a Kitchen screen (KDS) and order_items.kitchen_status, but no kitchen ticket printing and no kitchen printer setting.
+Proposed (design review needed, schema change): (1) Invoice designer page in Settings: logo upload (storage bucket, size/format limit), business name, address, phone, optional tax number (shown only when filled), optional commercial register, footer text, QR toggle (ZATCA QR when the owner confirms it is required), paper width 58/80/A4, which blocks to show or hide and their order (vehicle plate, cashier, worker, notes, payment lines), live preview that is the SAME renderer used for printing (web print CSS, Sunmi, PDF); (2) kitchen ticket designer with its own template (header, order number, table/car, items with quantities and notes, hide prices, font size, copies) and a "Kitchen" print button on the order/cart that prints only new items to the kitchen printer; (3) printer settings per device and per ticket type (customer invoice / kitchen), auto-print per type. Storage proposal: tenants.invoice_template jsonb + tenants.kitchen_template jsonb (default = today's look, so nothing changes until the owner edits). Depends on: printing tasks T1-T4 (one printReceipt() renderer for invoice and kitchen), phase 5 first, T11 and T12 ordering still to confirm. Questions: (a) is the kitchen ticket needed for the car-wash pilot or only for restaurant tenants? (b) should the logo also appear on the PDF close report? (c) one template per tenant or per branch?
+
+
+<!-- T13-OWNER-ANSWERS-2026-11-09 -->
+### T13 owner answers (2026-11-09)
+- Kitchen ticket (button + customisation page): NOT needed for the car-wash pilot, but it must be documented and implemented later (restaurant tenants). Scheduled after the pilot-critical work; same printing renderer as the invoice.
+- Template scope: ONE template per tenant (default), with an OPTIONAL per-branch override (branch template wins when set). Data: tenants.invoice_template / kitchen_template (jsonb) + branches.invoice_template / kitchen_template (nullable jsonb override).
+- The register-close report PDF shows the SaaS platform logo (Sefay), NOT the merchant's logo. (The merchant logo is for the customer invoice and the kitchen ticket.) The report template (api/src/modules/shifts/report) gets a Sefay logo header when the identity is final.
+
+
+<!-- APP-UI-IDENTITY-REVIEW-2026-11-09 -->
+## App UI identity (ChatGPT boards received 2026-11-09, 8 images) - review recorded
+Accepted as the visual direction (pending owner "lock"): navy #0C447C + teal accent (buttons use a darker teal for contrast), background #F5F7FA, semantic green/amber/red/blue, dark mode #0B1220/#111A2E, Arabic font Cairo, radius 12/16/pill, rounded line icons, Sefay wordmark + car-and-drop mark, Sunmi frame, status badges (waiting, washing, ready, completed, cancelled, returned), bottom nav (Sale, Queue, Orders, Customers, More), tablet layout with cart on the left.
+Screens delivered: design system sheet; entry (splash, login, branch, no register, open register); sale (service grid, fields page, discount with manager PIN, payment, split, invoice + print/note, print failed); orders, returns, register close + report, error states; customers (list, profile with cars, add car); reports (today, by payment method, by worker); more/settings (printer, language, theme, payment methods toggles, account); dark mode set; tablet sale screen.
+Corrections to ask for / design notes: (1) the data-conflict screen offers "register as a NEW customer for this plate" = a duplicate; per owner decision T12 only: use the registered customer, or go back and correct (a phone change only by a manager); (2) the fields page shows plate and phone as two plain fields: the smart lookup (type plate OR phone -> instant match card, several cars -> pick the car) is not drawn; (3) missing screens: queue board / car details / assign worker / ready notification, order details, cancel dialog, register history, cash drawer, test print + invoice designer entry in Settings, receipt with ZATCA QR when required; (4) mock numbers are inconsistent (VAT shown as 1% in one screen, dates 2025-01-26): never copy numbers from the images; (5) first-batch sale screens used English words (Next, Confirm payment): the later boards are fully Arabic and are the reference.
+
+
+<!-- APP-UI-IDENTITY-FINAL-BATCH-2026-11-09 -->
+## App UI identity - final batch reviewed (2026-11-09): identity READY TO LOCK (owner word pending)
+Final boards (3 images) close the gaps: smart customer lookup with 6 states (empty, typing, found, several cars -> pick one, not found -> create with plate + phone + size, data conflict with ONLY "use the registered customer" / "back to correct": matches the T12 no-duplicate decision); queue board + car details with status stepper + assign worker (available/busy/unavailable) + "car ready" notification + order details with returns + cancel dialog with a reason list; register history, open cash drawer, blind-count close, printer settings with test print, invoice designer (logo upload, business name, OPTIONAL tax number, footer, paper width, design/content tabs) and receipt preview with QR (T13).
+Non-blocking notes: mock numbers/dates are placeholders; register history shows closed registers' amounts (decide who may see it: manager only?); the QR must only appear when the owner confirms the legal requirement; blind-count screen shows entered values, never expected ones.
+Next decisions (not yet made): (1) owner locks the identity; (2) app technology: still the assistant's RECOMMENDATION native Android Kotlin + Jetpack Compose (strongest for Sunmi, official SDK is native; backend stays the source of truth) vs the older documented plan pos_m React Native + Expo; owner has not confirmed; (3) then the app architecture review (8-point Application/Mobile rule) and the list of backend endpoints the app needs (auth, shifts, items/services, orders, returns, customer lookup T12, printing, queue).
+
+
+<!-- APP-DECISIONS-LOCKED-2026-11-09 -->
+## Owner decisions 2026-11-09: app identity LOCKED and technology CONFIRMED
+- Visual identity locked (boards received 2026-11-09, see APP-UI-IDENTITY-*): navy #0C447C + teal, Cairo, locked component set, Sefay mark, Sunmi frame, tablet layout.
+- Technology confirmed: NATIVE ANDROID, Kotlin + Jetpack Compose. Supersedes the older plan pos_m (React Native + Expo + WebView) for this app. iPhone later (Kotlin Multiplatform or Swift), backend remains the source of truth.
+- Architecture review written: api/docs/APP_ARCHITECTURE_REVIEW.md (stack, 8-point check per capability, backend gaps G1-G9, build order, risks). Nothing built; awaiting the exact approval message for each backend gap that touches the schema.
+- Key finding: the web auth returns the refresh token only as an httpOnly cookie (G1); native clients need a token-based mode before the app can log in.
+
+
+<!-- APP-DESIGN-REFERENCE-FOLDER-2026-11-09 -->
+## App design reference folder (2026-11-09)
+Locked identity images are saved in C:\Fp\sefay-app-design\ (README.md = index, rules, tokens): final/ = 10 locked boards, earlier-iterations/ = 4 older boards kept because the RETURN ITEMS, close report and orders-list screens were not redrawn later (one of them is marked superseded for its English labels). 14 of the 15 images received were saved; image 23 was byte-identical to image 18 (MD5 verified) so it was not duplicated. The very first mock-up (reviewed days earlier) is not stored. Rule: the images are the LOOK only; behaviour comes from the decisions in this file (T9, T11, T12, T13, APP-SALE-FLOW). Do not copy numbers or dates from the pictures.
+
+<!-- WASH-QUEUE-2026-11-09 -->
+## Wash queue (G5) and car-ready hook (G9) - done 2026-11-09
+- [x] Migration 256 + module `wash-queue` + web `/dashboard/queue` + `CarReadyNotifier` (log implementation). Details in STATUS.md (WASH-QUEUE-2026-11-09).
+- [ ] Owner: apply migration 256 (`cd C:\Fp\api; npm run migrate`).
+- [ ] Later (undecided): real car-ready channel (SMS/WhatsApp/push) and customer consent; auto-create a wash job from a POS sale.
+
+
+<!-- PRINT-TEMPLATES-2026-11-09 -->
+## T13 + printing T1-T3 - implemented 2026-11-09 (web first; the Android app reuses the same `/print/*` payload)
+
+| Item | Status |
+|---|---|
+| T13 invoice designer page (logo upload, business details, optional tax number, footer, paper, blocks, QR, per-branch override, live preview) | done, type-checked, NOT run in a browser |
+| T13 kitchen ticket designer page + Kitchen print button | done (button on receipt and order details; none on the pre-payment cart: needs a saved order) |
+| Migration 257 (tenant + branch templates) | written and verified on a scratch DB; owner must run `cd C:\Fp\api; npm run migrate` |
+| T1 receipt template + print CSS 58/80 mm/A4 | done (single renderer) |
+| T2 single printReceipt(), Sunmi driver -> browser fallback | done; Sunmi driver UNVERIFIED on a device, off by default |
+| T3 printer settings real (auto_print, paper width), reprint from Orders | done (auto_print read from the print payload; paper width from template, falling back to printer_settings) |
+| T4 owner test on a real Sunmi device (Arabic, silent print, ws://localhost:7070 from https) | still owner action |
+| ZATCA QR legal confirmation | owner/accountant action; QR is off by default and needs a tax number |
+Details and verification: STATUS.md section PRINT-TEMPLATES-2026-11-09.
+
+
+<!-- INVOICE-CUSTOMERS-2026-11-09 -->
+## Invoice / customers batch (2026-11-09) - T12 customer auto-recognition, G4 worker commission, G6 invoice note, T11/G8 payment methods per tenant
+
+Owner approval "Approved - Proceed with Implementation" (2026-11-09). NOT committed. **BLOCKER for use: migration 255 must be applied by the owner with `cd C:\Fp\api; npm run migrate`** (the code reads/writes the new columns; without it sales fail). Nothing was written to the live database.
+
+### What was built
+- Migration `255_customer_vehicles_worker_commission_payment_methods.sql`: `fn_normalize_phone` (digits only, last 9, Arabic-Indic and Persian digits mapped) and `fn_normalize_plate` (no spaces/dashes/underscores/dots, upper-case); `customers.phone_normalized` (trigger-maintained, UNIQUE per tenant where not null and not deleted); table `customer_vehicles` (tenant_id, customer_id, plate, plate_normalized UNIQUE per tenant where not deleted, size, model, colour, deleted_at, RLS policy, service_role GRANT); `customers.plate_number` migrated into it; `orders.vehicle_id / plate_snapshot / vehicle_size`; `order_items.worker_id / commission_rate / commission_amount`; `tenants.enabled_payment_methods` jsonb (default = all 10 current methods, CHECK: must be an array containing 'cash').
+- T12 API: `GET /customers/lookup?plate=&phone=` (permission customers.view; NOT limited by Customer Scope so a plate/phone is recognised at every branch), `GET/POST /customers/:id/vehicles`; invoice DTO accepts `customer_capture {phone, plate, size, name, custom_fields}` resolved server-side BEFORE loyalty/rewards (`CustomersService.resolveCapture`); idempotent (same phone/plate always resolves to the same rows, plus the existing sale_attempt_id check); phone of A + plate of B = 409 `customer_capture_conflict` (names of both customers in the body), no merge; a plate owned by another customer = 409 `plate_already_registered`; `orders.vehicle_id/plate_snapshot/vehicle_size` stored in both write paths (pooled and PostgREST) and returned by GET /invoices. The existing customer create form now also rejects a duplicate plate (409) and registers the plate as the first car; the old phone duplicate check now matches on the normalised phone.
+- G4: `worker_id` per invoice line; rate read server-side from `users.commission_rate` (active user of the tenant, otherwise 400 `invalid_worker`); `commission_amount = unit_price x quantity x rate` at the final server price, before invoice discount/tax; client-sent rates are ignored; fields exposed on GET /invoices/:id items. No report was changed.
+- G6: `PATCH /invoices/:id/note {note}` (permission `invoice.create`), edits only `orders.notes`, completed invoices allowed, empty text clears it, audited as `invoice.note` with before/after.
+- T11/G8: `GET /tenant/pos-config` returns `enabled_payment_methods`; `PATCH /tenant/profile` accepts it (400 if 'cash' missing); invoice create rejects a disabled method with 400 `payment_method_disabled` before any side effect ('cash' is never checked). 'split' is treated as its own method (owner can switch it off).
+- Web: `CustomerPickerModal` = ONE smart box (digits-only 7+ => phone, otherwise plate; 350 ms debounce; found => match card with visits / last visit / total spent and a car picker when there are several; not found => name search fallback + create form with phone, plate, size chips and the remaining custom fields; conflict => only "use the registered customer" (the plate owner) or "back to correct"); POSPage sends `customer_capture` and `worker_id`; CartPanel has a worker select per line (active users from `GET /users`; a role without access simply gets no picker); `PaymentModal` shows only enabled methods; Settings has on/off switches (cash locked on); `InvoiceNoteEditor` ("Add invoice note") on the receipt modal and on the order details modal (completed orders). All new text in `web/messages/{en,ar}/pos.json` and `settings.json`; numbers English digits.
+
+### Verified
+- SQL on a LOCAL scratch Postgres `sefay_inv_test` (all migrations 001-255 applied; 073/074 fail on the missing `auth` schema as expected): normalisation (+966 / 05 / Arabic-Indic / Persian digits => same 9 digits; plate `abc - 1234` => `ABC1234`), one customer with 2 cars, duplicate phone (different format) rejected, duplicate plate (other customer) rejected, soft-deleted plate reusable, 'cash' cannot be removed from enabled_payment_methods, orders + order_items with the new columns insert correctly. Database dropped afterwards.
+- Jest (focused only): `customer-recognition.spec.ts` (normalisation, lookup, resolveCapture idempotency / conflict / add car / race), `invoices-customers-workers.spec.ts` (disabled method 400, cash always allowed, capture => vehicle on the order in both write paths, 409 creates no order, commission snapshot both paths, invalid worker 400, note audited / cleared / 404). `npx jest src/modules/invoices src/modules/customers src/modules/tenants` = 6 suites, 102 tests pass. `npx tsc --noEmit` clean in api and web.
+
+### NOT verified / open
+- No end-to-end run against the live database or a browser (migration 255 not applied there; the new web screens were type-checked only, not clicked).
+- Vehicle size options (small / medium / large / extra large) are an assumption, stored as free text; the owner can change the list.
+- On a conflict the web offers the plate owner as "the registered customer" (the car being washed decides); the typed phone is dropped.
+- `GET /users` requires users access: a cashier role without it sees no worker picker (backend accepts worker_id regardless). Decide if a dedicated "workers" list endpoint is wanted.
+- The ReceiptModal / print layouts do not yet print the plate or the worker (print templates belong to the print-templates session).
+- TODO (T11, not touched: `src/modules/shifts/**` and `src/engines/shift-engine/**` belong to another session): register-close counted methods must follow `tenants.enabled_payment_methods` (cash + enabled of mada/visa/mastercard, others fold into "other"), and reports keep showing historical methods.
+- TODO (T12): customers module "edit customer" screen does not yet list/add cars (API exists: `GET/POST /customers/:id/vehicles`); a person with a second car is added through the smart box with the same phone + the new plate.
+
+
+<!-- PHASE-5-G1-INTEGRATION-2026-11-10 -->
+## Remaining after this round (2026-11-10)
+1) OWNER: apply migrations 255 + 256 + 257 (`cd C:\Fp\api; npm run migrate`), restart the api, start Redis (redis-local). 2) Test in the browser: invoice designer + kitchen designer, auto-print, smart customer box, worker per line, invoice note, payment methods switches, queue board, expense "paid from register". 3) Test printing on the real Sunmi device (Arabic, 58 mm, silent auto-print). 4) Confirm ZATCA QR requirement and create the storage bucket for logos. 5) Register-close counted methods should follow the enabled payment methods (T11 follow-up, shifts files). 6) POS -> wash job link and worker name on the receipt (queue + invoice sessions notes). 7) Android: wire the real API (G1 done, other contracts exist) after the owner reviews the UI on a device; Sunmi printer SDK; emulator/real device run. 8) Cleanup of automated test rows in the live demo tenant (owner approval). 9) R10 data oddity, commit/push decisions (owner).

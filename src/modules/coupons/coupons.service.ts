@@ -47,6 +47,13 @@ export class CouponsService {
     });
   }
 
+  /** Plain lookup-or-throw by id — used by RewardRedemptionService for coupon_reference reward instances, which need the referenced coupon's discount math without going through code-based validate(). */
+  async findOneOrThrow(tenant: TenantContext, id: string): Promise<Coupon> {
+    const coupon = await this.repo.findById(tenant, id);
+    if (!coupon) throw new NotFoundException('Coupon not found');
+    return coupon as Coupon;
+  }
+
   async update(tenant: TenantContext, id: string, dto: UpdateCouponDto) {
     const existing = await this.repo.findById(tenant, id);
     if (!existing) throw new NotFoundException('Coupon not found');

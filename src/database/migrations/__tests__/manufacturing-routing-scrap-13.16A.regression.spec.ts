@@ -153,7 +153,12 @@ describe('manufacturing routing + scrap regression (Migration 13.16A)', () => {
       operationsRepo,
       productionOrdersRepo,
     );
-    scrapService = new ScrapService(scrapRepo, productionOrdersRepo);
+    scrapService = new ScrapService(
+      scrapRepo,
+      productionOrdersRepo,
+      { findById: () => Promise.resolve({ branch_id: null }) } as any,
+      { log: () => Promise.resolve() } as any,
+    );
     const outputsService = new OutputsService(
       outputsRepo,
       productionOrdersRepo,

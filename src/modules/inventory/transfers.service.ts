@@ -5,6 +5,7 @@ import { CreateTransferDto } from './dto/create-transfer.dto';
 import { throwFromRpcError } from './rpc-error.util';
 import { LocationsService } from './locations.service';
 import { StockService } from './stock.service';
+import { ItemPackagingLevelsRepository } from '../items/repositories/item-packaging-levels.repository';
 
 @Injectable()
 export class TransfersService {
@@ -12,6 +13,7 @@ export class TransfersService {
     private readonly transfersRepo: TransfersRepository,
     private readonly locationsService: LocationsService,
     private readonly stockService: StockService,
+    private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
   ) {}
 
   async findAll(
@@ -63,6 +65,26 @@ export class TransfersService {
       }
     }
 
+    // Packaging-barcode lines: resolve to the storage-unit-equivalent
+    // quantity here, at data entry — the transfer RPC chain
+    // (fn_transfer_approve/dispatch/receive/complete) stays exactly as it
+    // is today and never becomes packaging-aware, same boundary pattern
+    // goods-receipts already uses for unit_id (migration 114).
+    const resolvedItems = await Promise.all(
+      items.map(async (line) => ({
+        item_id: line.item_id,
+        variant_id: line.variant_id ?? null,
+        batch_id: line.batch_id ?? null,
+        quantity: await this.packagingLevelsRepo.resolveToStorageQty(
+          line.item_id,
+          line.packaging_level_id,
+          line.quantity,
+        ),
+        from_location_id: line.from_location_id ?? null,
+        to_location_id: line.to_location_id ?? null,
+      })),
+    );
+
     return this.transfersRepo.create(
       tenantId,
       {
@@ -71,14 +93,7 @@ export class TransfersService {
         transfer_number: header.transfer_number,
         notes: header.notes ?? null,
       },
-      items.map((line) => ({
-        item_id: line.item_id,
-        variant_id: line.variant_id ?? null,
-        batch_id: line.batch_id ?? null,
-        quantity: line.quantity,
-        from_location_id: line.from_location_id ?? null,
-        to_location_id: line.to_location_id ?? null,
-      })),
+      resolvedItems,
     );
   }
 

@@ -332,14 +332,22 @@ describe('inventory rules regression (Migration 13.6-fix)', () => {
       const locationsService = new LocationsService(
         locationsRepo,
         warehousesService,
+        { log: () => Promise.resolve() } as any,
       );
       const transfersRepo = new TransfersRepository(supabase);
       // create() never touches stockService — a stub is sufficient here.
       const stubStockService = {} as never;
+      // This suite's lines never set packaging_level_id — a passthrough
+      // stub matching the real no-op behavior (migration 221) is enough.
+      const stubPackagingLevelsRepo = {
+        resolveToStorageQty: async (_itemId: string, _levelId: unknown, qty: number) =>
+          qty,
+      } as any;
       transfersService = new TransfersService(
         transfersRepo,
         locationsService,
         stubStockService,
+        stubPackagingLevelsRepo,
       );
     }, 30_000);
 

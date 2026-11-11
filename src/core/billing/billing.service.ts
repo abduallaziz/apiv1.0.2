@@ -1,4 +1,6 @@
 import {
+  HttpException,
+  HttpStatus,
   Injectable,
   ForbiddenException,
   NotFoundException,
@@ -125,10 +127,13 @@ export class BillingService {
     }
   }
 
-  async checkBranchLimit(tenantId: string): Promise<void> {
-    const limits = await this.getPlanLimits(tenantId);
-    if (limits.max_branches === -1) return;
-
+  // Single authoritative definition of "branch capacity used": active,
+  // non-deleted branches only. Both enforcement (checkBranchLimit) and
+  // display (TenantsService.getUsage) call this same method so they can
+  // never disagree — an inactive-but-not-deleted branch (e.g. one the
+  // owner deactivated via Branch Management) must not consume capacity
+  // in either place.
+  async countActiveBranches(tenantId: string): Promise<number> {
     const { count, error } = await this.supabase
       .from('branches')
       .select('*', { count: 'exact', head: true })
@@ -137,7 +142,15 @@ export class BillingService {
       .eq('is_active', true);
 
     if (error) throw new Error(error.message);
-    if ((count ?? 0) >= limits.max_branches) {
+    return count ?? 0;
+  }
+
+  async checkBranchLimit(tenantId: string): Promise<void> {
+    const limits = await this.getPlanLimits(tenantId);
+    if (limits.max_branches === -1) return;
+
+    const count = await this.countActiveBranches(tenantId);
+    if (count >= limits.max_branches) {
       throw new ForbiddenException(
         `Branch limit reached. Your plan allows ${limits.max_branches} branches.`,
       );
@@ -187,6 +200,17 @@ export class BillingService {
     if (error) throw new Error(error.message);
   }
 
+  /**
+   * Charges first, activates after. The subscription is only switched to the
+   * new plan / ACTIVE once the payment provider reports `succeeded`.
+   *  - existing subscription: left untouched until payment succeeds;
+   *  - no subscription yet: a placeholder row is created as SUSPENDED (not
+   *    "active" for access purposes) and only promoted on success; on failure
+   *    it is CANCELLED so retries don't pile up pending rows.
+   * `requirePaymentSuccess: false` is the legacy behaviour, kept only for the
+   * superadmin "manual payment" path (offline payment recorded by a platform
+   * operator).
+   */
   async activateSubscription(
     tenantId: string,
     planId: string,
@@ -194,7 +218,9 @@ export class BillingService {
     tenantEmail: string,
     tenantName: string,
     customAmount?: number,
+    options: { requirePaymentSuccess?: boolean } = {},
   ): Promise<void> {
+    const requirePaymentSuccess = options.requirePaymentSuccess ?? true;
     const plan = await this.getPlanById(planId);
     const sub = await this.getActiveSubscription(tenantId);
     const now = new Date();
@@ -207,21 +233,9 @@ export class BillingService {
     }
 
     let subscriptionId: string;
+    let createdPlaceholder = false;
 
     if (sub) {
-      const { error } = await this.supabase
-        .from('subscriptions')
-        .update({
-          plan_id: planId,
-          status: SubscriptionStatus.ACTIVE,
-          billing_cycle: cycle,
-          current_period_start: now.toISOString(),
-          current_period_end: periodEnd.toISOString(),
-          updated_at: now.toISOString(),
-        })
-        .eq('id', sub.id);
-
-      if (error) throw new Error(error.message);
       subscriptionId = sub.id;
     } else {
       const { data, error } = await this.supabase
@@ -229,11 +243,9 @@ export class BillingService {
         .insert({
           tenant_id: tenantId,
           plan_id: planId,
-          status: SubscriptionStatus.ACTIVE,
+          status: SubscriptionStatus.SUSPENDED,
           billing_cycle: cycle,
           started_at: now.toISOString(),
-          current_period_start: now.toISOString(),
-          current_period_end: periodEnd.toISOString(),
         })
         .select()
         .single();
@@ -241,31 +253,72 @@ export class BillingService {
       if (error || !data)
         throw new Error(error?.message ?? 'Failed to create subscription');
       subscriptionId = data.id;
+      createdPlaceholder = true;
     }
 
-    // Generate invoice
-    const planPrice =
-      customAmount ??
-      (cycle === BillingCycle.YEARLY ? plan.price_yearly : plan.price_monthly);
-    const { invoiceId } = await this.billingInvoiceService.generateInvoice({
-      tenantId,
-      subscriptionId,
-      planName: plan.name,
-      planPrice,
-      currency: 'USD',
-      periodStart: now,
-      periodEnd,
-      tenantEmail,
-      tenantName,
-    });
+    const abandonPlaceholder = async () => {
+      if (!createdPlaceholder) return;
+      await this.supabase
+        .from('subscriptions')
+        .update({
+          status: SubscriptionStatus.CANCELLED,
+          cancelled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', subscriptionId);
+    };
 
-    // Process payment
-    await this.billingInvoiceService.processPayment({
-      tenantId,
-      invoiceId,
-      tenantEmail,
-      tenantName,
-    });
+    let payment: { status: string; failureReason?: string };
+    try {
+      const planPrice =
+        customAmount ??
+        (cycle === BillingCycle.YEARLY
+          ? plan.price_yearly
+          : plan.price_monthly);
+      const { invoiceId } = await this.billingInvoiceService.generateInvoice({
+        tenantId,
+        subscriptionId,
+        planName: plan.name,
+        planPrice,
+        currency: 'USD',
+        periodStart: now,
+        periodEnd,
+        tenantEmail,
+        tenantName,
+      });
+
+      payment = await this.billingInvoiceService.processPayment({
+        tenantId,
+        invoiceId,
+        tenantEmail,
+        tenantName,
+      });
+    } catch (err) {
+      await abandonPlaceholder();
+      throw err;
+    }
+
+    if (payment.status !== 'succeeded' && requirePaymentSuccess) {
+      await abandonPlaceholder();
+      throw new HttpException(
+        'Payment was not completed — subscription unchanged',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+
+    const { error } = await this.supabase
+      .from('subscriptions')
+      .update({
+        plan_id: planId,
+        status: SubscriptionStatus.ACTIVE,
+        billing_cycle: cycle,
+        current_period_start: now.toISOString(),
+        current_period_end: periodEnd.toISOString(),
+        updated_at: now.toISOString(),
+      })
+      .eq('id', subscriptionId);
+
+    if (error) throw new Error(error.message);
   }
 
   async cancelSubscription(tenantId: string): Promise<void> {

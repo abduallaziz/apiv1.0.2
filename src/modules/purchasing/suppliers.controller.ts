@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -13,6 +14,7 @@ import {
 import { SuppliersService } from './suppliers.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { SupplierPriceTimelineQueryDto } from './dto/supplier-price-timeline-query.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -44,6 +46,26 @@ export class SuppliersController {
     @GetTenant() tenant: TenantContext,
   ) {
     return this.suppliersService.findProfileStats(id, tenant.tenantId);
+  }
+
+  // #9.6 Supplier Price History & Procurement Price Timeline
+  // (Owner-approved, expanded scope). Read-only; reuses the existing
+  // purchasing.view permission, same as every other supplier read
+  // endpoint on this controller — no new permission introduced.
+  @Get(':id/items/:itemId/price-timeline')
+  @RequirePermission('purchasing.view')
+  findPriceTimeline(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Query() query: SupplierPriceTimelineQueryDto,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.suppliersService.findPriceTimeline(
+      id,
+      tenant.tenantId,
+      itemId,
+      query,
+    );
   }
 
   @Post()

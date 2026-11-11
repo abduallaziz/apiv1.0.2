@@ -23,6 +23,9 @@ export class AuditService {
       after_data: entry.after_data ?? null,
       ip_address: entry.ip_address,
       device: entry.device,
+      // Defaults to null for any caller that doesn't pass one — correct
+      // for genuinely tenant-wide actions, never a stand-in for "unknown".
+      branch_id: entry.branch_id ?? null,
       created_at: new Date().toISOString(),
     });
 

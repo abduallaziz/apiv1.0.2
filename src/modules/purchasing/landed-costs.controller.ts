@@ -9,7 +9,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 // Migration 13.15-fix (#15, Costing) — exposes the existing landed_costs
 // table (migration 110). fn_post_goods_receipt itself is not modified;
@@ -34,7 +33,6 @@ export class LandedCostsController {
 
   @Post()
   @RequirePermission('purchasing.manage')
-  @Audit('landed_cost.created')
   create(
     @Param('id') goodsReceiptId: string,
     @Body() dto: CreateLandedCostDto,

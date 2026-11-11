@@ -42,7 +42,11 @@ const ENV_KEY = 'LOAD_TEST_MODE';
  * exercise both branches without module cache tricks.
  */
 export function isLoadTestMode(): boolean {
-  return process.env[ENV_KEY] === 'true';
+  // Never honoured under NODE_ENV=production: a blanket rate-limit bypass must
+  // not be switchable on in a production deployment (brute-force protection).
+  return (
+    process.env[ENV_KEY] === 'true' && process.env.NODE_ENV !== 'production'
+  );
 }
 
 /**
@@ -51,6 +55,13 @@ export function isLoadTestMode(): boolean {
  * something you have to go looking for in a config dashboard to discover.
  */
 export function warnIfLoadTestModeEnabled(): void {
+  if (
+    process.env[ENV_KEY] === 'true' &&
+    process.env.NODE_ENV === 'production'
+  ) {
+    logger.warn('LOAD_TEST_MODE is set but IGNORED in production.');
+    return;
+  }
   if (!isLoadTestMode()) {
     return;
   }

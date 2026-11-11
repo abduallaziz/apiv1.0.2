@@ -21,7 +21,7 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
+import { WarehouseTasksQueryDto } from './dto/wms-list-query.dto';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('inventory/warehouse-tasks')
@@ -32,16 +32,9 @@ export class WarehouseTasksController {
   @RequirePermission('inventory.view')
   findAll(
     @GetTenant() tenant: TenantContext,
-    @Query('task_type') taskType?: string,
-    @Query('status') status?: string,
-    @Query('assigned_to') assignedTo?: string,
+    @Query() query: WarehouseTasksQueryDto,
   ) {
-    return this.tasksService.findAll(
-      tenant.tenantId,
-      taskType,
-      status,
-      assignedTo,
-    );
+    return this.tasksService.findAll(tenant.tenantId, query);
   }
 
   @Get(':id')
@@ -58,7 +51,6 @@ export class WarehouseTasksController {
 
   @Post()
   @RequirePermission('warehouse.manage')
-  @Audit('warehouse_task.created')
   create(
     @Body() dto: CreateWarehouseTaskDto,
     @GetTenant() tenant: TenantContext,
@@ -70,7 +62,6 @@ export class WarehouseTasksController {
   @Post(':id/assign')
   @RequirePermission('warehouse.manage')
   @HttpCode(HttpStatus.OK)
-  @Audit('warehouse_task.assigned')
   assign(
     @Param('id') id: string,
     @Body() dto: AssignWarehouseTaskDto,
@@ -88,7 +79,6 @@ export class WarehouseTasksController {
   @Post(':id/confirm')
   @RequirePermission('warehouse.approve')
   @HttpCode(HttpStatus.OK)
-  @Audit('warehouse_task.confirmed')
   confirm(
     @Param('id') id: string,
     @Body() dto: ConfirmWarehouseTaskDto,

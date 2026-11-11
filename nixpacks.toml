@@ -1,5 +1,7 @@
 [phases.setup]
-nixPkgs = ["nodejs_22"]
+# chromium + noto-fonts: headless Chrome renders the register close report
+# to PDF (Arabic shaping needs a real Arabic font on the server).
+nixPkgs = ["nodejs_22", "chromium", "noto-fonts"]
 
 [phases.install]
 cmds = ["npm ci --include=dev"]

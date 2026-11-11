@@ -20,7 +20,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 // Migration 13.16C (#16, Manufacturing — Subcontracting). Reuses
 // manufacturing.manage (planning-type actions: create, add cost) and
@@ -50,7 +49,6 @@ export class SubcontractOrdersController {
 
   @Post()
   @RequirePermission('manufacturing.manage')
-  @Audit('subcontract_order.created')
   create(
     @Body() dto: CreateSubcontractOrderDto,
     @GetTenant() tenant: TenantContext,
@@ -62,7 +60,6 @@ export class SubcontractOrdersController {
   @Post(':id/send')
   @RequirePermission('manufacturing.execute')
   @HttpCode(HttpStatus.OK)
-  @Audit('subcontract_order.sent')
   send(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
@@ -74,7 +71,6 @@ export class SubcontractOrdersController {
   @Post(':id/receive')
   @RequirePermission('manufacturing.execute')
   @HttpCode(HttpStatus.OK)
-  @Audit('subcontract_order.received')
   receive(
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
@@ -91,7 +87,6 @@ export class SubcontractOrdersController {
 
   @Post(':id/costs')
   @RequirePermission('manufacturing.manage')
-  @Audit('subcontract_order.cost_added')
   addCost(
     @Param('id') id: string,
     @Body() dto: CreateSubcontractCostDto,

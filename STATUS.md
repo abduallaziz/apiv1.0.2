@@ -1,5 +1,5 @@
 # STATUS.md — Sefay V1.02
-# Last Updated: Application Layer Deferral rule + Device Platform Phase 8 hold — August 8, 2026
+# Last Updated: Held/Pending Orders — diagnosis + `findAll` deleted_at filter fix (local only, not pushed) — November 8, 2026
 
 ---
 
@@ -5334,3 +5334,2363 @@ Connecting this log's own entries above to the current roadmap state (`api/TASKS
 - Production state: `POOLED_INVOICE_WRITES_ENABLED = true` (set by H01 above, confirmed unchanged through the D01 Final E2E and F2 entries above).
 - **No approved next implementation item currently exists in the roadmap.** The only two items `TASKS.md` still lists as not-started (Access Control platform-only permissions hardening; Multi-Role Per User frontend UI) remain explicitly deferred by Owner decision — neither has been promoted, renamed, or had its deferral reason removed.
 - Any new implementation phase or item requires a separate, explicit Owner decision before work begins.
+
+## 🏢 Accounting Operating Model — Final Decision (Branch Accounting + Central Accounting, same Tenant) — 2026-08-15
+
+Following the Enterprise Accounting Coverage Audit + Phase 2 Design Review this session (design/audit only, no code), the Owner approved the following Accounting operating model as the intended product direction. This is a decision record only — no code, migration, DB, UI, API, or roadmap change accompanies it.
+
+**Decision:**
+
+1. Sefay has **one Tenant** = the legal/business entity. This does not change the existing "Tenant = Company" decision (`STATUS.md`, 2026-08-10, `⚠️ تصحيح — رفض كيان Company`) — reaffirmed, not superseded.
+2. Each **Branch** has its own operational Accounting context.
+3. **Branch Accounting** is the real accounting operation for that branch: sales, purchases, expenses, AR/AP, cash/bank, tax, reports, etc.
+4. **Branch users must only access the Accounting scope of their authorized branch.** (Note: the Coverage Audit this session found this is **not currently enforced** — all existing accounting permissions are tenant-wide, not branch-scoped. This decision records the intended target state; it does not claim the current system already satisfies it.)
+5. **Central Accounting exists inside the same Tenant** / main project. It is **not** a separate tenant and **not** an unrelated accounting system.
+6. Central Accounting is used by the main accountant / authorized central users for: cross-branch visibility, oversight, consolidation, comparison, central reporting, and branch linking/unlinking.
+7. A Branch **may be linked to Central Accounting or remain independent**, according to the main Tenant's administrative decision.
+8. **Branch is not equated with Legal Entity.** Tenant remains the sole legal/business entity unless a future explicit decision changes this architecture.
+9. **Model B is not implemented by this decision** and has no connection to it. Model B remains exactly as previously documented (`STATUS.md`, 2026-08-11, `🏛️ D01 — Role Hierarchy: Final Decision`): not started, no timeline.
+10. **Multi-Role Per User UI is not connected to this decision** or to Model B. It remains the separate, deferred Access Control item documented in `TASKS.md`, deferred until a real operational scenario requires it.
+
+**Relationship to the current schema (audit finding, not a new decision):** the Coverage Audit found this operating model is **already representable** in the existing schema — `accounting_owners.branch_id IS NULL` is the documented mechanism for a Central owner (`177_accounting_owners.sql`), and `branch_accounting_assignments` already supports routing any branch to any owner (branch-scoped or central) over time, with full history. The application layer does not yet resolve reporting/visibility through this mechanism, and branch-scoped permission enforcement (point 4 above) does not yet exist — both are implementation gaps to be addressed in a future, separately-approved phase, not by this decision itself.
+
+**Status:** approved product direction. No implementation authorized by this entry. A separate "Approved – Proceed with Implementation" is required before any code, migration, or UI work begins on any part of this model.
+
+## 🧾 NEW EXPENSES — Steps 1–10 (2026-08-15 → 2026-08-16)
+
+Following the "NEW EXPENSES — FINAL DESIGN FREEZE" (design-only, this session, not previously logged here), each step below was individually approved via the exact phrase "Approved – Proceed with Implementation"/"Approved – Proceed with Step N", implemented, live-tested, and reported one at a time per the Sequential Execution Order rule. **Nothing in this initiative has been committed or pushed** — all work remains in the local working tree only, per explicit repeated instruction throughout.
+
+**Coexistence decision (Owner Decision, 2026-08-16):** the new module lives at `src/modules/expenses-v2/` (backend) and `web/src/features/expenses-v2/` (frontend) — a deliberate, temporary name distinct from Legacy's own live `src/modules/expenses/`. Legacy Expenses is frozen and untouched, still serving Shift Reconciliation/Reports/Platform Analytics. `expenses-v2` is renamed to `expenses` only after Legacy is fully migrated and removed, as a separate future step.
+
+**Step 1 — Reusable Storage Abstraction**: `src/shared/storage/` (`StorageService`, private-by-default uploads, signed-URL retrieval, tenant/owner-scoped paths). 10 unit tests passing. No consumer existed yet at this point.
+
+**Step 2 — Database Foundation**: Migration `197_new_expenses_database_foundation.sql` — 7 tables (`expense_departments`, `expense_categories_v2`, `expense_recurring_templates`, `expense_quick_definitions`, `expenses_v2`, `expense_attachments`, `expense_activity`). **Table-name collision resolved by Owner Decision**: `expenses`/`expense_categories` collided with Legacy's live tables of the same name — first migration attempt rolled back atomically, zero schema change persisted; re-designed as `expenses_v2`/`expense_categories_v2` per explicit Owner Decision, re-applied successfully. Deactivate-not-delete enforced via unconditional `BEFORE DELETE` triggers on Department/Category/Quick Definitions (mirrors the M181/M178 precedent).
+
+**Step 3 — Department + Category Administration**: full CRUD + deactivate (`expenses.configure` permission) for both master tables, admin UI at `/dashboard/expenses-v2` (direct URL only, not in sidebar). Discovered and fixed a real permission-enforcement bug during live testing (permission seed edited but never re-migrated); separately disclosed a pre-existing, unrelated hardcoded bypass (`UNRESTRICTED_TEST_TENANT_IDS`) for the demo tenant, not introduced by this step.
+
+**Step 4 — Expense Core**: `expenses_v2` CRUD. Branch is always server-derived from `TenantContext.branchId` (`x-branch-id` header + `TenantGuard`), never client-selectable on any Expense DTO — this rule is enforced today only for Expenses-v2 (see the Branch System Audit below for the platform-wide gap this exposed). Tax computed server-side from `tenants.tax_rate`.
+
+**Step 5 — Quick Expense**: `expense_quick_definitions` admin CRUD (Fixed/Variable `amount_mode`, DB+app-layer pairing constraint) + manual quick-entry endpoint (`POST expenses-v2/expenses/quick/:id`). **Tax model corrected twice post-approval** (Owner-directed): first added `none` as a third Quick-only tax mode (migration `198`), then — after Owner rejected the initial semantic collapse (`none` was being stored as `exclusive`+`tax_amount=0`) — widened `expenses_v2.tax_mode` itself to the same three-value model (migration `199`), and again to `expense_recurring_templates.tax_mode` (migration `200`) so Normal/Quick/Recurring all share one identical tax model.
+
+**Step 6 — Recurring**: `expense_recurring_templates` CRUD + daily `@Cron` generation job (`ExpensesV2Scheduler`) copying Department/Category/Branch/amount/tax_mode verbatim into a new, independent Expense per occurrence; `next_occurrence_date` advances per `frequency`; auto-deactivates once past `end_date`. Live-verified idempotent (no double-fire on same-day re-run).
+
+**Step 7 — Payment State / Confirm Payment**: single `PATCH .../confirm-payment` action, the only path that can transition `'unpaid' → 'paid'`; genuinely idempotent (already-paid = no-op, not an error, unlike `cancel()`). `payment_status` deliberately excluded from the generic edit DTO — enforced by the global whitelist, not just convention.
+
+**Step 8 — Activity History**: `expense_activity`, append-only, written on every transition (`created`/`edited`/`department_changed`/`payment_confirmed`/`cancelled`) via a single shared insert hook (`insertExpense()`), guaranteeing completeness across all three creation paths (manual/quick/recurring) from one code path rather than three.
+
+**Step 9 — Backend API Completion**: search/filter surface on `GET expenses-v2/expenses` (department/category/source/payment_status/search/date range/amount range), matching the locked filter examples exactly. Attachments (`expense_attachments`) wired to Step 1's Storage — first real consumer. **Storage bucket (`private-attachments`) was not yet provisioned at this point** — disclosed, not silently worked around; provisioned by the Owner directly afterward (private, `allowed_mime_types: image/*, application/pdf`), then re-verified end-to-end with a real image upload, tenant-isolation confirmed live (cross-tenant request → 404, no leak; raw storage path with no signed token → rejected).
+
+**Step 10 — Frontend UX**: `web/src/features/expenses-v2/` — Expenses list/create/edit/cancel/confirm-payment/attachments/activity, Quick Expense buttons, Quick Definitions admin, Recurring Templates admin. Field order on the create form follows the locked design exactly (Date → Department → Category → Title → Description → Amount → Tax Mode → Payment Status → Payment Method → Attachment note → Reference Number → Recurring checkbox). ar/en + RTL/LTR verified live via screenshots. One real bug found and fixed during verification: a duplicate `"title"` JSON key inside one i18n namespace silently overwrote the page heading (last-value-wins in `JSON.parse`) — renamed the field-label key, verified no other duplicates exist.
+
+**Disclosed, unresolved gap surfaced by Step 10's own frontend work (not fixed, not in scope for New Expenses to fix alone):** this app has no app-wide "current branch" session/authorization context anywhere — confirmed platform-wide, not Expenses-specific. A small scoped `branch-scoped-request.ts` helper + page-level "Working Branch" selector was added only to make New Expenses' own branch-dependent endpoints reachable through the UI at all; it does not, and cannot, fix the underlying gap. See the Branch System entries below.
+
+**Overall validation across Steps 1–10:** `tsc --noEmit`, `eslint`, `nest build` clean at every step (backend); `tsc --noEmit`, `eslint` clean at Step 10 (frontend; `next build` deliberately skipped throughout — running it alongside the live `next dev` server is a known corruption gotcha). Every step live-tested against the real database via minted JWTs and/or the real browser session, with test data (departments/categories/expenses/templates/definitions) cleaned up (deactivated/cancelled, never hard-deleted, matching the platform's deactivate-not-delete convention) after each round.
+
+## 🔓 Branch Authorization — Confirmed Platform-Wide Gap (2026-08-16)
+
+Triggered by a Step 10 security review requested against Expenses-v2's own new "Working Branch" selector. Live-tested against a real, non-bypassed tenant (not the demo tenant's `UNRESTRICTED_TEST_TENANT_IDS` special-case): the same authenticated user, same JWT, was able to create Expenses in two different branches of their own tenant simply by changing the `x-branch-id` request header — no denial, no check. Root cause: **no `user`↔`branch` authorization relationship exists anywhere in this codebase.** `TenantGuard`/`BranchValidatorService` validate only that a branch belongs to the requesting tenant, never that the specific user is authorized for that specific branch.
+
+A follow-up platform-wide audit found this is **not unique to Expenses** — of every branch-scoped module (Shifts, Tables, Kitchen, Waitlist, Reports, Invoices/POS, Accounting, Attendance, Schedules, Legacy Expenses), only Expenses-v2's write paths even use the one validated channel (`tenant.branchId`, from `TenantGuard`); every other module trusts `branch_id` read directly from client query/body, bypassing `TenantContext` entirely. Reservations has no branch scoping at all.
+
+A second, deeper audit (Owner-directed, explicitly requiring proof rather than assumption before proposing any table) confirmed **no reusable existing `user`/`employee` ↔ `branch` relationship exists to build on**: `users` has no `branch_id` column (checked all 200 migrations); there is no separate `employees` table (employees = `users` rows flagged `is_employee_profile=true`); the one "branch" control in the employee UI (`EmployeeWizardPage.tsx`) is a disabled, non-functional placeholder wired to nothing.
+
+A third audit (full Branch System scope, Owner-directed) additionally confirmed: no Branch management UI exists anywhere in the frontend (`TASKS.md`'s "B4 — Branches Module ✅" covers backend CRUD only); `branches` has no legal/entity fields (consistent with the standing Tenant=legal-entity/Branch=operational-unit product decision above); no default/main-branch concept exists; plan-based branch-count limiting (`checkBranchLimit`) is the only "business logic" beyond CRUD.
+
+**Recommended minimal fix (design only, not approved for implementation):** a single nullable `users.branch_id UUID REFERENCES branches(id)` — NULL = Central/unrestricted (matches every current user's de facto behavior today, so rollout is inherently non-breaking), set = Branch-restricted — enforced at exactly one point (`TenantGuard`, after the existing tenant-ownership check). A many-to-many `user_branch_access` table was evaluated and explicitly rejected as unnecessary complexity: no genuine "exactly N of M branches" requirement has been evidenced anywhere, only "one branch" or "all branches."
+
+**Status: design only, three full audit documents produced this session (not persisted to file, available in this session's conversation history), zero code/migration/config change made. Not approved for implementation. Classification (independent future capability vs. hard New-Expenses dependency vs. other) explicitly left to the Owner, not decided by any of these audits.** New Expenses Steps 1–10 remain otherwise complete and PASS on their own terms; Steps 11+ (Permissions enforcement test suite, Automated tests) have not been started and are understood to be gated behind this open decision for anything that depends on real branch-level access control being meaningful.
+
+## 🏢 Branch System — Step 2: User/Employee → Branch Assignment (2026-08-16)
+
+Owner-approved, scoped strictly to the final locked model: nullable `users.branch_id UUID REFERENCES branches(id)` (migration `203`), `NULL` = Central user, no `user_branch_access` join table, no `is_central` flag.
+
+**Backend:** `POST /users`, `PATCH /users/:id`, `POST /employees`, `PATCH /employees/:id` now validate (`BranchValidatorService.validate()` — tenant + `is_active` check, already existed for `TenantGuard`) and persist `branch_id`. `CreateUserDto`/`UpdateUserDto`'s previously-dead `branch_id` fields are now actually wired to persistence. `CreateEmployeeDto`/`UpdateEmployeeDto` gained `branch_id` (didn't exist before). `UpdateUserDto`/`UpdateEmployeeDto` accept `null` to clear an assignment back to Central. `POST /auth/register` reviewed and left unchanged — Owner is correctly created with `branch_id = NULL` (Central) under this model.
+
+**Frontend:** Employee Wizard's previously disabled, non-functional Branch select (flagged in the Step-1 audit as "wired to nothing") is now real, backed by `useBranches()`. Employee Detail page gained a "Branch Assignment" section for editing an existing employee's branch. `CreateUserDialog` (System User creation) got the same field for consistency.
+
+**Type-safety correction (Owner-directed, same session):** the first pass introduced one `user: any` parameter in the new `EmployeeDetailPage.tsx` `BranchSection` component. Owner explicitly rejected this — **standing rule going forward: no new `any`, no broad unsafe casts, no `eslint-disable` as a shortcut; new code must use the existing domain types (or a correctly defined local type) even where surrounding legacy code in the same file is still untyped (`any`).** Fixed by typing `BranchSection`'s `user` prop as the existing `User` interface from `users.api.ts` instead of leaving/adding `any`. Pre-existing `any` usages elsewhere in the same file (`JobInfoTab`, `PayrollSection`, `AttendanceTab`, etc.) were left untouched — out of scope, not introduced by Step 2.
+
+**Validation:** backend `tsc --noEmit` + `nest build` clean; backend ESLint on every touched file identical error/warning count before/after (pre-existing `any`/unsafe-member-access noise in `users.controller.ts`/`users.service.ts` unrelated to this change). Frontend `tsc --noEmit` + `next build` clean; frontend ESLint back to the exact pre-Step-2 baseline (0 newly introduced `any`). Migration applied live to the dev DB. Dev server restarted on a wiped `.next` (established gotcha) with zero runtime/compile errors in server logs.
+
+**Not implemented (explicitly out of scope for Step 2):** Branch Authorization enforcement, `TenantGuard`/`x-branch-id` changes, Shared Branch Context, Expenses/POS/Accounting/Reports changes, new permissions, billing changes. These remain gated behind a fresh explicit Owner approval for Step 3+, per the Branch Authorization gap entry above.
+
+## 🩹 Branch System — Step 2 Post-Validation UX Fix (2026-08-16)
+
+Owner-flagged during Step 2's own live validation: `GET /branches` (the endpoint `useBranches()` calls) returned branches regardless of `is_active`, so inactive branches appeared as selectable options in the Employee Wizard, Employee Detail, and Create User branch selectors — even though the backend correctly rejected them (`403` via `BranchValidatorService`), so no authorization/data-integrity bypass existed, only a confusing UX path.
+
+**Fix (smallest correct option, evaluated against two alternatives):** rejected globally filtering `GET /branches` (would break Branch Management's own admin list, which needs inactive branches for administration) and rejected adding a wholly separate endpoint (unnecessary — the existing endpoint already has everything needed). Added an opt-in `active_only=true` query param to `GET /branches` (`branches.controller.ts` → `branches.service.ts` → `branches.repository.ts`, additive, defaults to off — unfiltered/administrative behavior is the unchanged default). The shared `useBranches()` hook (assignment-selector consumer) now requests `active_only=true`; the Branch Management admin hook (`useBranchesAdmin`) is untouched and still gets the full list.
+
+**Second bug caught during this fix's own live validation, fixed in the same pass:** the Employee Detail "Branch Assignment" `BranchSection` also consumed the now-filtered `useBranches()` for its *display* value, not just for offering new choices. Since a native `<select>` silently falls back to its first option when its `value` doesn't match any `<option>`, an employee already assigned to a branch that later went inactive would display as "Central" — silently misrepresenting the real assignment, exactly the failure mode the fix was required to avoid. Fixed with a new `useBranchById()` hook (`shared/hooks/useBranches.ts`): when the current assignment isn't in the active list, its real branch is fetched by id and injected as a `disabled` option — so it displays correctly and stays selected until changed, but can't be re-selected as a new target once changed away. Live-verified: an employee assigned (via direct DB write, simulating a pre-existing assignment predating a later deactivation) to a since-deactivated branch correctly showed "Jeddah Branch QA (Edited) (Inactive)" as its selected, disabled option, with only the active "Main Branch" selectable as a new target.
+
+**Validation:** backend `tsc`/`nest build`/ESLint clean (1 pre-existing unrelated `no-unused-vars` in `branches.service.ts`, confirmed identical before/after via `git stash`). Frontend `tsc`/`next build`/ESLint clean, zero new `any`. Live-verified all 4 required checks: inactive branch absent from `GET /branches?active_only=true`; active branch present; existing inactive assignment still displays correctly (not silently dropped); direct assignment to an inactive branch still rejected server-side. AR/RTL verified live (Arabic labels, correct disabled-option rendering); EN/LTR relies on the same shared components already verified in the base Step 2 report. All QA test data cleaned up (soft-deleted/deactivated), QA account password restored, no scratch files left in either repo.
+
+Diff scope: `branches.controller.ts`, `branches.service.ts`, `branches.repository.ts` (backend, additive-only param); `shared/hooks/useBranches.ts`, `EmployeeDetailPage.tsx`, `employee-detail.json` (ar/en) (frontend). No Branch Authorization, lifecycle rule, or unrelated module touched.
+
+## 🌐 Branch System — Step 3: Shared Branch Context (2026-08-17)
+
+Owner-approved, frontend-only per the approved scope: no Branch Authorization, no TenantGuard/BranchValidatorService changes, no schema/permission/billing changes.
+
+**Backend (minimal, additive exposure only):** `auth.service.ts`'s `login()` and `me()` selects gained `branch_id` (the column already existed since Step 2; it was simply never returned to the frontend session). No new column, no authorization logic, no TenantGuard touch.
+
+**Frontend — new shared context** (`core/branch/`): `useBranchContext()` composes existing pieces — the already-populated `useAuthStore` (now correctly mapping `branchId` instead of leaving it dead, confirmed dead in Step 1's audit), `useBranches()` (tenant-scoped, active-only), and a new small `zustand+persist` store (`branch-context.store.ts`, `localStorage` key `sefay-branch-context`) mirroring the exact pattern already used by `tenant.store.ts` for currency — no new state-management pattern introduced. Exposes `currentBranch`, `currentBranchId`, `availableBranches`, `setCurrentBranch`, `isCentral`, `currentBranchInactive`, `fallbackReason`, `isLoading`.
+
+**Central users:** `availableBranches` = every active tenant branch; `setCurrentBranch` persists the choice; on load, an invalid/stale persisted selection (deleted, deactivated, or simply absent) falls back to the first active branch with `fallbackReason` set (`'previous-branch-invalid'` / `'no-selection'` / `'no-active-branches'`) rather than crashing or silently pretending nothing changed. **Branch-restricted users:** `currentBranchId` is always their fixed `user.branchId`, never the persisted store; `setCurrentBranch` is a guaranteed no-op; `availableBranches` is their own branch if active, otherwise empty — never offered another choice. Their assignment is resolved via a new `useBranchById()` hook (mirrors the fix already applied to `EmployeeDetailPage`'s `BranchSection` in the Step 2 UX fix) so it stays correctly readable even if their branch later goes inactive (`currentBranchInactive` flag), instead of silently misrepresenting as Central.
+
+**UI integration:** the header's "Branch" button — a B6-era placeholder explicitly "kept as a placeholder... visual only" — is now wired to the shared context via a new `BranchSwitcher.tsx` component (real dropdown for Central, static fixed label for restricted, no chevron/no-op click). This intentionally supersedes the prior B6 decision per this step's explicit Owner instruction. Cross-tenant isolation requires no extra frontend logic — inherited for free from `GET /branches`/`GET /branches/:id` already being tenant-scoped server-side.
+
+**Branch transport:** formalized the existing `x-branch-id` header convention (already used by `expenses-v2`'s `branch-scoped-request.ts`, already read server-side via `TenantGuard`) as the approved transport for future branch-scoped requests — no new transport invented. Integrated the shared context into expenses-v2's three pages that already used this exact mechanism (`ExpensesPage.tsx`, `RecurringExpensesPage.tsx`, `ExpenseMasterDataAdminPage.tsx`) — each previously derived its own independent local `branchId` state with ad-hoc `branches?.[0]?.id` fallback logic; now all three source `currentBranchId`/`availableBranches`/`setCurrentBranch` from the one shared hook, so the page-level "Working Branch" selector and the header switcher always agree (live-verified). **Every other module's ad-hoc `branch_id` query/body param usage (users, accounting, pos, orders, reports, hr, kitchen, tables, shifts, warehouses, invoices, dashboard/expenses) was deliberately left untouched** — identified as legacy/deferred consumers per the explicit "do not silently rewrite every module" instruction, not migrated in this step.
+
+**Validation:** backend `tsc`/`nest build` clean; ESLint on `auth.service.ts` has 2 more instances of the same pre-existing `no-unsafe-assignment` class already present on every neighboring line of the same object literals (the file's Supabase query results are implicitly `any` throughout — not a new category of issue, just 2 more occurrences of one that already existed 81 times in this file; not fixed, out of scope for a full retype of an unrelated file). Frontend `tsc`/`next build` clean, zero new `any` anywhere. Live-verified end-to-end with a real Central user and a real branch-restricted test user: A→B switch + reload persistence, restricted user sees only their fixed branch with switching genuinely disabled (`data-disabled` confirmed), deactivating the Central user's current branch triggers the documented safe fallback (verified via a simulated stale `localStorage` entry) instead of a silent/broken state, and the expenses-v2 "Working Branch" selector stays in sync with the header switcher. All QA test data (1 branch, 1 restricted user) cleaned up, QA account password restored, no scratch files left in either repo.
+
+**Diff scope:** `auth.service.ts` (backend, additive `branch_id` exposure only). `core/branch/` (new: store + hook), `core/auth/stores/auth.store.ts`, `core/auth/auth.provider.tsx`, `features/auth/api/auth.api.ts`, `features/auth/hooks/use-auth.ts`, `features/auth/pages/LoginPage.tsx` (branchId now correctly mapped, was dead), `shared/hooks/useBranches.ts` (added `is_active` to the `Branch` type + new `useBranchById()`), `features/dashboard/components/DashboardHeader.tsx` + new `BranchSwitcher.tsx`, three `expenses-v2` pages, `header`/`en.json`/`ar.json` message keys. No Branch Authorization, `TenantGuard`, Axis-2 module migration, new DB schema, new permission, or billing change made.
+
+## 🩹 Branch System — Step 3 Quality Cleanup (2026-08-17)
+
+Owner-flagged: the 2 ESLint findings Step 3 added to `auth.service.ts` (both `no-unsafe-assignment` on the newly-added `branch_id` property lines in `login()`/`me()`) were left as "same pre-existing pattern" in the Step 3 report rather than fixed. Owner required a proper fix, not suppression.
+
+**Fix:** added two narrow local interfaces (`LoginUserRow`, `MeUserRow`) describing exactly the columns each of the two `users` selects returns, and passed them as the `postgrest-js` `.select<Query, Result>()` generic — the library's own supported mechanism for typing a query result, not a cast. This properly types `data`/`error` for both queries, which eliminates `no-unsafe-assignment`/`no-unsafe-member-access` on every property read from `user` in both methods (not just the 2 new `branch_id` lines — the whole `login()`/`me()` blocks were `any`-typed before this).
+
+**Result:** `auth.service.ts` ESLint went from 101 (pre-Step-3 baseline) → 103 (Step 3, +2) → **67** (this fix) — a net reduction of 34 findings, since typing the query result cleaned up every other property access in both methods along with the 2 flagged ones. No `any`, no cast, no suppression, no unrelated code touched — confirmed via diff: only `auth.service.ts` changed, 37 insertions/2 deletions.
+
+**Validation:** backend `tsc --noEmit` clean, `nest build` clean, ESLint confirmed (67 problems, down from 103, zero new categories). Frontend untouched this round — `tsc`/`next build` re-confirmed clean regardless. Dev server restarted on a wiped `.next` per the standing `next build`-corrupts-`next dev` gotcha (triggered again this round since the frontend build ran while `web-dev` was live).
+
+No Step 3 business behavior changed — same `login()`/`me()` logic, same returned shape, same Shared Branch Context behavior.
+
+## 🧹 auth.service.ts — Complete Type-Safety Cleanup (2026-08-17)
+
+Owner explicitly rejected "pre-existing, not fixed" as a closing state for `auth.service.ts` and required the whole file brought to 0 ESLint errors/0 warnings, properly typed, no `any`/casts/suppressions — not just the 2 lines Step 3 had touched.
+
+**Root cause:** every Supabase/PostgREST query in this file was untyped (`.select('col, col')` with no generic), so every downstream read of `data` was implicitly `any`, which propagated into every typed sink (JWT payload objects, audit-log calls, `new Date()`, function parameters) that touched it — 67 findings across `login()`, `register()`, `refresh()`, `getSessions()`, and three small helper methods.
+
+**Fix, applied uniformly:** for every query whose result was ever read, added a small local interface matching exactly the selected columns and passed it as postgrest-js's own `.select<Query, Result>()` generic — the library's supported typing mechanism, not a cast. 13 new local interfaces total (`RoleNameRow`, `TenantBusinessTypeRow`, `IdRow`, `PlanRow`, `RegisterUserRow`, `RefreshTokenRow`, `RefreshSessionRow`, `RefreshUserRow`, `DeviceSessionWithJoinsRow`, plus the two from the prior fix). Two explicit `any` annotations that had been hand-written as a workaround (`(row: any) =>` in `getUserRoleNames`, `(s: any) =>` in `getSessions`) were removed entirely — no longer needed once the query itself is typed. The constructor's `realtimeAnonClient: SupabaseClient` field (unrelated to the branch_id work, but genuinely broken — a structural generic mismatch between the bare-imported type and `createClient()`'s inferred return type on this supabase-js version) was retyped as `ReturnType<typeof createClient>`, which is exact by construction and needs no manual generic guessing.
+
+**Two intentional, behavior-adjacent additions, not scope creep:** typing `login()`'s and `register()`'s `device_sessions` insert-selects surfaced that neither previously null-checked the inserted session before reading `session.id` — under the old `any` typing this would have been a silent runtime `TypeError` on the (rare) failure path; now it's an explicit `ServiceUnavailableException`. This is a strict improvement on an already-broken edge case, not a change to any success-path behavior (login/registration/JWT/roles/permissions/branch_id are byte-identical on the path that actually runs today).
+
+**Result:** `auth.service.ts` ESLint: 101 (pre-Step-3 baseline) → 103 (Step 3) → 67 (targeted fix) → **0 errors, 0 warnings**. Confirmed absent entirely from a full `npx eslint src` repo-wide run (i.e. truly zero findings, not just under the per-file threshold).
+
+**Validation:** `tsc --noEmit` clean. ESLint on the file: 0/0. Full backend ESLint: unrelated pre-existing findings elsewhere untouched (`auth.controller.ts`, `accounting-bootstrap.service.ts`, `supabase.module.ts` — none in scope, none touched). `nest build` clean. Runtime: live login (QA account) → `access_token` issued, `branch_id: null` correctly returned; `GET /auth/me` → `branch_id: null` correctly returned; full `POST /auth/register` smoke test → new tenant/owner/branch created successfully, `branch_id: null` correctly returned. No authentication/JWT/role/permission behavior changed. Test tenant and QA password cleaned up/restored immediately after.
+
+**Diff scope:** exactly `auth.service.ts` — 140 insertions / 21 deletions, purely additive typing plus the two null-guards above. No other file touched; Branch Authorization, `TenantGuard`, `BranchValidatorService`, Shared Branch Context, Expenses, POS, Accounting, and ESLint configuration all untouched.
+
+**Remaining issues:** none in `auth.service.ts`. (Out of scope, noted only for completeness: `auth.controller.ts` and `accounting-bootstrap.service.ts` — both imported by/adjacent to this file — still carry their own pre-existing `any`-typed findings, unaffected by this cleanup since the instruction was scoped to `auth.service.ts` only.)
+
+
+## 📄 Product Specification Documents — Created (2026-11-08)
+
+Documentation-only session; **no code, migration, DDL, or schema change of any kind** (so the Architectural Approval Protocol / Execution Gate was not triggered).
+
+**What was produced (three new files, all local, nothing pushed):**
+- `C:\Fp\PRODUCT_SPEC.md` — Arabic product specification for Sefay as a whole (`web` + `api`).
+- `C:\Fp\PRODUCT_SPEC_EN.md` — verbatim English translation of the same document, no added content.
+- `C:\Fp\api\API_SPEC.md` — English, API/backend-only specification (tech stack, tenant isolation via `ScopedRepository`, `core/` + `engines/` + `modules/` map, domain status table, known gaps, the approval-gate rule).
+
+**Why they exist:** the user needed a "Product Specification Doc" (a required upload field) describing the product's features, purpose and how it should work. All three were written from an actual survey of `web`, `api`, `web/STATUS.md` and `api/STATUS.md` — no feature was assumed.
+
+**Course correction recorded (important lesson):** the first draft of `PRODUCT_SPEC.md` was written from `C:\Fp\pos-cloud` (a separate Next.js demo with in-memory mock data, not Sefay's real product). The owner rejected it — *"our project is only the `web` + `api` files"* — the draft was deleted and rebuilt from `web` + `api` only. `pos-cloud` is **not** part of Sefay and must not be used as a source for product documentation. (Consistent with the standing rule that Sefay and other projects stay isolated.)
+
+**Facts the spec states, as of 2026-11-08 survey (verify against current sections before relying on them):** custom JWT auth (15-min access + 7-day rotating refresh, device sessions); tenant isolation through `ScopedRepository`; Access Control Center real but custom roles / multi-role users / branch-scoped permissions listed as pending in the survey; Multi-Branch listed as "spec pending" in `web/STATUS.md`'s roadmap table at the time of the survey — the Branch System steps logged later in this file (Steps 2–3, Aug 2026) supersede that for the backend. The spec docs are a point-in-time summary, **not** a source of truth; this file and `TASKS.md` remain authoritative.
+
+**Also this session (no persisted change):** ran the existing `src/database/seeds/generate-token.ts` to print two 1-hour test JWTs (`cashier` / `owner`, dummy `test-tenant-id`) for local API testing. Tokens are intentionally **not** recorded here; the script is unchanged.
+
+**Open point:** the user gave no preference between keeping one combined spec vs. a separate API spec, so both exist. The combined docs live at `C:\Fp` root (outside both `web/` and `api/`); move them if a different home is wanted.
+
+
+## 🧾 الطلبات المعلقة (Held/Pending Orders) — تشخيص كامل + إصلاح صف شبحي واحد (2026-11-08)
+
+جلسة تشخيص بدأت من بلاغ المالك بلقطة شاشة لصفحة الطلبات: صفوف بحالة **«معلقة»** (5/5/5/10 ر.س، عمود طريقة الدفع `—`) تظهر في القائمة **رغم أنه حذفها فعليًا من شاشة الطلبات المعلقة في نقطة البيع**. السؤال الحرفي: ما هي؟ لماذا عُلِّقت؟ وكيف تُكمَل؟
+
+### 1. مصدرا `status='pending'` على جدول `orders` — لا ثالث لهما (تحقّق بالبحث الشامل)
+1. **تعليق طلب من الكاشير (Hold)** — `InvoicesService.holdOrder()`: يُنشئ السجل بـ`status='pending'`, `held=true`, `held_by`, `held_at`, بلا `payment_method`, **بلا خصم مخزون**, وبلا ضريبة/خصم (`total = subtotal`). معزول عمدًا عن `create()` — لا يصبح بيعًا إلا بعد استئنافه ومروره بمسار الـcheckout العادي.
+2. **طاولة dine-in مفتوحة** — `fn_open_dine_in_table` (migration 072) يُنشئ الطلب `pending` لحظة فتح الطاولة، ويظل كذلك حتى `fn_checkout_dine_in_table` الذي يحوّله إلى `completed` ويكتب `payment_method`.
+
+**للتمييز بين النوعين في البيانات:** المعلّق من الـPOS له `held=true`/`held_by`، وطلب الطاولة له `table_id`.
+
+### 2. طرق الإكمال الفعلية (إجابة سؤال «كيف أكملها»)
+- **معلّق من POS**: صفحة نقطة البيع ← زر الطلبات المعلقة ← استئناف ← تُحمَّل الأصناف في السلة ← دفع عادي (`POSPage.tsx` → `handleResumeHeldOrder`).
+- **طاولة مفتوحة**: صفحة الطاولات ← الطاولة ← Checkout.
+- **من صفحة الطلبات نفسها: غير ممكن إطلاقًا** — قائمة الإجراءات فيها «إلغاء» فقط، و«تعديل» معطّل بـ«قريباً»، ولا يوجد أي endpoint يحوّل `pending → completed` من هناك (الموجود حصرًا: `PATCH /invoices/:id/cancel`). هذا قيد قائم موثَّق أصلًا (راجع `web/docs/rebuild/PARKING_LOT.md` B9).
+
+### 3. السبب الجذري للصفوف الشبحية
+`InvoicesRepository.cancelHeldOrder()` يضع `deleted_at` ويجعل `held=false` — لكنه **يترك `status='pending'` كما هو**. وهذا المسار يخدم حالتين: حذف المالك للطلب المعلق، **وأيضًا** استئناف الكاشير له (`POSPage.tsx` يستدعيه بعد تحميل الأصناف في السلة). بالمقابل `InvoicesRepository.findAll()` لم يكن يفلتر `deleted_at` إطلاقًا — بعكس `findHeldOrders()` الذي يفلتره منذ البداية. النتيجة: كل طلب معلق محذوف أو مُستأنَف ظل ظاهرًا في قائمة الطلبات كصف «معلقة» حيّ، ومزدوج مع الفاتورة المكتملة الناتجة عن الاستئناف.
+
+### 4. نطاق الأثر — تحقّق مباشر، لا افتراض
+محصور في **قائمة الطلبات** وما تشتقه الواجهة منها (بطاقات الإحصائيات وحبوب الفلترة الكل/مكتملة/معلقة/ملغاة — كلها تُحسب client-side من نفس المصفوفة). **التقارير والإيرادات والورديات وإجماليات العملاء غير متأثرة** — كلها تفلتر `status='completed'` صراحةً (تُحقِّق في: `customers.repository.ts`، `shifts.repository.ts`، `platform-analytics.repository.ts`).
+
+### 5. التغيير الوحيد المُطبَّق على الكود في هذه الجلسة
+`InvoicesRepository.findAll()` — إضافة `.is('deleted_at', null)` مع تعليق يشرح السبب. **تعديل استعلام فقط: لا Schema، لا Migration، لا DDL، لا endpoint جديد، لا تغيير عقد API** — لذلك خارج نطاق بروتوكول الاعتماد المعماري. لم يُختبَر بالمتصفح (المالك هو المُختبِر، حسب القاعدة القائمة). **لم يُدفع لأي remote — محليًا فقط بطلب صريح.**
+
+### 6. ⏸️ بندان عُرِضا للتنفيذ وأوقفهما المالك صراحةً
+نص قراره الحرفي: **«وقف وثق الي سويتها في ملفات التوثيق وراح نعمل عليه»** — فلم يُكتب لهما أي كود:
+1. **إخفاء الطلبات المعلقة الحيّة** (`held=true`, `deleted_at IS NULL`) من قائمة الطلبات لتبقى حصرًا في شاشة الكاشير. **قرار منتجي لا تقني**، ويجب حسم أثره الجانبي قبل التنفيذ: حبة الفلترة «معلقة» ستعرض عندها طلبات الطاولات المفتوحة فقط، وقد تبدو فارغة لمستأجر لا يستخدم الطاولات.
+2. **تصحيح دلالة الحالة في `cancelHeldOrder`** (تركه `pending` للأبد على سجل محذوف). الأثر المرئي اليوم **صفر** بعد إصلاح البند 5 — المسألة نظافة دلالة بيانات تاريخية. **تعقيد يجب مراعاته**: نفس الدالة تخدم مسارين مختلفين دلاليًا (حذف = إلغاء فعلي، مقابل استئناف = تحويل لفاتورة جديدة)، فأي حالة جديدة يجب أن تفرّق بينهما لا أن تُطبَّق موحَّدة.
+
+### 7. ملاحظة تشغيلية مهمة (حادثة توثيق في هذه الجلسة نفسها)
+أُضيف توثيق هذه الجلسة مرة أولى إلى `STATUS.md`/`TASKS.md` ثم **اختفى**: نسخة أحدث من الملفين كانت تُكتَب على القرص من جلسة أخرى تعمل على نفس المجلد بالتوازي، فدُهِس الإلحاق بالكامل (الكود نجا، التوثيق لا). القسم الحالي هو إعادة كتابته على النسخة الحديثة. **درس**: عند وجود جلسة أخرى نشطة على نفس المجلد، تحقَّق من حجم/محتوى ملف السجل **بعد** الإلحاق لا قبله فقط.
+
+
+---
+
+<!-- HISTORICAL-RECONSTRUCTION-2026-11-08 -->
+## 🗂️ Historical Reconstruction (2026-11-08) — items previously undocumented
+
+**Provenance:** reconstructed on 2026-11-08 from the code on disk (SQL headers/objects of each migration, module sources, `git log`). The original August 2026 authoring conversations were auto-deleted by Claude Code's default 30-day retention, so authorship by session is not provable; each item states only what the code itself shows. "Owner-approved" wording comes from the migrations' own comments. Nothing here was executed or applied. Applied-to-live-DB status of uncommitted migrations (197-250) is **UNVERIFIED** (`schema_migrations` unreadable). Append-only; no earlier text was changed.
+
+### A. Migrations not previously cited in STATUS/TASKS (67)
+
+| # | File | First seen in git | Area | What the SQL header/objects show |
+|---|---|---|---|---|
+| 087 | `087_backfill_stray_user_roles.sql` | 2026-07-11 | RBAC / multi-role / payments | S3 — Multi-role migration, safety-net backfill (follow-up to 086). / Re-runs the same users.role_id -> user_roles backfill 086 already did, as / an idempotent catch-all for any user who acquired a role_id afterward / (086's INSERT only ran once, at that moment — objects: insert user_roles |
+| 088 | `088_reconcile_stale_role_id.sql` | 2026-07-11 | RBAC / multi-role / payments | S3 — reconciliation migration, follow-up to 086/087. / Root cause of the RoleCard (3 users) vs RoleUsersSheet (0 users) mismatch / reported live: before today's changeRole() fix, role changes updated only / users.role (TEXT) and never touched users.role_id or  — objects: insert user_roles |
+| 089 | `089_grant_user_roles_privileges.sql` | 2026-07-12 | RBAC / multi-role / payments | Same recurring gotcha migration 066 already documented and fixed once / (059/064/065 created tables without granting service_role privileges, / causing every /access-control/* request to fail with 42501 "permission / denied"). Migration 086 made the identical  |
+| 090 | `090_create_user_permissions_override.sql` | 2026-07-12 | RBAC / multi-role / payments | Phase A of the Hybrid RBAC+ABAC permission model — additive only, no / service logic touches this table yet (PermissionsService/PermissionGuard / are unchanged in this migration by design, per the approved plan). / The service_role GRANT is included in THIS SA — objects: table user_permissions_override; unique index idx_user_permission; index idx_user_permissions_override_user_id |
+| 092 | `092_gift_card_payment_method.sql` | 2026-07-18 | RBAC / multi-role / payments | / 092: Add 'gift_card' as a real orders.payment_method value / Context: an order fully covered by a gift card (amountDueAfterGiftCard < 0 / in InvoicesService.create) currently still stores whatever payment_method / the frontend happened to have selected (defa — objects: alter orders add constraint |
+| 139 | `139_sku_auto_generation.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Phase 3 — SKU Auto Generation. / SKU is a fully separate identity system from item_barcodes (101/ean13.util.ts) / — different format, different sequence tables, no shared state. Mirrors the / barcode sequence's UPSERT...RETURNING pattern (atomic under Postgres — objects: unique index uq_items_tenant_sku; unique index uq_item_variants_tenant_sku; table tenant_sku_sequences; function fn_next_sku_seq; table item_variant_sku_sequences; function fn_next_variant_sku_seq |
+| 143 | `143_advanced_analytics_phase2.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Migration 7.2 — Advanced Analytics Phase 2. / Four new read-only reporting RPCs (ABC Analysis, Dead Stock, Slow Moving, / Overstock), extending the existing Advanced Analytics surface (Phase 1, / migration 142). All STABLE, SELECT-only, reading exclusively fro — objects: function fn_inventory_abc_analysis; function fn_inventory_dead_stock_report; function fn_inventory_slow_moving_report; function fn_inventory_overstock_report |
+| 144 | `144_advanced_analytics_phase3.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Migration 7.3 — Advanced Analytics Phase 3 (final #18 items). / Two new read-only reporting RPCs (Stock Accuracy, Inventory Coverage), / extending the existing Advanced Analytics surface (Phases 1/2, migrations / 142/143). Both STABLE, SELECT-only. Stock Accur — objects: function fn_inventory_stock_accuracy_report; function fn_inventory_coverage_report |
+| 146 | `146_inventory_ownership.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Migration 10.1 — Inventory Ownership foundation (#20). / New table (stock_ownership_layers) tracks ownership as an overlay on top / of the existing, UNCHANGED inventory model — mirrors how quality_holds / (migration 145) overlays advisory holds without touchin — objects: table stock_ownership_layers; index idx_ownership_layers_active_lookup; index idx_ownership_layers_reference; function fn_consume_ownership_layers; function fn_post_goods_receipt_with_ownership; alter goods_receipt_items add column |
+| 147 | `147_fix_ownership_layer_quantity_check.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Migration 10.1 fix — stock_ownership_layers.quantity CHECK was too strict. / fn_consume_ownership_layers (146) sets quantity  0 when a layer is fully / consumed and closed, but the original CHECK (quantity > 0) rejected that / write — found via regression test — objects: alter stock_ownership_layers add constraint |
+| 148 | `148_inventory_snapshots.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Migration 11.1b — Inventory Snapshots (#21 Enterprise Controls). / A pure historical reporting layer over stock_levels/cost_layers — NOT a / replacement ledger. fn_generate_inventory_snapshot only ever SELECTs from / stock_levels/cost_layers and INSERTs into t — objects: table inventory_snapshot_runs; unique index uq_snapshot_runs_active_date; index idx_snapshot_runs_tenant_date; table inventory_snapshot_items; index idx_snapshot_items_run; index idx_snapshot_items_item |
+| 149 | `149_supplier_items.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Migration 12.1 — Supplier-Item Lead Time & MOQ (#22, justified subset only). / supplier_items is standing purchasing master data — a supplier's / configured lead time / minimum order quantity for a specific item (or / item+variant), independent of any RFQ/quot — objects: table supplier_items; unique index uq_supplier_items_scope; index idx_supplier_items_tenant; index idx_supplier_items_supplier; index idx_supplier_items_item; index idx_supplier_items_variant |
+| 157 | `157_manufacturing_subcontracting.sql` | 2026-08-06 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Migration 13.16C — Roadmap #16 (Manufacturing) completion: Subcontracting, / the eighth and final named sub-scope. Additive only — / bill_of_materials, production_orders' existing columns, / fn_post_production_order, stock_movements' existing meanings, / cost_ — objects: table subcontract_orders; unique index uq_subcontract_orders_tenant_number; index idx_subcontract_orders_status; index idx_subcontract_orders_production_order; table subcontract_order_lines; index idx_subcontract_lines_order |
+| 159 | `159_fix_safety_stock_zero_lead_time.sql` | 2026-08-13 | Inventory completion (#10-#22: SKU, analytics, ownership, snapshots, supplier items, subcontracting) | Fix for migration 158: fn_calculate_safety_stock collapsed to 0 whenever / the resolved lead time was legitimately 0 days (same-day receiving — / confirmed against real fixture data), because COALESCE(v_lead_time, 7) / only substitutes on NULL, not on 0, so SQ — objects: function fn_calculate_safety_stock |
+| 198 | `198_expense_quick_definitions_tax_mode.sql` | uncommitted | Expenses v2 | / 198: expense_quick_definitions.tax_mode /  / STEP 5 TAX MODE CORRECTION (New Expenses / Quick Expense). / The original Step 5 implementation reused expenses_v2's two-value — objects: alter expense_quick_definitions add column |
+| 199 | `199_expenses_v2_tax_mode_none.sql` | uncommitted | Expenses v2 | / 199: expenses_v2.tax_mode — add 'none' /  / STEP 5 FINAL TAX MODEL CORRECTION (New Expenses / Quick Expense). / Migration 198 added the three-value tax model ('none' \| 'inclusive' \| — objects: alter expenses_v2 add constraint |
+| 200 | `200_expense_recurring_templates_tax_mode_none.sql` | uncommitted | Expenses v2 | / 200: expense_recurring_templates.tax_mode — add 'none' /  / STEP 6 FINAL RECURRING TAX MODEL. / Aligns expense_recurring_templates.tax_mode with the three-value model — objects: alter expense_recurring_templates add constraint |
+| 201 | `201_expenses_v2_recurring_as_expense.sql` | uncommitted | Expenses v2 | / 201: expenses_v2 — recurring behavior as a native Expense property /  / OWNER DECISION (Recurring Expenses Final Implementation): the previous / `expense_recurring_templates` design is revoked as a user-facing product / concept. Recurring Expense  a normal e — objects: index idx_expenses_v2_recurring_due; alter expenses_v2 add column; alter expenses_v2 add constraint |
+| 202 | `202_expenses_v2_expense_date.sql` | uncommitted | Expenses v2 | Expense Date (Owner-approved final implementation): expenses_v2 gains a / real expense_date column representing when the Expense actually happened, / fully independent of created_at (record entry timestamp, untouched) and / updated_at (last modification, untou — objects: index idx_expenses_v2_tenant_expense_date; alter expenses_v2 add column |
+| 203 | `203_users_branch_id.sql` | uncommitted | Branch system | Branch System Step 2 (Owner-approved): users gain an optional branch / assignment. NULL  Central user (unrestricted, current behavior for every / existing row after this migration — no backfill needed since the column / defaults to NULL). A non-NULL value rest — objects: index idx_users_branch_id; alter users add column |
+| 204 | `204_audit_logs_branch_id.sql` | uncommitted | Branch system | Branch System Step 5 — Audit Log branch context (Owner-approved). / Nullable, tenant-scoped FK to branches. Two distinct meanings share the / same NULL value, deliberately — this migration does not (and cannot) / disambiguate them at the schema level, only in  — objects: index idx_audit_logs_tenant_branch_time; alter audit_logs add column |
+| 205 | `205_customer_domain_tenant_scope_flags.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Phase 1 (Owner-approved) — three independent tenant-level / policy flags. customer_identity_scope and loyalty_scope govern the / upcoming Customer↔Branch relationship model and Loyalty ledger / (Phases 2+); rewards_enabled gates the not-yet-bui — objects: alter tenants add column |
+| 206 | `206_customers_created_branch_id.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Phase 2 (Owner-approved) — customers gain an optional / creation/source branch context. This is informational provenance only — / NOT ownership, NOT an authorization/visibility scope, NOT a restriction / on which branch a customer may transact  — objects: alter customers add column |
+| 207 | `207_customer_branch_relationships.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Phase 3 (Owner-approved) — customer<->branch is a / many-valued, additive RELATIONSHIP, never exclusive ownership (the / approved architecture explicitly rejects a permanent customers.branch_id / ownership column). This table records every bran — objects: table customer_branch_relationships; index idx_customer_branch_rel_customer; index idx_customer_branch_rel_branch; insert customer_branch_relationships |
+| 208 | `208_loyalty_ledger.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Phase 5 (Owner-approved) — one Loyalty Ledger serving / both Loyalty Scope modes (SHARED and BRANCH), per the approved / architecture. Purely additive: no existing table/column is touched, / customers.loyalty_points/lifetime_points_earned remai — objects: table loyalty_ledger; index idx_loyalty_ledger_customer; index idx_loyalty_ledger_branch |
+| 209 | `209_fn_adjust_loyalty_points_ledger.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Phase 6 (Owner-approved) — fn_adjust_loyalty_points gains / ledger-writing behavior, atomically, in the same function call that / already mutates customers.loyalty_points/lifetime_points_earned. / Current signature (migration 069): fn_adjust_lo — objects: function fn_adjust_loyalty_points; insert loyalty_ledger |
+| 210 | `210_fn_adjust_loyalty_points_fix_ambiguity.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Phase 6 fix (Owner-approved) — 209's function body had a / genuine bug: RETURNS TABLE (loyalty_points NUMERIC, lifetime_points_earned / NUMERIC) implicitly declares OUT parameters with those exact names, which / collide with the customers.loyal — objects: function fn_adjust_loyalty_points; insert loyalty_ledger |
+| 211 | `211_rewards_domain.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 9 (Owner-approved) — Rewards domain. / Separate from Loyalty and Coupons per the approved architecture: a Reward / Definition is a repeatable rule; a Reward Instance is a one-time, / independently-lifecycled unlock generated from  — objects: table reward_definitions; index idx_reward_definitions_tenant_active; table customer_reward_instances; unique index idx_customer_reward_instances_ordinal_unique; index idx_customer_reward_instances_customer; index idx_customer_reward_instances_expiration |
+| 212 | `212_fn_process_purchase_reward_event.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 9 (Owner-approved) — atomic, idempotent / purchase-count reward evaluation. One call per qualifying order; safe to / call twice for the same order (API retry, duplicate request, retried / transaction) because the INSERT into rewar — objects: function fn_process_purchase_reward_event; insert reward_progress_events; insert customer_reward_instances |
+| 213 | `213_fn_process_purchase_reward_event_fix_ambiguity.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 9 corrective — same ambiguous-column-reference / class of bug as migration 210 (Loyalty Phase 6): RETURNS TABLE implicitly / declares OUT parameters, and "instance_ordinal" collided with / customer_reward_instances.instance_ordina — objects: function fn_process_purchase_reward_event; insert reward_progress_events; insert customer_reward_instances |
+| 214 | `214_fn_expire_reward_instances.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 10 (Owner-approved) — daily reward / expiration. Single guarded UPDATE, uses the partial index created in 211 / (idx_customer_reward_instances_expiration ON (status, expires_at) WHERE / status  'unlocked') so the scan never touche — objects: function fn_expire_reward_instances |
+| 215 | `215_fn_redeem_reward_instances.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 11 (Owner-approved) — atomic, all-or-nothing / redemption of one or more selected reward instances in a single call. / Race protection: SELECT ... FOR UPDATE locks every selected row before any / validation runs. A concurrent dupl — objects: function fn_redeem_reward_instances; function fn_attach_reward_redemption_order |
+| 216 | `216_reward_progress_events_amount.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 12 (Owner-approved) — generalizes the / purchase-count progress ledger (211) to also support spend_threshold / (SUM(amount) instead of COUNT(*)). Purely additive: existing / purchase_count rows are unaffected (amount defaults to 1 — objects: function fn_process_purchase_reward_event; alter reward_progress_events add column; insert reward_progress_events; insert customer_reward_instances |
+| 217 | `217_fn_process_spend_threshold_reward_event.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 12 (Owner-approved) — spend_threshold / trigger evaluation. Same idempotent/atomic shape as / fn_process_purchase_reward_event (213/216), but accumulates / SUM(order total) instead of a per-order count, and reads / trigger_config- — objects: function fn_process_spend_threshold_reward_event; insert reward_progress_events; insert customer_reward_instances |
+| 218 | `218_fn_process_loyalty_points_reward_event.sql` | uncommitted | Customer domain, loyalty ledger, rewards | Customer Domain Batch 3 Phase 12 (Owner-approved) — loyalty_points / trigger evaluation. Reads directly from customers.lifetime_points_earned / (a monotonically non-decreasing scalar, already updated atomically by / fn_adjust_loyalty_points — see migration 210 — objects: function fn_process_loyalty_points_reward_event; insert customer_reward_instances |
+| 219 | `219_fix_zero_qty_backorder_movement.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 219. Fix Inventory Stage 1 / I2 (Owner-approved) — fn_apply_stock_movement's / backorder branch inserted a stock_movements row with quantity0 whenever / v_available0 at the moment of sale (e.g. the very first sale ever made / against a warehouse/item combo, or — objects: function fn_apply_stock_movement; insert backorders; insert stock_movements |
+| 220 | `220_fn_reverse_goods_receipt.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 220. Inventory Stage 1 / I4 (Owner-approved) — posted goods receipt / reversal. Previously GoodsReceiptsRepository.cancel() only permitted / cancelling a receipt still in 'draft' status; once fn_post_goods_receipt / had run (stock deducted^H^H^Hadded, cost lay — objects: function fn_reverse_goods_receipt; alter goods_receipts add constraint |
+| 221 | `221_item_attributes_and_packaging.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 221. Inventory #2 (Owner-approved, narrow scope) — structured item / attributes + multi-level packaging (Piece/Box/Carton/Pallet) + per-level / barcode. / Confirmed via audit: item_variants.name was a single free-text column / (e.g. "Red / Large") with zero st — objects: table item_attributes; unique index uq_item_attributes_tenant_name; table item_attribute_values; unique index uq_item_attribute_values_attr_value; table item_variant_attribute_values; unique index uq_variant_attribute |
+| 222 | `222_item_packaging_levels_deleted_at.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 222. Fixes a confirmed defect in migration 221 found via real HTTP / runtime testing (Sub-phase 2b): ItemPackagingLevelsRepository extends / ScopedRepository, whose scopedQuery() unconditionally appends / .is('deleted_at', null) to every SELECT — but item_pack — objects: alter item_packaging_levels add column |
+| 223 | `223_warehouse_work_status_history.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 223. Inventory #7 / Migration Item 7-1 (Owner-approved) — Shared Status / History + Audit Logs Wiring. / Confirmed architectural finding: warehouse_task_history (migration 170) / was the ONLY structured status-transition table in the warehouse / domain — picki — objects: table warehouse_work_status_history; index idx_warehouse_work_status_history_entity; function fn_create_putaway_task; function fn_assign_warehouse_task; function fn_confirm_warehouse_task; function fn_cancel_warehouse_task |
+| 224 | `224_drop_legacy_warehouse_task_history.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 224. Inventory #7 / 7-1 closure (Owner-approved) — removes the legacy / warehouse_task_history table now that warehouse_work_status_history / (migration 223) is the sole Source of Truth for warehouse work status / history. / Safety proof performed before this  |
+| 225 | `225_pick_list_operational_parity.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 225. Inventory #7 / Migration Item 7-2 (Owner-approved) — Pick-List / Operational Parity. / Brings pick_lists up to the same operational maturity warehouse_tasks / already has (priority, real assignment/reassignment, cancellation with / a reason, and actual us — objects: function fn_create_pick_list; function fn_confirm_pick; function fn_assign_pick_list; function fn_cancel_pick_list; alter pick_lists add column; insert pick_lists |
+| 226 | `226_fix_pick_lists_updated_at.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 226. Fixes a confirmed defect in migration 225, found via real HTTP / runtime testing: fn_assign_pick_list and fn_cancel_pick_list both wrote / `updated_at  NOW()` in their UPDATE statements, but pick_lists / (migration 116) was never given an updated_at colum — objects: function fn_assign_pick_list; function fn_cancel_pick_list; alter pick_lists add column; insert warehouse_work_status_history |
+| 227 | `227_zone_pick_descendant_filter.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 227. Inventory #7 / Migration Item 7-3 (Owner-approved) — Zone Pick / descendant-hierarchy filter, plus automatic multi-zone splitting per / your approved §5.1 decision. / Confirmed defect being fixed: fn_create_pick_list required / zone_location_id to be set  — objects: function fn_location_is_in_zone; function fn_create_pick_list; function fn_create_zone_pick_lists_for_shipments; insert pick_lists; insert pick_list_shipments; insert pick_list_lines |
+| 228 | `228_fix_pick_list_missing_shipment_validation.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 228. Fixes a confirmed defect found during 7-3's 100% completeness / verification: fn_create_pick_list and fn_create_zone_pick_lists_for_ / shipments both validate shipments via "FOR v_shipment IN SELECT ... / WHERE id  ANY(p_shipment_ids) FOR UPDATE LOOP" — a — objects: function fn_create_pick_list; function fn_create_zone_pick_lists_for_shipments; insert pick_lists; insert pick_list_shipments; insert pick_list_lines; insert warehouse_work_status_history |
+| 229 | `229_zone_split_reject_no_resolvable_zone.sql` | uncommitted | Inventory WMS: receipts, packaging, pick lists, zones | 229. Inventory #7 / 7-3 final business decision (Owner-approved, / Option A) — fn_create_zone_pick_lists_for_shipments must reject / atomically, before any shipment claim or state change, when zero of / the given shipments' lines resolve to any valid zone. Pre — objects: function fn_create_zone_pick_lists_for_shipments; insert pick_lists; insert pick_list_shipments; insert pick_list_lines; insert warehouse_work_status_history |
+| 230 | `230_wave_data_model.sql` | uncommitted | WMS waves | 230. Inventory #7 / Migration Item 7-4 (Owner-approved) — Wave Data / Model. Schema only, per the approved matrix — eligibility evaluation / (7-5) and claim/release logic (7-6) are explicitly out of scope for / this item and are not implemented here. / Wave is — objects: table waves; index idx_waves_tenant_status; index idx_waves_tenant_warehouse; table wave_shipments; index idx_wave_shipments_wave; index idx_wave_shipments_shipment |
+| 231 | `231_wave_eligibility_evaluation.sql` | uncommitted | WMS waves | 231. Inventory #7 / Migration Item 7-5 (Owner-approved) — Wave / Eligibility Evaluation. / Per your explicit directive: do NOT reduce this to a small fixed / subset. For every criterion in the approved list, the rule applied / here is: (1) inspect Sefay's actu — objects: index idx_shipments_priority; function fn_evaluate_wave_eligibility; alter shipments add column; insert warehouse_work_status_history; insert wave_shipments |
+| 232 | `232_wave_eligibility_criteria_validation.sql` | uncommitted | WMS waves | 232. Fixes confirmed defects found during 7-5's 100% completeness / verification: fn_evaluate_wave_eligibility silently ignored unknown / criteria keys and malformed values for known keys, instead of treating / either as a hard error. Both are genuine "can sil — objects: function fn_evaluate_wave_eligibility; insert warehouse_work_status_history; insert wave_shipments |
+| 233 | `233_fn_customer_loyalty_points_total.sql` | uncommitted | Customers / tax / dine-in gap fixes | Inventory/Customers gap fix (Owner-approved) — tenant-wide loyalty points / total. customers.loyalty_points is the sole authoritative balance column / (mutated exclusively via fn_adjust_loyalty_points, migrations 041/069/ / 209/210) — this function only SUMs i — objects: function fn_customer_loyalty_points_total |
+| 234 | `234_tax_inclusive_pricing.sql` | uncommitted | Customers / tax / dine-in gap fixes | Tax Pricing Phase 1 (Owner-approved) — tenant-level tax-inclusive-pricing / support. Existing tenants.tax_rate remains the sole tax-rate Source of / Truth; this column only determines how item prices are interpreted / (net/exclusive vs gross/inclusive). Safe d — objects: alter tenants add column |
+| 235 | `235_dine_in_sale_attempt_id_fix.sql` | uncommitted | Customers / tax / dine-in gap fixes | Dine-in sale_attempt_id contract fix (Owner-approved) — discovered during / the POS audit as the same defect already found and fixed in / InvoicesService.holdOrder() (see 187_sale_idempotency.sql, which drops / orders.sale_attempt_id's DB-side DEFAULT after ba — objects: function fn_open_dine_in_table; insert orders |
+| 236 | `236_customers_server_side_sort.sql` | uncommitted | Customers / tax / dine-in gap fixes | Customers server-side sorting (Owner-approved residual-gap fix) — the / frontend's sort control silently only reordered the CURRENT PAGE, since / CustomersRepository.findAll() paginates first (PostgREST .range()) and / total_spent/orders_count are computed aft — objects: function fn_customers_page_by_spend |
+| 237 | `237_wave_claim_release.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 237. Inventory #7 / Migration Item 7-6 (Owner-approved) — Wave Claim + / Release. / Builds on 7-1 (warehouse_work_status_history/audit_logs), 7-2 / (fn_create_pick_list), 7-3 (fn_location_is_in_zone / zone-descendant / resolution), 7-4 (waves/wave_shipments sc — objects: index idx_shipments_claimed_by_wave; function fn_release_wave; function fn_cancel_wave; function fn_cancel_pick_list; alter shipments add column; alter shipments add constraint |
+| 238 | `238_wave_release_zero_claim_audit_fix.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 238. Fixes a confirmed defect in migration 237, found via this item's / own required concurrency test (7-6 §10 Test B — two waves racing for / the same shipment): when a wave's claim attempt succeeded for ZERO / shipments (either it had none included at evalua — objects: function fn_release_wave; insert pick_lists; insert pick_list_shipments; insert pick_list_lines; insert warehouse_work_status_history |
+| 239 | `239_exception_handling_primitives.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 239. Inventory #7 / Migration Item 7-7 (Owner-approved) — Exception / Handling Primitives: short pick, damaged, lost, cancellation. / Builds on 7-1 (warehouse_work_status_history/audit_logs), 7-2 / (fn_confirm_pick/fn_create_pick_list), 7-6 (fn_release_wave).  — objects: table warehouse_exceptions; index idx_warehouse_exceptions_entity; index idx_warehouse_exceptions_type; function fn_reduce_reservation; function fn_record_short_pick; function fn_record_damage |
+| 240 | `240_exception_location_null_fix.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 240. Fixes a confirmed defect in migration 239, found via this item's / own required tests: fn_record_damage and fn_record_lost_item passed / the shipment_line's own (non-null) location_id to fn_apply_stock_ / movement, but every other part of this WMS module  — objects: function fn_record_damage; function fn_record_lost_item; insert warehouse_exceptions; insert warehouse_work_status_history |
+| 241 | `241_lost_item_recovery.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 241. Inventory #7 / 7-7 follow-up (Owner-requested verification) — Lost / Item Recovery, with real cost-layer integrity. / CONFIRMED DEFECT in the 7-7 report's own claim: "recovery  a separate / corrective 'receipt' movement" was incomplete. Tracing the real,  — objects: function fn_recover_lost_item; alter warehouse_exceptions add column; alter warehouse_exceptions add constraint |
+| 242 | `242_exception_zone_wave_completion_fix.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 242. Fixes two confirmed defects found via live Zone-strategy testing / (Owner-requested verification of 7-7 §14/§15 — Zone/Wave interaction), / both real and both belong to 7-7. / DEFECT A: fn_record_short_pick/fn_record_damage/fn_record_lost_item all / locat — objects: function fn_confirm_pick; function fn_record_short_pick; function fn_record_damage; function fn_record_lost_item; insert warehouse_work_status_history; insert warehouse_exceptions |
+| 243 | `243_exception_pick_list_completion_correlation_fix.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 243. Fixes a confirmed defect in migration 242's own fix, found by / re-running the exact same live Zone test that exposed 242's target / defects in the first place. / 242 replaced the LIMIT-1 pick-list lookup with a loop over every pick / list a shipment belo — objects: function fn_confirm_pick; function fn_record_short_pick; function fn_record_damage; function fn_record_lost_item; insert warehouse_work_status_history; insert warehouse_exceptions |
+| 244 | `244_wms_operational_visibility.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | Inventory #7 / 7-8 (Owner-approved) — Operational Visibility / Aggregate / Queries. Pure read layer over the WMS execution state built in 7-1 / through 7-7 (warehouse_tasks, pick_lists, waves, wave_shipments, / shipments, shipment_lines, stock_reservations, wa — objects: index idx_pick_lists_tenant_warehouse; function fn_wms_task_overview; function fn_wms_pick_list_overview; function fn_wms_wave_overview; function fn_wms_shipment_overview; function fn_wms_exception_overview |
+| 245 | `245_wms_exception_overview_shipment_warehouse_fix.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | Inventory #7 / 7-8 fix — fn_wms_exception_overview's warehouse scoping / only resolved warehouse_id via entity_type'shipment_line' (through / shipment_lines -> shipments). warehouse_exceptions also has real rows / with entity_type'shipment' directly (fn_cancel — objects: function fn_wms_exception_overview |
+| 246 | `246_wms_visibility_scale_indexes.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | Inventory #7 / 7-9 (Owner-approved) — Scalability verification fix. / Measured, not speculative: EXPLAIN (ANALYZE, BUFFERS) at a real 50,000- / shipment / ~100,000-shipment_line / ~63,500-reservation QA dataset / showed two of the eight 7-8 visibility RPCs deg — objects: index idx_shipment_lines_tenant; index idx_reservations_tenant_warehouse |
+| 247 | `247_pick_list_shipments_shipment_id_index.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | Inventory #7 / 7-9 (Owner-approved) — Scalability verification fix #2. / Measured, not speculative: the original 7-9 pass flagged / `pick_list_shipments.shipment_id` (used by fn_record_short_pick, / fn_record_damage, fn_record_lost_item, and fn_confirm_pick's  — objects: index idx_pick_list_shipments_shipment |
+| 248 | `248_wave_lifecycle_picking_completed.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 248. Inventory #7 / F7 Gap Closure (Owner-approved "Approved – Proceed / with Implementation") — real Wave lifecycle transitions: / released -> picking     (synchronous, inside fn_release_wave) / picking  -> completed   (trigger-driven, inside fn_confirm_pick' — objects: function fn_release_wave; function fn_check_wave_completion; trigger trg_check_wave_completion; insert pick_lists; insert pick_list_shipments; insert pick_list_lines |
+| 249 | `249_wave_shipment_summary_excluded_count_fix.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 249. Fixes a confirmed defect in fn_wms_wave_shipment_summary (migration / 244), found via F9 (Wave Evaluation Review) browser validation. / Root cause: the 'excluded' count used / excluded_reason ->> 'reason' <> 'claim_failed_at_release' / Real evaluation-tim — objects: function fn_wms_wave_shipment_summary |
+| 250 | `250_warehouse_task_confirm_history_fix.sql` | uncommitted | WMS waves lifecycle, exceptions, visibility | 250. Fixes a confirmed defect in fn_confirm_warehouse_task (migration / 223), found via F11 (Warehouse Task Management UI) live QA validation. / Root cause: the history INSERT hardcoded the literal string / 'in_progress' as old_status instead of capturing the  — objects: function fn_confirm_warehouse_task; insert warehouse_work_status_history |
+
+### B. Modules/features not previously documented
+- **`src/modules/rewards`** (uncommitted): `reward-definitions` controller/service/repository (CRUD under `/reward-definitions`), `customers/:customerId/rewards` controller, `reward-eligibility.service` (purchase-count, spend-threshold, loyalty-points triggers via RPCs `fn_process_purchase_reward_event`, `fn_process_spend_threshold_reward_event`, `fn_process_loyalty_points_reward_event`), `reward-redemption.service` (`fn_redeem_reward_instances`, atomic all-or-nothing), `reward-expiration.scheduler` (`fn_expire_reward_instances`, daily). Specs: eligibility, redemption, expiration. Schema: migrations 211-218.
+- **Customer domain** (migrations 205-210, 233, 236): tenant policy flags, `customers.created_branch_id`, `customer_branch_relationships`, `loyalty_ledger` (+ `fn_adjust_loyalty_points` ledger writing and ambiguity fix), tenant-wide `fn_customer_loyalty_points_total`, server-side sort `fn_customers_page_by_spend`.
+- **Branch system** (module `src/modules/branches`; migrations 203-204): `users.branch_id`, `audit_logs.branch_id` with indexes.
+- **Expenses v2** (module `src/modules/expenses-v2`; migrations 198-202): `tax_mode` incl. `none`, recurring-as-expense behaviour, real `expense_date` column.
+- **WMS** (migrations 220-250): goods-receipt reversal, item attributes & packaging levels, shared `warehouse_work_status_history`, pick-list parity, zone pick split, waves (data model, eligibility, claim/release, `picking_completed` lifecycle trigger), exceptions (short pick, damage, lost item / recovery), read-only visibility RPCs with scale indexes. Several migrations are explicit defect-fix follow-ups found by live testing (222, 226, 228, 232, 238, 240, 242, 243, 245-247, 249, 250).
+- **Tax-inclusive pricing** (234, tenant flag) and **dine-in `sale_attempt_id` fix** (235).
+
+### C. Uncommitted work inventory (api working tree, 242 entries, 2026-11-08)
+Not in any commit and not on GitHub. Entries by area:
+
+- `src/database/migrations` — 87
+- `src/modules/inventory` — 35
+- `src/modules/items` — 18
+- `src/modules/purchasing` — 12
+- `src/core/security` — 10
+- `src/modules/manufacturing` — 9
+- `src/modules/customers` — 8
+- `src/modules/invoices` — 6
+- `src/modules/users` — 6
+- `src/modules/scanner` — 4
+- `src/modules/tables` — 4
+- `src/modules/tenants` — 4
+- `src/core/audit` — 3
+- `src/modules/branches` — 3
+- `src/modules/quality` — 3
+- `src/modules/reports` — 3
+- `src/core/loyalty` — 2
+- `src/database/seeds` — 2
+- `src/engines/pos-engine` — 2
+- `src/modules/auth` — 2
+- `src/modules/hr` — 2
+- `src/modules/ownership` — 2
+- `CLAUDE.md` — 1
+- `STATUS.md` — 1
+- `TASKS.md` — 1
+- `src/app.module.ts` — 1
+- `src/core/billing` — 1
+- `src/modules/coupons` — 1
+- `src/modules/expenses` — 1
+- `src/modules/shifts` — 1
+- `src/shared/types` — 1
+- `scripts/qa-cleanup-reward.js` — 1
+- `scripts/qa-seed-reward.js` — 1
+- `setup_qa_users.js` — 1
+- `src/modules/expenses-v2` — 1
+- `src/modules/rewards` — 1
+- `src/shared/storage` — 1
+
+### D. Commit index since 2026-07-22 not cited by hash elsewhere (api)
+
+- `7a0eb98` 2026-08-15 — docs: reconcile Phase 16 roadmap and engineering status
+- `3ef21c2` 2026-08-14 — fix(accounting): map branch-assignment overlap to 409 instead of 500
+- `796ca69` 2026-08-13 — Add Accounting Backend Phase 1 — AccountingModule read surface
+- `87e379e` 2026-08-13 — Document M184 Sales Posting Integration completion and live validation
+- `a3fbc6c` 2026-08-13 — Add M184 Sales Posting Integration — wire InvoicesService to fn_post_sales_order
+- `0477d73` 2026-08-13 — Document D01 (M5-M7) implementation, live validation, and git sync
+- `1828273` 2026-08-13 — Document git hygiene pass (testsprite_tests/tmp/ ignore)
+- `29ff7b3` 2026-08-13 — Complete Inventory roadmap items #17-#21+ (Migrations 13.17-13.21+)
+- `11e9ae5` 2026-08-06 — Move generate-openapi.ts into src/ instead of excluding it from build
+- `9cc63fb` 2026-08-06 — fix: exclude scripts/ from prod build to restore dist/ output layout
+- `3e78bb7` 2026-08-06 — Complete Inventory roadmap items #10-#16 (Migrations 13.10-13.16C)
+- `fd63a27` 2026-08-03 — Merge remote-tracking branch 'origin/main'
+- `2883791` 2026-08-03 — Fix cash register session linkage on POS sales
+- `0e95ee8` 2026-07-30 — Merge pull request #33 from abduallaziz/claude/sefay-k6-load-testing-05oxc6
+- `45a63a3` 2026-07-30 — test(perf): widen k6 read and auth thresholds to the measured baseline
+- `691c4fc` 2026-07-30 — Merge pull request #32 from abduallaziz/claude/sefay-k6-load-testing-05oxc6
+- `072f7dc` 2026-07-30 — ci: add manual k6 smoke-test workflow with sanitized result artifacts
+- `b7c5f94` 2026-07-30 — Merge pull request #31 from abduallaziz/claude/sefay-k6-load-testing-05oxc6
+- `aca035a` 2026-07-30 — feat(security): add temporary LOAD_TEST_MODE flag to bypass rate limits
+- `a55f564` 2026-07-30 — test(perf): add k6 load-testing suite for POS, inventory and reports
+- `ebb1d9d` 2026-07-27 — docs: record deployment verification for Purchasing #9.5 completion
+- `31b2edc` 2026-07-27 — docs: document Purchasing #9.5.6.3 Releases completion in STATUS.md
+- `491cab9` 2026-07-27 — feat(purchasing): Agreement Amendments backend + atomic approve() RPC (9.5.6.2)
+- `b2e7d16` 2026-07-26 — refactor(po): move agreement sourcing from header to items
+- `4e7faaa` 2026-07-26 — Purchasing #9.5.4: Agreement Releases (full business document) + composite-FK fix for effective_amendment_id/agreement_id consistency
+- `6d70c91` 2026-07-26 — Purchasing #9.5.3: Agreement amendments (delta-only, never rewrites the agreement)
+- `12b6d61` 2026-07-26 — Purchasing #9.5.2: Agreement pricing (agreement_pricing, agreement_pricing_tiers)
+- `f50342d` 2026-07-26 — Purchasing #9.5.1: Agreement core (agreements, agreement_items)
+- `fe29389` 2026-07-26 — Record final, fully explicit Execution Gate wording
+- `7fd2b55` 2026-07-26 — Record exact Execution Gate wording for the architectural approval protocol
+- `6d1d75a` 2026-07-26 — Add permanent architectural approval protocol rule
+- `16f3707` 2026-07-26 — Purchasing #9.4: unify vendor lead time into one (item, supplier) function
+- `d0bbcfd` 2026-07-26 — Close #9.3: add quote_number, document Document Lifecycle review
+- `ef788b0` 2026-07-26 — Purchasing #9.3: RFQ + Supplier Quotes (version groups) + Award as independent document
+- `fe80179` 2026-07-25 — Purchasing #9.2: Purchase Request module + generic approval_history
+- `54dccfd` 2026-07-25 — Make ApprovalEngine truly generic before building PR/RFQ on top of it
+- `dc1c577` 2026-07-25 — Purchasing #9.1: migrate PO approval onto ApprovalEngine, close receipt enforcement gap
+- `760fae1` 2026-07-25 — Close item #8: verify build/lint state, breaking-change impact, add regression tests
+- `d7b54da` 2026-07-25 — Document consolidated E2E verification of all 4 transfer types (item #8)
+- `79f1536` 2026-07-25 — Add intra-warehouse (location/shelf) transfers, fix goods-receipt location regression
+- `18a3c75` 2026-07-25 — Add full transfer lifecycle: 6 states with approval gate (item #8)
+- `20181cd` 2026-07-25 — Add WMS pick/pack/ship workflow with 4 picking strategies (item #7)
+- `b4c48ac` 2026-07-25 — Add unit conversion (item #3) + fix real units/brands GRANT gap
+- `99d835c` 2026-07-25 — Add real demand forecasting (item #17, closes inventory 24-section plan)
+- `f4a002b` 2026-07-25 — feat: Manufacturing — BOM + production orders (#16, from scratch)
+- `1aecb70` 2026-07-24 — docs: STATUS.md §93 — session log for item-barcodes fix, barcode automation, POS scan, Hold & Resume Orders, inventory 24-section completion (#4/11/12/13/14/15)
+- `eba4155` 2026-07-24 — feat: fully wire moving_average/standard/actual costing (#15 completion)
+- `4342aed` 2026-07-24 — feat: Landed cost allocation + widened costing_method enum (#15)
+- `df1a415` 2026-07-24 — feat: dedicated item_serials table with warranty + order linkage (#14)
+- `fd0f710` 2026-07-24 — feat: FEFO consumption ordering (Part A item #13)
+- `2f6e751` 2026-07-24 — feat: Stock count types + variance reason codes + approval gate
+- `5804840` 2026-07-24 — feat: GET /inventory/stock/atp endpoint
+- `13c0084` 2026-07-24 — feat: Backorder tracking on oversell (Part A item #11 continuation)
+- `443d2f9` 2026-07-24 — feat: Inventory Balance Engine — damaged/expired states + incoming quantity
+- `c14185d` 2026-07-24 — feat: Hold & Resume Orders backend (migration 103 + invoices API)
+- `4d09cd2` 2026-07-23 — feat(shifts): add drawer-open audit endpoint for POS toolbar
+- `087775d` 2026-07-23 — fix: skip parent-level auto barcode when item has_variants
+- `1e09fc9` 2026-07-23 — feat: barcode automation — auto-generation, CSV import, supplier catalog sync
+- `c774539` 2026-07-23 — fix: grant service_role privileges and add deleted_at on item_barcodes
+- `802ae99` 2026-07-23 — Inventory Phase 2: multi-barcode support + expanded ItemType taxonomy
+- `5bdac78` 2026-07-23 — Products Phase A + Inventory Phase 1 hardening + real production bug fixes
+
+
+---
+
+## ✅ Live-DB verification of migrations (2026-11-08) — resolves the "UNVERIFIED" notes above
+Owner ran `select count(*), max(filename) from schema_migrations` on the live Supabase DB and pasted the result: **total = 249, last = `250_warehouse_task_confirm_history_fix.sql`**; a second query listed every filename from `197_new_expenses_database_foundation.sql` through `250_...` (54 files, no gaps).
+- Local migrations directory has exactly **249 `.sql` files** (plus 3 `.superseded` files 177-179, which are not run). 249 applied == 249 on disk: **every migration, including all uncommitted 197-250, is applied to the live DB.**
+- Consequence: the live database is ahead of the committed/deployed code. Code for those schemas (rewards, expenses-v2, branches, WMS, etc.) exists only in the local working tree, not on GitHub/Railway. Pushing will not re-apply migrations (runner skips applied filenames), so deploy risk is behavioural (new code meets already-migrated schema), not a schema re-run.
+- Earlier "UNVERIFIED" statements about applied status in the Historical Reconstruction section are superseded by this entry.
+
+
+---
+
+<!-- CODE-DERIVED-BEHAVIOR-2026-11-08 -->
+## 🔬 Code-Derived Behavior Documentation (2026-11-08)
+
+**Provenance:** written by reading the code on disk (migrations incl. full SQL function bodies, NestJS modules, specs, web features) on 2026-11-08; nothing was executed. It describes what the code does, not why it was designed so. Anything not provable from code is marked UNVERIFIED inside. Defects listed under "gaps/risks" are observations only: **none was fixed**. Append-only.
+
+**Corrections to the Historical Reconstruction section above:** (1) the web caller of the analytics RPCs 143/144 is `web/src/features/inventory-analytics`; `inventory-dashboard` only calls `GET /inventory/analytics/dashboard`. (2) Migration 092 (gift_card payment method) was fully removed by migration 185; `gift_card` is no longer an allowed method. (3) `src/modules/payments` is SaaS subscription billing, unrelated to 092.
+
+**Headline findings (verified by reading code; spend-threshold mismatch re-checked directly):**
+- Rewards: the UI sends `trigger_config.threshold` for spend-threshold rewards but `fn_process_spend_threshold_reward_event` (217) reads `trigger_config->>'amount'` => those rewards never unlock; `tenants.rewards_enabled` is never read; birthday/campaign triggers are never evaluated.
+- Expenses v2: branch scoping gaps on single-record endpoints and on create; no approval workflow implemented; no spec files for expenses-v2 or branches.
+- WMS: `fn_confirm_pick` does not check pick-list status; tests are live-DB suites, not in CI.
+- Misc: 090 permission overrides are shadow-only unless `ENFORCE_HYBRID_PERMISSIONS=true`; 139 variant SKU sequence wraps at 100.
+
+
+
+<!-- source: code_doc_rewards_customers -->
+
+# Sefay: Rewards and Customer-Domain Loyalty/Branch Scope (code-derived behavior)
+
+Paths: API = `C:\Fp\api\src`, migrations = `C:\Fp\api\src\database\migrations` (also compiled copies in `dist/`), Web = `C:\Fp\web\src`.
+Everything below is read from code. Items marked UNVERIFIED were not provable from the files read.
+
+---------------------------------------------------------------------------
+## 1. Purpose
+- **Rewards** (`API/modules/rewards`, migrations 211-218): tenant-defined rules (reward_definitions) that auto-generate one-time, independently lifecycled reward instances (customer_reward_instances) per customer when a trigger is met. Instances are suggested at POS and redeemed explicitly through `POST /invoices` (`redeem_reward_instance_ids`). Independent of Loyalty points except the `loyalty_points` trigger, which only reads `customers.lifetime_points_earned`.
+- **Customer domain scope/loyalty** (migrations 205-210, 233, 236 + `modules/customers`, `core/loyalty/loyalty.service.ts`): tenant flags for customer visibility scope and loyalty scope, customer<->branch relationship table, a loyalty ledger written atomically by `fn_adjust_loyalty_points`, aggregate helpers, and server-side sort by spend.
+
+---------------------------------------------------------------------------
+## 2. Data model
+
+### 2.1 Rewards (migration 211, `211_rewards_domain.sql`; col added in 216)
+**reward_definitions**: id uuid PK (uuid_generate_v4); tenant_id uuid NOT NULL FK tenants ON DELETE CASCADE; name text NOT NULL; trigger_type text NOT NULL CHECK IN (purchase_count, spend_threshold, product_category, birthday, campaign, loyalty_points); trigger_config jsonb NOT NULL default {}; reward_type text NOT NULL CHECK IN (free_item, percentage_discount, fixed_discount, coupon_reference); reward_config jsonb NOT NULL default {}; usage_conditions jsonb NOT NULL default {}; branch_scope text NOT NULL default 'all' CHECK IN (all, specific); branch_id uuid FK branches; expiration_days int CHECK (NULL or >0); is_active bool default true; created_at, updated_at timestamptz; deleted_at timestamptz. Constraint `chk_reward_definitions_branch_scope`: branch_scope='all' OR branch_id IS NOT NULL. Index `idx_reward_definitions_tenant_active (tenant_id,is_active) WHERE deleted_at IS NULL`.
+
+**customer_reward_instances**: id PK; tenant_id FK (cascade); customer_id FK customers; reward_definition_id FK; status text default 'unlocked' CHECK IN (eligible, unlocked, redeemed, expired); unlocked_branch_id, redeemed_branch_id FK branches (nullable); redeemed_order_id FK orders (nullable); instance_ordinal int NOT NULL; unlocked_at default now(); redeemed_at; expires_at; created_at. No deleted_at, no updated_at.
+Indexes: UNIQUE `idx_customer_reward_instances_ordinal_unique (tenant_id, reward_definition_id, customer_id, instance_ordinal)`; `idx_customer_reward_instances_customer (tenant_id, customer_id, status)`; partial `idx_customer_reward_instances_expiration (status, expires_at) WHERE status='unlocked'`.
+
+**reward_progress_events** (append-only progress ledger): id PK; tenant_id; customer_id; reward_definition_id; order_id FK orders; created_at; `amount NUMERIC NOT NULL DEFAULT 1` (added in 216). UNIQUE `idx_reward_progress_events_order_unique (tenant_id, reward_definition_id, order_id)`; index (tenant_id, customer_id, reward_definition_id).
+
+RLS: all three tables ENABLE ROW LEVEL SECURITY with policy `tenant_session_isolation` (tenant_id = current_setting('app.tenant_id', true)::uuid, for USING and WITH CHECK). GRANT ALL to service_role on all three. The API uses the Supabase service client (`SUPABASE_CLIENT`) for these tables, so RLS is bypassed; tenant isolation relies on explicit `.eq('tenant_id', ...)` in code (UNVERIFIED whether service_role bypasses RLS in this deployment; Supabase service_role normally does).
+Permission seeded: `rewards.manage` (resource rewards, action manage, group `sales`) via `ON CONFLICT (name) DO UPDATE SET group_id`.
+
+### 2.2 Customer domain
+- **205** `tenants` gains: `customer_identity_scope` text NOT NULL default 'shared' CHECK IN (shared, branch); `loyalty_scope` text NOT NULL default 'shared' CHECK IN (shared, branch); `rewards_enabled` bool NOT NULL default false.
+- **206** `customers.created_branch_id uuid REFERENCES branches(id)` nullable, no backfill; informational provenance only.
+- **207** `customer_branch_relationships`: id, tenant_id FK, customer_id FK, branch_id FK, source text CHECK IN (created, transaction), first_seen_at, last_seen_at (both default NOW()). UNIQUE `uq_customer_branch_relationships_tenant_customer_branch (tenant_id,customer_id,branch_id)`; indexes (tenant_id,customer_id) and (tenant_id,branch_id). RLS policy tenant_session_isolation; GRANT service_role. Backfill from orders: one row per distinct (tenant, customer, branch) with source='transaction', first/last_seen_at = MIN/MAX(orders.created_at); orders with NULL customer_id or branch_id skipped; `ON CONFLICT DO NOTHING`.
+- **208** `loyalty_ledger`: id, tenant_id FK, customer_id FK, branch_id FK nullable, order_id FK nullable, type CHECK IN (earn, redeem, adjustment), delta NUMERIC NOT NULL, created_by FK users nullable, created_at. Indexes (tenant_id,customer_id,created_at), (tenant_id,branch_id,created_at). RLS + service_role grant. Starts empty (no backfill). No deleted_at.
+- **209/210** `fn_adjust_loyalty_points` (see section 5.5).
+- **233** `fn_customer_loyalty_points_total(p_tenant_id)`.
+- **236** `fn_customers_page_by_spend(...)`.
+- `customers.loyalty_points` is INTEGER NOT NULL DEFAULT 0 (migration 001 line 480); `lifetime_points_earned` added in 069 (not read in this task beyond usage).
+
+---------------------------------------------------------------------------
+## 3. Endpoints
+
+All controllers use `@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)`; `@GetTenant()` supplies TenantContext.
+
+### 3.1 Rewards
+`API/modules/rewards/reward-definitions.controller.ts` (`@Controller('reward-definitions')`), all `@RequirePermission('rewards.manage')`:
+| Method | Path | Behavior |
+|---|---|---|
+| GET | /reward-definitions | `findAll`: scopedQuery (filters `deleted_at IS NULL` and tenant_id), ordered created_at desc. Includes inactive ones. |
+| GET | /reward-definitions/:id | `findOne`; 404 `Reward definition not found` if absent/deleted. |
+| POST | /reward-definitions | create; body `CreateRewardDefinitionDto`; inserts `{...dto, tenant_id}` directly. |
+| PATCH | /reward-definitions/:id | `findOne` first (404 if missing) then update `{...dto, updated_at}` filtered by id+tenant_id (no deleted_at filter in the update itself). |
+| DELETE | /reward-definitions/:id | `findOne` then soft delete: `deleted_at=now, is_active=false`. Returns `{message:'Reward definition deleted'}`. |
+
+`API/modules/rewards/customer-rewards.controller.ts` (`@Controller('customers')`):
+| GET | /customers/:customerId/rewards?status= | `@RequirePermission('invoice.create.own')`. Calls `findByCustomer(tenant, customerId, status ?? 'unlocked')`. Returns instance rows with embedded `reward_definitions(*)`, filtered by tenant_id, customer_id, status, ordered unlocked_at desc. The `status` query value is a free string (no validation); an omitted status means 'unlocked', NOT "all". |
+
+DTO `CreateRewardDefinitionDto` (`dto/create-reward-definition.dto.ts`), class-validator:
+- name: @IsString @MinLength(2)
+- trigger_type: @IsEnum([...6 values]) (an array literal is passed to IsEnum)
+- trigger_config: @IsObject (no per-trigger shape validation)
+- reward_type: @IsEnum([4 values])
+- reward_config: @IsObject (no shape validation)
+- usage_conditions?: @IsOptional @IsObject
+- branch_scope: @IsEnum(['all','specific'])
+- branch_id?: @IsOptional @IsUUID @ValidateIf(o => o.branch_scope === 'specific')
+- expiration_days?: @IsOptional @IsInt @Min(1)
+- is_active?: @IsOptional @IsBoolean
+`UpdateRewardDefinitionDto = PartialType(CreateRewardDefinitionDto)` (from @nestjs/mapped-types).
+`RedeemRewardsPreviewDto` (`dto/redeem-rewards.dto.ts`: instance_ids array, min 1, unique, UUID v4) exists but is NOT referenced by any controller in `modules/rewards` (UNVERIFIED for the rest of src; only searched rewards module + invoices).
+
+Invoice integration (not in rewards module): `API/modules/invoices/dto/create-invoice.dto.ts` line ~178 `redeem_reward_instance_ids?: string[]` (@IsOptional @IsArray @ArrayMinSize(1) @ArrayUnique @IsUUID('4',{each:true})). `POST /invoices` response includes `free_item_grants`.
+
+### 3.2 Customers (`API/modules/customers/customers.controller.ts`, `@Controller('customers')`)
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | /customers/stats | customers.view | totals + `total_loyalty_points` |
+| GET | /customers | customers.view | `CustomerQueryDto`: search (string), page (int>=1, default 1), limit (int 1..100, default 20), sortBy (full_name, created_at, loyalty_points, total_spent; default created_at), sortOrder (asc/desc; default desc) |
+| GET | /customers/:id | customers.view | visibility-restricted (404 if not visible) |
+| POST | /customers | customers.create | `CreateCustomerDto` (full_name <=100, phone <=20, email, notes <=500, custom_fields object, created_branch_id UUID, all optional) |
+| PATCH | /customers/:id | customers.update | `UpdateCustomerDto` (full_name, phone, email, notes, is_active, custom_fields); no created_branch_id |
+| DELETE | /customers/:id | customers.archive | soft delete (deleted_at) |
+| GET | /customers/:id/history | customers.view | customer + stats + last 10 completed orders |
+Note route order: `GET /customers/:customerId/rewards` lives in the separate CustomerRewardsController on the same `customers` prefix.
+
+---------------------------------------------------------------------------
+## 4. Business rules and state transitions (Rewards)
+
+### 4.1 Instance lifecycle (as implemented)
+- Created as `unlocked` only (all three trigger functions insert status 'unlocked'). Statuses `eligible` exists in the CHECK constraint but no code path writes it. (Web type lists `locked`, which the DB does not have; see section 9.)
+- `unlocked -> redeemed` via `fn_redeem_reward_instances` (sets redeemed_branch_id, redeemed_at; later `fn_attach_reward_redemption_order` sets redeemed_order_id).
+- `unlocked -> expired` via `fn_expire_reward_instances` (daily).
+- No transition out of redeemed/expired exists in code.
+
+### 4.2 Triggers evaluated on order completion
+`RewardEligibilityService.onOrderCompleted` (`reward-eligibility.service.ts`), called from `invoices.service.ts` (~line 652) after order creation, only when `dto.customer_id` is set, with `{customerId, branchId, orderId: invoice.id, orderTotal: built.total, itemIds: built.items.map(i => i.item_id)}`.
+- No-op if `tenant.tenantId` falsy.
+- Loads active (is_active=true, not deleted) definitions of types purchase_count, spend_threshold, product_category in one query. On lookup error: logs warn and returns.
+- If any product_category definition exists, loads category ids of the order's items (`items.category_id`, tenant-scoped, `in` itemIds, non-null). On error: logs, uses empty set.
+- Per definition (try/catch each, errors only logged):
+  - purchase_count -> `fn_process_purchase_reward_event`
+  - spend_threshold -> `fn_process_spend_threshold_reward_event` with order total
+  - product_category -> only if `trigger_config.category_id` is set and in the order's category set, then `fn_process_purchase_reward_event` (so it counts +1 per qualifying ORDER, not per unit or per matching line)
+- birthday and campaign: configurable via CRUD but never evaluated anywhere (the service comment says so explicitly). No scheduler or event for them was found.
+- Whole call is best-effort; exceptions never reach the sale. Note the call is `await`ed in invoices.service (blocks the response but swallows errors).
+
+`onLoyaltyPointsAwarded(tenant, customerId, branchId)`: loads active `loyalty_points` definitions, calls `fn_process_loyalty_points_reward_event` per definition (errors logged). Invoked in invoices.service (~line 929) as `awardCall.then(() => onLoyaltyPointsAwarded(...)).catch(() => {})`, i.e. fire-and-forget after the loyalty award, and only when `dto.customer_id && loyaltySettings.enabled`.
+
+### 4.3 Idempotency
+- purchase_count / product_category / spend_threshold: the INSERT into `reward_progress_events` with `ON CONFLICT (tenant_id, reward_definition_id, order_id) DO NOTHING RETURNING id` is the gate. Repeat call for the same (definition, order) returns zero rows and touches nothing else.
+- Second independent guard: UNIQUE on instance (tenant, definition, customer, ordinal) with `ON CONFLICT DO NOTHING`.
+- loyalty_points: no events table; idempotency purely via the ordinal unique constraint and MAX(ordinal) comparison.
+- The progress event row is inserted BEFORE the definition is checked for active/valid threshold (see 5.1), so an order is "consumed" for a definition even if the threshold is missing/invalid; later correcting the config does not retroactively count.
+
+### 4.4 Expiration
+- `expires_at = now() + expiration_days days` set at unlock time (NULL if expiration_days is NULL). Expiration is snapshot at unlock; later edits to expiration_days do not change existing instances.
+- Daily sweep 04:00 server clock (section 6). Redemption checks expiry independently (`expires_at <= now()` in both preview and DB function), so an instance past expiry but not yet swept cannot be redeemed.
+
+### 4.5 Redemption flow (`RewardRedemptionService`, `reward-redemption.service.ts`; sequence in `invoices.service.ts`)
+1. Pricing preview (`previewSelection`), executed in invoice creation after loyalty/coupon math, using `manualBuilt.subtotal`:
+   - Rejects duplicate ids (BadRequest `Duplicate reward instance selected more than once`).
+   - Loads only the selected ids (`findByIds`, tenant-scoped, with definitions); if count mismatch -> `One or more selected reward instances were not found`.
+   - Per instance: customer must match; status must be 'unlocked'; not expired; if definition.branch_scope='specific' then definition.branch_id must equal the invoice branch; `usage_conditions.min_order_amount` (truthy check) must be <= subtotal.
+   - Effect by reward_type: percentage_discount -> `DiscountEngine.applyPercentageDiscount(subtotal, reward_config.percent)`; fixed_discount -> `applyFixedDiscount(subtotal, reward_config.amount)`; coupon_reference -> `CouponsService.findOneOrThrow(tenant, coupon_id)` + `calculateDiscount(coupon, subtotal)` (BadRequest if no coupon_id); free_item -> pushes `{reward_instance_id, item_id}` into freeItemGrants (BadRequest if no item_id); any other type -> BadRequest.
+   - Discounts are summed then passed through `discountEngine.checkMaxDiscount(sum, subtotal)`.
+   - In invoices.service: requires `dto.customer_id` (else BadRequest `customer_id required to redeem reward instances`); combined discount = min(manual + loyalty + coupon + reward, subtotal).
+2. Atomic redeem (`redeemSelected` -> `fn_redeem_reward_instances`): runs just before invoice creation (after loyalty redemption), so order_id does not exist yet.
+3. Invoice created. If creation throws, the code path shown (catch around creation, ~lines 565-596) only maps unique violation/accounting errors and rethrows; no code restoring already-redeemed reward instances (or loyalty points) was seen. Marked as observed gap (section 9).
+4. After the order exists: `attachOrder(ids, invoice.id)` calls `fn_attach_reward_redemption_order`, best-effort with logged warning on failure.
+5. `free_item`: NOT inserted as an order line by the backend; instance is still marked redeemed; grants are returned in the POST /invoices response as `free_item_grants` for the cashier to add manually (documented in code comments).
+
+### 4.6 Redemption atomicity
+`fn_redeem_reward_instances` (215): `SELECT ... WHERE id = ANY(ids) ORDER BY id FOR UPDATE` locks all rows in id order (consistent ordering), validates each in the loop, raises on any failure; final count check; then one UPDATE ... RETURNING. A plpgsql exception aborts the whole call: all-or-nothing. A concurrent duplicate waits on the row lock, then sees status 'redeemed' and fails. (Note: the final UPDATE only matches status='unlocked'; combined with prior validation this is consistent.)
+
+---------------------------------------------------------------------------
+## 5. RPC functions
+
+### 5.1 `fn_process_purchase_reward_event(p_tenant_id, p_customer_id, p_reward_definition_id, p_order_id, p_branch_id DEFAULT NULL)` -> TABLE(out_instance_id uuid, out_instance_ordinal int)
+Versions: 212 (original, OUT cols instance_id/instance_ordinal) -> 213 (DROP + CREATE, renamed OUT cols to fix ambiguity) -> 216 (CREATE OR REPLACE, same signature, current).
+Current (216) logic: INSERT event with amount=1 (dedup gate) -> if none, return. Read `trigger_config->>'count'` into NUMERIC threshold and expiration_days from active, non-deleted definition of trigger_type IN (purchase_count, product_category) and tenant. If threshold NULL or <=0 return. progress = COALESCE(SUM(amount)) over events for (tenant, customer, definition). If `MOD(progress, threshold) != 0` return. ordinal = (progress/threshold)::int. Insert 'unlocked' instance with unlocked_branch_id=p_branch_id, expires_at; ON CONFLICT DO NOTHING; return the new row if inserted.
+Locking: no explicit lock; concurrency relies on the unique index + SUM over committed rows (two concurrent orders for the same customer/definition could each compute a progress that excludes the other's uncommitted event, which could skip a multiple; UNVERIFIED risk, not tested in specs).
+Grant: EXECUTE to service_role granted in 212 and 213; 216 uses CREATE OR REPLACE (privileges preserved).
+Side effects: reward_progress_events insert, customer_reward_instances insert. Does not touch loyalty_ledger/customers.
+
+### 5.2 `fn_process_spend_threshold_reward_event(p_tenant_id, p_customer_id, p_reward_definition_id, p_order_id, p_order_total NUMERIC, p_branch_id DEFAULT NULL)` (217)
+Returns early if p_order_total NULL or <=0 (no event inserted). Inserts event amount=p_order_total with the same dedup gate. Reads **`trigger_config->>'amount'`** as threshold (active, non-deleted, trigger_type='spend_threshold'). progress = SUM(amount). target_ordinal = FLOOR(progress/threshold). If target <= MAX(existing ordinal for customer+definition) return. Loops from max+1..target inserting one instance per ordinal (ON CONFLICT DO NOTHING), returning each newly inserted. Same expiry computation. Multiple instances can be created from a single order. No explicit locking.
+NOTE: the event amount is `built.total` (post-discount total as passed by invoices.service), so spend is measured on final total.
+
+### 5.3 `fn_process_loyalty_points_reward_event(p_tenant_id, p_customer_id, p_reward_definition_id, p_branch_id DEFAULT NULL)` (218)
+Reads **`trigger_config->>'points'`** threshold from active loyalty_points definition. Reads `customers.lifetime_points_earned` (no lock, tenant-matched; returns if NULL/customer missing). target_ordinal = FLOOR(lifetime/threshold); loop-create ordinals above MAX existing, same as 5.2. No event table. Not order-scoped.
+
+### 5.4 `fn_expire_reward_instances()` (214) -> TABLE(id uuid)
+`UPDATE customer_reward_instances SET status='expired' WHERE status='unlocked' AND expires_at IS NOT NULL AND expires_at <= now() RETURNING id`. LANGUAGE sql. All tenants in one statement. Idempotent.
+
+### 5.5 `fn_redeem_reward_instances(p_tenant_id, p_customer_id, p_branch_id, p_instance_ids uuid[])` -> SETOF customer_reward_instances (215)
+See 4.5/4.6. Errors (RAISE EXCEPTION): `No reward instances selected`; `Reward instance % does not belong to this customer` (tenant OR customer mismatch); `... is not available to redeem (status: %)`; `... has expired`; `... is not valid at this branch` (only when scope='specific' and definition.branch_id != p_branch_id); `One or more selected reward instances were not found`. Does NOT re-check `usage_conditions.min_order_amount` (preview only). The tenant check happens after the row is locked, and the WHERE does not filter by tenant, so instance ids from other tenants get locked before being rejected (UNVERIFIED practical impact).
+`fn_attach_reward_redemption_order(p_instance_ids uuid[], p_order_id uuid)` RETURNS VOID: sets redeemed_order_id for rows `status='redeemed'` in ids. No tenant or customer check, no guard against overwriting an existing redeemed_order_id.
+
+### 5.6 Loyalty and customer functions
+- `fn_adjust_loyalty_points(p_customer_id, p_delta NUMERIC, p_type TEXT, p_branch_id DEFAULT NULL, p_order_id DEFAULT NULL, p_created_by DEFAULT NULL)` RETURNS TABLE(loyalty_points NUMERIC, lifetime_points_earned NUMERIC). 209 created it (DROP old 2-arg version); 210 fixes the column ambiguity with table alias `c`. Logic: reject p_type not in (earn, redeem, adjustment) via RAISE; single guarded UPDATE of customers (row-level lock implicit) `loyalty_points += delta`, `lifetime_points_earned += GREATEST(delta,0)`, `updated_at=now()` WHERE id AND `(loyalty_points + delta) >= 0`; if no row (customer missing OR would go negative) returns empty set; else INSERT into loyalty_ledger (tenant_id taken from the updated customers row) in the same transaction, returns new balances. Takes no p_tenant_id by design; tenant safety depends on `assertCustomerInTenant` in the app. Not SECURITY DEFINER. No GRANT statement is in 209/210 (UNVERIFIED whether grants carried over from earlier migrations; DROP+CREATE in 209 resets function privileges, and the only visible callers use service_role/pooled connection).
+- `fn_customer_loyalty_points_total(p_tenant_id)` (233): LANGUAGE sql STABLE; `COALESCE(SUM(loyalty_points),0)` over customers of the tenant with deleted_at IS NULL; returns BIGINT; EXECUTE granted to authenticated, service_role. Used by `CustomersRepository.getGlobalStats`.
+- `fn_customers_page_by_spend(p_tenant_id, p_search, p_custom_field_keys text[], p_restrict_ids uuid[], p_ascending bool, p_limit int, p_offset int)` (236): STABLE sql; CTE filter (tenant, not deleted, optional id restriction, search ILIKE on full_name, phone, or any custom field whose key is in the passed key list), LEFT JOIN aggregate over `orders` (status='completed', per customer: SUM(total), COUNT) ; ORDER BY total_spent (asc/desc NULLS LAST), then id; LIMIT/OFFSET; returns `total_count` via `COUNT(*) OVER ()`. Granted to authenticated, service_role. Returns a fixed column list (no created_branch_id, no notes).
+
+---------------------------------------------------------------------------
+## 6. Scheduler
+`API/modules/rewards/reward-expiration.scheduler.ts`: `@Cron('0 4 * * *')` -> `handleExpireRewards()` calls `instancesRepo.expireDueInstances()` (RPC `fn_expire_reward_instances`), logs `Expired N unlocked reward instance(s)` when N>0. Server clock, global (all tenants), no timezone argument. `ScheduleModule.forRoot()` is registered in `app.module.ts` (line 91). No try/catch in the handler: an RPC error would reject the async cron handler (UNVERIFIED how @nestjs/schedule surfaces it; typically logged as an unhandled error by the scheduler). No multi-instance guard (no lock) was seen: if the API runs on several instances, the sweep runs on each; function is idempotent, so harmless.
+
+Module wiring (`rewards.module.ts`): imports PermissionsModule, CoreAuthModule, DiscountEngineModule, CouponsModule; controllers RewardDefinitionsController, CustomerRewardsController; exports repos, RewardEligibilityService, RewardRedemptionService. Imported by `app.module.ts` and `invoices.module.ts`.
+
+---------------------------------------------------------------------------
+## 7. Customer domain business rules (code)
+
+### 7.1 Tenant flags
+- `customer_identity_scope`: read only in `CustomersRepository.getCustomerIdentityScope` (reads `tenants.customer_identity_scope` with `.single()`; DB error throws; value other than shared/branch resolves to 'branch', i.e. fail-closed).
+- `loyalty_scope`: read only in `LoyaltyService.getLoyaltyScope` (same fail-closed rule: invalid/null -> 'branch').
+- `rewards_enabled`: grep over all `API/**/*.ts` finds NO reader. Rewards endpoints and evaluation do not check it. The flag is inert (migration comment says it "gates the not-yet-built Rewards domain"; that gating was never wired).
+- No endpoint/service in `src` that writes `customer_identity_scope`, `loyalty_scope`, or `rewards_enabled` was found by grep (so they can apparently only be changed via the DB/other tooling; UNVERIFIED outside `src`).
+
+### 7.2 Visibility (`CustomersService`, `customers.service.ts`)
+`resolveVisibilityBranchId`: null (unrestricted) if no tenantId (superadmin), or `user.branch_id` null/undefined (Central), or identity scope 'shared'; otherwise returns user's branch_id.
+- `findAll`: if restricted -> `findRelatedCustomerIds(tenantId, branchId)` (all customer_ids with a relationship row at that branch); if none -> `{data: [], total: 0}`; else applied as `.in('id', ids)` to both data and count queries (so pagination stays correct). Passing thousands of ids in `.in()` is a scaling risk (UNVERIFIED).
+- `findById`: loads with `findByIdUnrestricted`, then if restricted requires `hasRelationship`, else 404 (not 403).
+- `findByIdUnrestricted` is the escape hatch for checkout (customer attachable at any branch).
+- update/remove/getHistory call `findById` first, so they inherit visibility.
+
+### 7.3 created_branch_id and relationships
+- `create`: `created_branch_id = user.branch_id ?? dto.created_branch_id ?? null` (restricted actor's own branch always wins; only Central can choose). Persisted on customers insert (the repository spreads the whole payload). If non-null, `repo.upsertRelationship(..., 'created').catch(() => {})` (errors swallowed).
+- `recordBranchActivity(tenant, customerId, branchId)`: upsert with source 'transaction', swallows errors; called from `invoices.service.ts` (~line 611) after order creation when `dto.customer_id`. Note: it is `await`ed but internally catches.
+- `upsertRelationship`: SELECT existing; if exists, update only `last_seen_at`; else INSERT with source; unique violation on race is ignored. Never changes source/first_seen_at of an existing row. Rows are never deleted by code.
+- Other readers: `reports.service.ts` (~line 634-705) uses `customer_branch_relationships.first_seen_at` for the "customers" daily series (distinct customers per day, branch filter optional).
+- Phone uniqueness is enforced in the service (`findByPhone`) per tenant, ignoring branch scope (a restricted user in BRANCH mode would get "Phone already registered" for a customer they cannot see).
+
+### 7.4 Customers list/sort
+`CustomersRepository.findAll`: `sortBy='total_spent'` with a tenantId -> RPC `fn_customers_page_by_spend` (sort before pagination); other fields sort via `.order()` on real columns; for sortBy total_spent with no tenantId (superadmin) falls back to created_at. Default path computes `orders_count`/`total_spent` in JS from completed orders of the page's customers. Search escapes `%` and `,` only. Custom field search builds `custom_fields->>key.ilike.%x%` in an `.or()` string using field keys from definitions (keys are interpolated into a PostgREST filter string; keys come from tenant-defined definitions, UNVERIFIED whether validated for special characters elsewhere).
+`getGlobalStats`: total & new_this_month counts (head queries), plus total loyalty points via `fn_customer_loyalty_points_total` (tenant) or a full cross-tenant row fetch + JS reduce for superadmin. Month start uses server-local time.
+
+### 7.5 Loyalty ledger usage (`core/loyalty/loyalty.service.ts`)
+- Ledger is WRITTEN only inside `fn_adjust_loyalty_points`. It is READ by the app only in `getBranchBalance` (sum of `delta` for tenant+customer+branch). No API endpoint exposes ledger entries (none found).
+- `awardPoints` (service-role path): `points<=0` no-op; `assertCustomerInTenant`; RPC type 'earn'; the RPC result/error is NOT checked, so failures are silently ignored (documented as non-blocking).
+- `redeemPoints`: `assertCustomerInTenant`, `assertSufficientBranchBalance`, RPC type 'redeem' with delta -points; throws on RPC error; empty result -> BadRequest `Insufficient loyalty points balance`.
+- `assertSufficientBranchBalance`: scope 'shared' -> skip (DB guard on pooled balance suffices). 'branch' -> requires `context.branchId` (BadRequest `Branch context is required to redeem loyalty points for this tenant`), computes ledger sum for that branch, rejects if < points. This is a read-then-write check, not atomic with the DB update (two concurrent redemptions at the same branch could both pass; the pooled `>= 0` guard still prevents negative total but not per-branch overdraft). UNVERIFIED in tests.
+- Pooled variants (`awardPointsPooled`, `redeemPointsPooled`, `getBalancePooled`) run the same RPC through `TenantSessionService.runInTenantContext` raw pg queries `SELECT * FROM fn_adjust_loyalty_points($1..$6)`; used when config `POOLED_LOYALTY_WRITES_ENABLED` is true (invoices.service).
+- `adjustPoints`: type 'adjustment', throws BadRequest `Adjustment would result in a negative balance` on empty result. Callers elsewhere (e.g. a controller) were not located in this review (UNVERIFIED whether any endpoint calls it).
+- Under BRANCH scope, adjustments with branch_id NULL are not counted in any branch balance (getBranchBalance filters `.eq('branch_id', branchId)`).
+- In invoices.service: loyalty redemption happens before order creation with context `{branchId, createdBy}` (no orderId); the earn happens after order creation with `{branchId, orderId, createdBy}`; points earned = floor(floor(total*points_per_currency) * tierMultiplier), computed on `built.total`.
+
+---------------------------------------------------------------------------
+## 8. Web UI (`Web/features/rewards` and consumers)
+
+### 8.1 Files
+- `features/rewards/api/rewards.api.ts`: `rewardsApi` {getAll GET /reward-definitions, getOne GET /reward-definitions/:id, create POST, update PATCH /:id, remove DELETE /:id}; `customerRewardsApi.getForCustomer(customerId, status?)` -> `GET /customers/:id/rewards[?status=...]`. Types: RewardTriggerType, RewardType, RewardBranchScope, RewardDefinition, RewardDefinitionInput, RewardInstanceStatus = 'locked'|'unlocked'|'redeemed'|'expired', CustomerRewardInstance (fields id, tenant_id, customer_id, reward_definition_id, status, unlocked_at, redeemed_at, expires_at, order_id, reward_definitions).
+- `features/rewards/hooks/useRewards.ts`: `useRewardDefinitions` (key ['reward-definitions']), `useCreateRewardDefinition`, `useUpdateRewardDefinition`, `useDeleteRewardDefinition` (each invalidates ['reward-definitions']), `useCustomerRewards(customerId, status='unlocked')` (key ['customer-rewards', id, status], enabled when id), `useCustomerRewardsHistory(customerId)` (useQueries over statuses unlocked, redeemed, expired; merged client-side; 'eligible' never fetched).
+- `features/rewards/pages/RewardsPage.tsx` (route `app/[locale]/dashboard/rewards/page.tsx`, dynamic import; sidebar entry in `DashboardSidebar.tsx` for roles owner, manager, section sales): table (desktop) / card list (mobile) with name, trigger type, reward type, branch scope, expiration days (or "no expiry"), active toggle (PATCH `{is_active}`), edit and delete (confirm dialog; DELETE). Empty state with create button. i18n namespace `rewards`.
+- `features/rewards/components/RewardFormModal.tsx`: create/edit modal. Fields: name (required non-empty trimmed; submit disabled otherwise; the API requires min length 2), trigger type select (all 6, incl. birthday/campaign with an informational note only), per-trigger config input, reward type select, per-reward config input, branch scope select (+ branch select via `useBranches()` when 'specific'), `usage_conditions.min_order_amount`, expiration days (>=1, optional), active checkbox. Errors: `ApiError.message` or generic.
+  - trigger_config built: purchase_count -> `{count}` (parseInt, default 5); spend_threshold -> **`{threshold}`** (default 500); product_category -> `{category_id}` free text field (user types an id; no category picker); loyalty_points -> `{points}` (default 100); birthday/campaign -> `{}`.
+  - reward_config built: free_item -> `{item_id}` (free text); percentage_discount -> `{percent}`; coupon_reference -> `{coupon_id}` (free text); fixed_discount -> `{amount}`.
+  - Edit mode does not remove stale keys: it only sends the keys for the currently selected types.
+  - product_category: the form sends only `category_id`; the DB function (216) reads `trigger_config->>'count'` for product_category, and the form never collects `count` for this trigger (see Gaps).
+- Consumers: `features/customers/components/CustomerRewardsPanel.tsx` (inside `CustomerDetailsModal`): list of instances with name, status chip, redeemed date or expiry date, via `useCustomerRewardsHistory`. `features/pos/page/POSPage.tsx` (`useCustomerRewards(selectedCustomer?.id,'unlocked')`, `selectedRewardIds` state, reset on clear/customer clear/after sale; passes `redeem_reward_instance_ids` into the invoice payload) and `features/pos/components/PaymentModal.tsx` (checkbox list of available rewards by definition name, sends `redeem_reward_instance_ids`), `ReceiptModal.tsx` (shows `freeItemNames` from `free_item_grants`, mapped via an item lookup in POSPage).
+- Note: the POS shows the unlocked list without client-side filtering by branch scope, expiry or min_order_amount; those are enforced server-side at checkout (rejection surfaces as a checkout error).
+
+---------------------------------------------------------------------------
+## 9. Known gaps / risks observed in code
+
+1. **spend_threshold key mismatch (high, verified in both sides)**: the web form writes `trigger_config.threshold` (`RewardFormModal.tsx`), while `fn_process_spend_threshold_reward_event` (217) and the 211 comment read `trigger_config->>'amount'`. A definition created through the UI has no `amount`, so `v_threshold` is NULL and the function returns without unlocking. The progress event is still recorded. No backend validation of trigger_config shape (`@IsObject` only) catches this.
+2. **product_category needs `count` but UI never sends it (high, verified)**: function reads `trigger_config->>'count'` for product_category; the form only sends `{category_id}`. Result: threshold NULL, no instance ever unlocks via the UI (a backend-created config `{category_id, count}` works, as in the spec). Also counts +1 per order, not per unit.
+3. **rewards_enabled never read (verified by grep)**: tenants cannot disable rewards via this flag; evaluation/redemption/CRUD ignore it. No code writes the three tenant flags (grep in `src`).
+4. **birthday and campaign triggers are creatable but never evaluated** (explicit in `reward-eligibility.service.ts`).
+5. **Status inconsistency in web**: `RewardInstanceStatus` includes `'locked'` (not in DB CHECK: eligible/unlocked/redeemed/expired) and omits `'eligible'`. The CustomerRewardsPanel and hooks never fetch 'eligible'. Also `CustomerRewardInstance.order_id` does not match DB column `redeemed_order_id`. Comments in `rewards.api.ts` / `CustomerRewardsPanel.tsx` claim omitting status returns every instance; backend defaults to 'unlocked' when omitted (`status ?? 'unlocked'`). The panel works only because the history hook passes explicit statuses.
+6. **Redemption not compensated if invoice creation fails (observed)**: loyalty and reward redemption are executed before `repo.create`; the catch block around creation has no code undoing reward redemptions (or loyalty redemption). Rewards would remain 'redeemed' with no order. (Code comment argues this ordering avoids the opposite problem; no rollback was found. Whether a surrounding transaction exists is UNVERIFIED.)
+7. **free_item instances are consumed without adding a line**: backend marks them redeemed and returns grants; correctness depends on the POS adding the item. The reward-instance is already final.
+8. **Validation gaps on definitions**: no trigger_config/reward_config shape validation; `branch_id` required only by DB CHECK (DTO has `@IsOptional` plus `@ValidateIf`, so missing branch_id with scope 'specific' passes DTO and hits the DB constraint, likely a 500 rather than 400; UNVERIFIED); branch_id not verified to belong to the tenant; PATCH changing `branch_scope` to 'all' keeps old branch_id; reward_config references (coupon_id, item_id) not validated at create time; coupon_reference resolves at redemption only. Name min length 2 vs UI check only non-empty.
+9. **Concurrency on count-based unlock**: `fn_process_purchase_reward_event` computes progress via SUM over committed rows without a customer/definition lock; two concurrent qualifying orders could both see a progress that skips an exact multiple (`MOD != 0`), missing an unlock. Spend/points functions use floor/max-ordinal so they self-heal at the next event. UNVERIFIED (no concurrency tests).
+10. **Progress consumed even when config invalid/inactive-after-check**: event row insert precedes definition validation (212/213/216/217).
+11. **Spec coverage gaps**: no tests for the controllers' permission wiring, `RewardDefinitionsService`, repositories, or any SQL function (DB tests not present in the repo specs reviewed; `rpc_test_qa.js` is mentioned in migration 213 comment but was not inspected).
+12. **Scheduler**: no try/catch; global server-clock 04:00; no distributed lock.
+13. **Loyalty BRANCH scope**: branch-balance check not atomic with the DB mutation; manual adjustments with NULL branch are invisible to branch balances; ledger has no read API and no reconciliation with `customers.loyalty_points`. `awardPoints` ignores RPC errors (silent drop of points). `fn_adjust_loyalty_points` (209) has no GRANT in its migration after DROP+CREATE (UNVERIFIED effect).
+14. **Customer visibility**: `GET /customers/:customerId/rewards` applies no Customer Scope visibility (any user with `invoice.create.own` can list any tenant customer's rewards by id; consistent with the "checkout must not be blocked" decision but a difference from `/customers/:id`). Phone-uniqueness check ignores scope. `.in('id', ids)` with a large relationship set may hit URL length limits (UNVERIFIED).
+15. **RLS vs service client**: all reward tables rely on app-level tenant filters when using the service client; `fn_redeem_reward_instances` / `fn_attach_reward_redemption_order` don't filter by tenant in their WHERE clauses beyond the post-lock tenant check.
+16. **Unused DTO**: `RedeemRewardsPreviewDto` not wired to any endpoint inside the rewards module.
+17. **Unused `eligible` status** in DB; no `deleted_at` on instances; no admin API to cancel/adjust/revoke an instance.
+18. **Definition edits apply to existing instances**: instances join to definitions at redemption (reward_config, usage_conditions, branch_scope read live), so editing or soft-deleting a definition changes or breaks outstanding instances (a soft-deleted definition still resolves in `findByIds` because the join has no deleted_at filter; UNVERIFIED behaviour of PostgREST embed with soft-deleted rows, which are returned).
+
+---------------------------------------------------------------------------
+## 10. Tests present
+
+### Rewards module
+- `reward-eligibility.service.spec.ts` (all mocks, no DB): onOrderCompleted: no-op when no definitions; single lookup with the three trigger types in order `['purchase_count','spend_threshold','product_category']`; purchase_count calls `processPurchaseEvent(t1,cust,def,order,branch)`; spend_threshold calls `processSpendThresholdEvent` with total 100; product_category matching -> `getItemCategoryIds(TENANT,[item ids])` then `processPurchaseEvent`; non-matching category skipped; no category lookup when none active; one failing definition does not stop the next or throw; lookup failure does not throw and processes nothing; superadmin (no tenantId) no-op. onLoyaltyPointsAwarded: runs every active loyalty_points definition with the right args; failure swallowed; superadmin no-op.
+- `reward-redemption.service.spec.ts` (mocks + real DiscountEngine): fixed_discount computed, no redeem call during preview; percentage_discount 10% of 200 = 20; multiple instances sum (10+5=15); combined discount capped at subtotal; coupon_reference resolved via CouponsService; free_item returns grant with 0 discount; duplicate ids rejected; other customer's instance rejected; redeemed instance rejected (`is not available to redeem`); expired rejected; specific branch mismatch rejected, match allowed; `min_order_amount` not met rejected; missing instances rejected (`were not found`); `redeemSelected` delegates args; `attachOrder` no-op on empty list and delegates otherwise.
+- `reward-expiration.scheduler.spec.ts`: handler calls the repository sweep once (3 expired); resolves with no result when 0 expired.
+- No specs for controllers, definitions service, repositories, or SQL functions.
+
+### Customers (`API/modules/customers`)
+- `customers.service.spec.ts`: created_branch_id capture (restricted ignores dto override; Central explicit; Central none -> null; restricted with no dto); relationship seeding on create (source 'created') and none when no branch; `recordBranchActivity` delegates with 'transaction'; findAll visibility matrix (Central+shared, restricted+shared unrestricted, restricted+branch limited to related ids, empty -> empty result, Central+branch unrestricted); fail-closed scope behavior and error propagation; findById visibility (Central any; restricted+branch related allowed / unrelated -> NotFound; restricted+shared allowed); cross-tenant scoping of relationship lookups; `findByIdUnrestricted` never restricts.
+- `customers.repository.spec.ts`: `upsertRelationship` inserts with source when new, only updates last_seen_at (never source) when existing; `getCustomerIdentityScope`: shared, branch, null/missing/invalid -> 'branch', DB error and timeout propagate.
+- `customers-permissions.spec.ts`: decorator metadata for each route (view/create/update/archive/history) and an integration-style test through real PermissionGuard -> PermissionsService stack (role allow/deny, tenant and user overrides, legacy aliases, cross-tenant override isolation, owner force-grant).
+- `core/loyalty/loyalty.service.spec.ts`: SHARED redemption never queries ledger and works at any branch; BRANCH redemption: sufficient own-branch balance allowed, insufficient rejected even if pooled total covers, cross-branch isolation, missing branch context rejected, tenant-scoped queries; fail-closed scope resolution for malformed/null; award passes branch/order/created_by to the RPC; manual adjustments carry null or specific branch, negative-balance rejection; "Phase 8" matrices for Shared and Branch loyalty and default-tenant behavior unchanged. (Only describe/it titles were read; assertion bodies not fully inspected.)
+- No tests found for `fn_customers_page_by_spend`, `fn_customer_loyalty_points_total`, or the SQL functions themselves; `findAllSortedBySpend` coverage not seen in the repository spec titles (UNVERIFIED).
+
+
+<!-- source: code_doc_expenses_branches -->
+
+# Sefay: Expenses V2 and Branches, code documentation (actual behavior)
+
+Source: read-only scan of C:\Fp\api and C:\Fp\web. Paths are relative to those roots. Anything not confirmed from code is marked UNVERIFIED.
+
+## 1. Purpose
+
+- **Expenses V2** (`api/src/modules/expenses-v2`, route prefix `expenses-v2`): a "New Expenses" domain that coexists with Legacy Expenses (`api/src/modules/expenses`, routes `/expenses`, `/expense-categories`). Legacy tables are untouched. V2 uses its own tables: `expenses_v2`, `expense_categories_v2`, `expense_departments`, `expense_quick_definitions`, `expense_attachments`, `expense_activity`, and the dead `expense_recurring_templates`.
+- **Branches** (`api/src/modules/branches`): branch CRUD per tenant, with a plan-limit check on create.
+- **Branch scoping** is done by `users.branch_id` (migration 203), the JWT `branch_id` claim, and `BranchScopeInterceptor` / `BranchAuthorizationService` under `api/src/core/security`. `audit_logs.branch_id` (migration 204) records branch context on audit rows.
+
+## 2. Data model
+
+All V2 tables carry `tenant_id` (FK `tenants` ON DELETE CASCADE), have RLS enabled with policy `tenant_session_isolation` (`tenant_id = current_setting('app.tenant_id', true)::uuid`), and are granted ALL to `service_role`. Source: `api/src/database/migrations/197_new_expenses_database_foundation.sql` unless noted.
+
+### Migration 197
+
+| Table | Columns and constraints |
+|---|---|
+| `expense_departments` | id, tenant_id, name NOT NULL, code, description, is_active DEFAULT true, created_by, created_at, updated_at. `UNIQUE(tenant_id, name)`. Index `(tenant_id, is_active)`. |
+| `expense_categories_v2` | Same shape as departments. `UNIQUE(tenant_id, name)`. |
+| `expense_recurring_templates` | Created, but dead (see 201). branch_id, department_id, category_id NOT NULL; amount > 0; tax_mode IN (inclusive, exclusive), widened in 200; frequency IN (daily, weekly, monthly, yearly); start_date, end_date, next_occurrence_date; CHECK end_date >= start_date. |
+| `expense_quick_definitions` | label NOT NULL, default_category_id and default_department_id (nullable FKs), amount_mode IN (fixed, variable), fixed_amount NUMERIC(12,2), default_payment_method (nullable at DB level), sort_order DEFAULT 0, is_active. CHECK `chk_expense_quick_definitions_amount_pairing`: (fixed AND fixed_amount NOT NULL) OR (variable AND fixed_amount NULL). Index `(tenant_id, is_active, sort_order)`. There is NO unique constraint on label. |
+| `expenses_v2` | branch_id, department_id, category_id all NOT NULL. title NOT NULL, description. amount > 0, tax_mode IN (inclusive, exclusive) before 199, tax_amount >= 0 DEFAULT 0, total_amount > 0, payment_method NOT NULL, payment_status IN (paid, unpaid) DEFAULT 'paid', approval_status IN (approved, pending_action, accepted, rejected) DEFAULT 'approved', reference_number, source IN (manual, quick, recurring, pos) DEFAULT 'manual', recurring_template_id (FK to the dead table), shift_id (FK `shifts`), created_by, resolved_by, resolved_at, cancelled_by, cancelled_at, created_at, updated_at. Indexes on tenant+branch, department, category, created_at and payment_status. |
+| `expense_attachments` | expense_id FK ON DELETE CASCADE, file_url, storage_path, file_type, uploaded_by, uploaded_at. |
+| `expense_activity` | expense_id FK ON DELETE CASCADE, actor_id, action CHECK IN (created, edited, payment_confirmed, cancelled, accepted, rejected, department_changed), note, created_at. Index `(expense_id, created_at)`. |
+
+Trigger `fn_block_expense_master_data_delete()` raises an exception on any DELETE. It is attached as BEFORE DELETE FOR EACH ROW to `expense_departments`, `expense_categories_v2`, `expense_quick_definitions`. These rows can only be deactivated. `expenses_v2` has no DB immutability trigger.
+
+### Migrations 198 to 202
+
+- **198**: `expense_quick_definitions.tax_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK IN (none, inclusive, exclusive)`.
+- **199**: `expenses_v2.tax_mode` CHECK widened to (none, inclusive, exclusive). A DO block finds the old constraint by `pg_get_constraintdef ILIKE '%tax_mode%IN%'`, drops it, and adds `expenses_v2_tax_mode_check`.
+- **200**: the same widening for `expense_recurring_templates` (`expense_recurring_templates_tax_mode_check`).
+- **201**: recurring becomes a native property of `expenses_v2`.
+  - New columns: `is_recurring BOOLEAN NOT NULL DEFAULT false`, `frequency` (nullable, CHECK IN daily, weekly, monthly, yearly), `next_occurrence_date DATE`, `recurring_end_date DATE`, `recurring_source_expense_id UUID REFERENCES expenses_v2(id)`.
+  - CHECK `chk_expenses_v2_recurring_pairing`: is_recurring = false, OR (is_recurring = true AND frequency IS NOT NULL AND next_occurrence_date IS NOT NULL).
+  - Partial index `idx_expenses_v2_recurring_due (tenant_id, is_recurring, next_occurrence_date) WHERE is_recurring = true`.
+  - The template table and `recurring_template_id` are left in place, unused.
+- **202**: `expenses_v2.expense_date DATE NOT NULL DEFAULT CURRENT_DATE`, plus index `(tenant_id, expense_date)`. created_at and updated_at are untouched.
+
+### Migrations 203 and 204
+
+- **203** `203_users_branch_id.sql`: `ALTER TABLE users ADD COLUMN branch_id UUID REFERENCES branches(id)`, plus index `idx_users_branch_id`. NULL means a Central (unrestricted) user. A non-NULL value restricts the user to that single branch. No backfill.
+- **204** `204_audit_logs_branch_id.sql`: `ALTER TABLE audit_logs ADD COLUMN branch_id UUID REFERENCES branches(id)`, plus index `idx_audit_logs_tenant_branch_time (tenant_id, branch_id, created_at)`. Existing rows stay NULL, meaning unknown. NULL on new rows means tenant-wide or no reliable branch path. No backfill.
+
+## 3. Endpoints
+
+All V2 controllers use `@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)`.
+
+Permission keys are seeded in `api/src/database/seeds/permissions.seed.ts`:
+- `expenses.view`, `expenses.manage`, `expenses.create`, `expenses.configure` go to superadmin and owner.
+- manager and cashier get `expenses.view` and `expenses.create` (lines ~898-899 and ~977-978). That is the only grant evidence I confirmed.
+- `branches.view` and `branches.manage` go to superadmin and owner. manager and cashier grants for branches.* were NOT seen.
+
+### 3.1 `expenses-v2/expenses` (`expenses-v2.controller.ts`)
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| GET `/` | expenses.view | `@BranchScoped()`. Query is `FilterExpensesDto`. `branch_id` is overridden by `@EffectiveBranchId()` (`effectiveBranchId ?? undefined`). |
+| GET `/:id` | expenses.view | `findOne` has no branch check. |
+| GET `/:id/activity` | expenses.view | |
+| POST `/` | expenses.create | Uses `tenant.branchId`, which comes from the `x-branch-id` header. |
+| POST `/quick/:definitionId` | expenses.create | Same branch source. |
+| PATCH `/:id` | expenses.manage | |
+| PATCH `/:id/cancel` | expenses.manage | |
+| PATCH `/:id/confirm-payment` | expenses.manage | |
+| PATCH `/:id/stop-recurring` | expenses.manage | |
+| GET `/:id/attachments` | expenses.view | |
+| POST `/:id/attachments` | expenses.manage | Multipart field `file`, 10 MB limit (FileInterceptor). |
+
+There is no DELETE endpoint and no approval endpoint (approve, reject, accept).
+
+### 3.2 `expenses-v2/departments` and `expenses-v2/categories`
+
+Both have the same shape:
+- GET `/?includeInactive=true` needs `expenses.view`.
+- POST `/`, PATCH `/:id`, PATCH `/:id/deactivate` need `expenses.configure`.
+
+### 3.3 `expenses-v2/quick-definitions`
+
+Same four routes: GET, POST, PATCH `/:id`, PATCH `/:id/deactivate`. GET needs `expenses.view`; the rest need `expenses.configure`.
+
+### 3.4 `branches` (`branches.controller.ts`)
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| GET `/branches?active_only=true` | branches.view | |
+| GET `/branches/:id` | branches.view | `ParseUUIDPipe`. |
+| POST `/branches` | branches.manage | |
+| PATCH `/branches/:id` | branches.manage | |
+| DELETE `/branches/:id` | branches.manage | Soft delete. |
+
+### 3.5 DTOs and validation (class-validator)
+
+**CreateExpenseDto**
+- department_id UUID, category_id UUID.
+- title string, max 200.
+- description optional, max 1000.
+- amount number, positive.
+- tax_mode IN (none, inclusive, exclusive).
+- payment_method string, max 60. It is free text on the server.
+- reference_number optional, max 120.
+- payment_status optional, IN (paid, unpaid).
+- is_recurring optional boolean.
+- frequency: `@ValidateIf(is_recurring === true)` then IN (daily, weekly, monthly, yearly).
+- recurring_end_date optional ISO date string.
+- expense_date optional ISO date string.
+- `branch_id` is absent from the DTO. Whether the global ValidationPipe uses whitelist/forbidNonWhitelisted is UNVERIFIED here.
+
+**UpdateExpenseDto**
+- All fields optional: department_id, category_id, title, description, amount, tax_mode, payment_method, reference_number, frequency, recurring_end_date, expense_date.
+- payment_status, is_recurring and branch_id are deliberately absent.
+
+**CreateQuickExpenseDto**: amount optional and positive, department_id optional UUID, category_id optional UUID.
+
+**FilterExpensesDto**
+- branch_id, department_id, category_id (UUID).
+- source IN (manual, quick, recurring, pos).
+- payment_status IN (paid, unpaid).
+- search (max 200).
+- date_from, date_to (ISO date strings).
+- amount_min, amount_max (Type Number).
+- exclude_cancelled (IsBooleanString).
+- is_recurring (IsBooleanString).
+
+**CreateQuickDefinitionDto**
+- label max 80.
+- amount_mode IN (fixed, variable).
+- tax_mode IN (none, inclusive, exclusive), required.
+- fixed_amount: `@ValidateIf(amount_mode === 'fixed')`, number, positive.
+- default_department_id and default_category_id optional UUID.
+- default_payment_method required, max 60.
+- sort_order optional int.
+
+**UpdateQuickDefinitionDto**: all optional, plus is_active.
+
+**Department and category DTOs**
+- Create: name (max 120), code optional (max 40), description optional (max 500).
+- Update: the same fields optional, plus is_active.
+
+**CreateBranchDto**: name (max 100), address optional (max 255).
+
+**UpdateBranchDto**
+- name, address, is_active.
+- default_warehouse_id: IsUUID, optional, nullable. A null value would not pass `@IsUUID` unless `@IsOptional` skips it; `IsOptional` skips null and undefined, so null is accepted.
+- geofence_lat, geofence_lng: IsNumber, optional.
+- geofence_radius_m: IsNumber, Min(1), optional.
+
+## 4. Business rules
+
+### 4.1 Branch on an expense
+
+- Branch is never client-supplied in the body. `create` and `createFromQuick` take `tenant.branchId`, which `TenantGuard` reads from the `x-branch-id` header (`api/src/core/tenant/tenant.guard.ts`).
+- If a header is present, `BranchValidatorService.validate(branchId, tenantId)` checks the branch is active, not deleted, and in the tenant. Otherwise it throws a ForbiddenException.
+- If there is no branch in context, the service throws BadRequest "No branch context resolved for this request".
+- For superadmin, `TenantGuard` builds the context from the `x-tenant-id` and `x-branch-id` headers without validating the branch.
+
+### 4.2 tax_mode (none, inclusive, exclusive)
+
+`ExpensesV2Service.computeTax(entered, mode, rate)` uses the tenant's flat `tenants.tax_rate`. `getTenantTaxRate` returns 0 if the tenant lookup errors or has no rate.
+- **none**: amount = entered, tax_amount = 0, total_amount = entered.
+- **exclusive**: amount = entered, tax = round2(entered * rate), total = round2(entered + tax).
+- **inclusive**: amount = round2(entered / (1 + rate)), tax = round2(entered - amount), total = entered.
+- `amount` always stores the pre-tax figure. On update, amount, tax_mode, tax_amount and total_amount are recomputed together whenever amount or tax_mode changes.
+- When the update changes only tax_mode, the code uses `existing.amount` (which is already the pre-tax figure) as the "entered" amount. For an inclusive expense switched to another mode, the original typed total is therefore lost. This is a behavior quirk (UNVERIFIED as intended).
+- Quick definitions carry their own tax_mode. It is admin-set only and the quick-expense DTO has no tax_mode field.
+
+### 4.3 expense_date
+
+- Create: `dto.expense_date ?? today`, where today is `new Date().toISOString().slice(0,10)`. That is the UTC date, not the tenant's local date.
+- Quick expense: always today (UTC).
+- Update: can change it. Filtering (`date_from`, `date_to`) and ordering (descending) use `expense_date`.
+- created_at is never editable.
+
+### 4.4 Payment
+
+- payment_status defaults to 'paid' at the DB, via an undefined insert. The only way to move an expense from unpaid to paid is `confirm-payment`.
+- `confirmPayment` is idempotent. If the expense is already paid, it returns it with no activity entry.
+- It throws Conflict for a cancelled expense.
+
+### 4.5 Cancel
+
+- Sets cancelled_by and cancelled_at.
+- Throws Conflict if already cancelled.
+- A cancelled expense cannot be edited (Conflict) or have its payment confirmed (Conflict).
+- Cancelled expenses are returned by default in the list. `exclude_cancelled=true` filters them out.
+
+### 4.6 Recurring
+
+- **At creation**: `is_recurring=true` makes the expense itself the recurring source. `next_occurrence_date = advanceDate(today, frequency)`. The frequency is required by DTO validation when is_recurring is true.
+- **advanceDate**: daily +1 day. Weekly +7 days. Monthly clamps to the last day of the target month (Jan 31 gives Feb 28/29). Yearly adds a year via `setUTCFullYear`, so Feb 29 rolls to Mar 1 (not clamped; this follows from the code).
+- **Scheduler** (`expenses-v2.scheduler.ts`): `@Cron(EVERY_DAY_AT_MIDNIGHT)` calls `generateDueRecurringExpenses()`. It selects expenses with is_recurring = true, cancelled_at null, and next_occurrence_date <= today (UTC), across all tenants. For each source it:
+  - Recomputes tax from the stored pre-tax `amount` (see 4.7).
+  - Inserts a new expense with `source='recurring'`, `recurring_source_expense_id=source.id`, `expense_date=source.next_occurrence_date`, `created_by` copied, and description/reference_number null.
+  - Advances the source's `next_occurrence_date` by one period.
+  - Sets the source's `is_recurring = !pastEnd`, where pastEnd means the next occurrence is after recurring_end_date.
+  - Failures are caught per source and counted. The scheduler logs only when created or failed is above 0.
+- **Catch-up behavior**: each run creates at most ONE occurrence per source. A source more than one period overdue catches up one occurrence per daily run.
+- **Generated occurrences**: is_recurring defaults to false. payment_status is not set, so it takes the DB default 'paid'. A generated occurrence is always paid even if the source was unpaid (observed in code).
+- **Editing**: update allows changing frequency and recurring_end_date only if the expense is already recurring (otherwise BadRequest). Changing frequency does NOT recompute next_occurrence_date.
+- **Stopping**: `stop-recurring` sets is_recurring = false and logs `edited` with note 'recurring_stopped'. It is idempotent. It does not cancel the expense. The pairing CHECK permits is_recurring = false with frequency still set. There is no endpoint to re-enable recurrence.
+- **Scheduler caveats**:
+  - The scheduler's own insert in `generateDueRecurringExpenses` does not set recurring_end_date on generated rows (they are not recurring).
+  - Whether the scheduler is also registered elsewhere, or whether ScheduleModule is imported, is UNVERIFIED here.
+  - The cron runs in the server's local timezone, while dates are computed in UTC.
+
+### 4.7 Recurring-generation tax re-computation (risk)
+
+- The source's stored `amount` is the pre-tax figure, but `computeTax` treats the input as the "entered" amount for its mode.
+- For tax_mode 'inclusive', the generated occurrence divides the already-pre-tax amount by (1 + rate) again, so amount shrinks and total_amount equals the stored pre-tax amount, which differs from the source's total_amount.
+- For 'exclusive' and 'none' the result matches the source.
+- This is visible in code (`generateDueRecurringExpenses` calls `computeTax(source.amount, source.tax_mode, taxRate)`). I have not run it. The same pattern applies to `update` when only tax_mode changes (4.2).
+
+### 4.8 Quick definitions and quick expenses
+
+- **Definition create/update**:
+  - `assertPairing` enforces: fixed requires fixed_amount, variable forbids it.
+  - Default department and category, when given, must be active and in the tenant.
+  - The service has a unique-violation handler for "label already exists", but no DB unique constraint on label exists in 197 (UNVERIFIED whether another migration adds one).
+- **Update quirk**: when amount_mode is passed as 'variable', fixed_amount is forced to null. If only fixed_amount is passed while the mode is variable, the pairing check throws.
+- **Quick expense** (`createFromQuick`):
+  - The definition must exist in the tenant and be active.
+  - **Fixed mode**: an amount in the DTO is rejected (BadRequest). The amount equals the definition's fixed_amount.
+  - **Variable mode**: an amount is required.
+  - department_id and category_id in the DTO override the definition's defaults. If neither the DTO nor the definition supplies a value, BadRequest.
+  - Both must be active.
+  - The title is the definition's label. payment_method and tax_mode come from the definition. source = 'quick'. expense_date = today.
+  - The activity log gets `created` with note `source: quick`.
+
+### 4.9 Departments and categories
+
+- Create and update are checked against the unique name per tenant (Conflict 409 on a unique violation, via `isUniqueViolation`).
+- "Delete" does not exist. Deactivate is `update(is_active=false)`.
+- Update uses `...dto` directly in the patch, so any DTO field including `is_active` and `code` is written.
+- An expense can only reference an active department/category on create and on update when a new id is passed (`assertActiveMaster`).
+- Existing expenses that reference a later-deactivated department stay valid.
+
+### 4.10 Approvals
+
+- `approval_status` exists in the DB (approved, pending_action, accepted, rejected) with default 'approved', and the activity enum has `accepted` / `rejected`.
+- NO V2 code path sets or changes approval_status, resolved_by or resolved_at, and no approve/reject endpoint exists.
+- Legacy `expenses.controller.ts` has `RejectExpenseDto` and `expenses.approve`-style permissions (seed lists `expense.request`, `expenses.approve` appears in a permissions.service spec). This is outside the V2 scope.
+
+### 4.11 Activity log
+
+`ExpenseActivityService.log` inserts into `expense_activity` and swallows errors (logs them only), so a failed history write never blocks the business action. Actions written by the service:
+- `created` on every insert, with note `source: <source>`.
+- `edited` on update, and on stop-recurring with note 'recurring_stopped'.
+- `department_changed` with note `<oldId> -> <newId>`, when the department changes on update.
+- `payment_confirmed`.
+- `cancelled`.
+
+`accepted` and `rejected` are never written. Activity is read ordered by created_at ascending.
+
+### 4.12 Attachments
+
+- Upload requires the expense to exist in the tenant. The file goes via `StorageService.upload` with ownerType 'expense' and the path scheme `{tenantId}/expense/{expenseId}/...` (per the comment).
+- A row is inserted into `expense_attachments`.
+- On listing, each row's file_url is re-signed with `storage.getSignedUrl(storage_path)`. The comment says the default expiry is 1 hour.
+- There are no delete and no file-type allow-list in this service. The 10 MB limit sits on the controller interceptor.
+- Whether the attachment POST also applies to cancelled expenses: no check, so yes.
+
+### 4.13 Branch scoping rules (system level)
+
+- **Resolution**: `BranchScopeInterceptor` is registered globally and acts only on handlers carrying `@BranchScoped()`.
+  - It reads `branch_id` from the query (or the body, if configured), and the actor's branch from `user.branch_id` (JWT).
+  - It calls `BranchAuthorizationService.resolveBranchScope`.
+  - On denial it throws Forbidden. The messages are "You are not authorized to access this branch." (branch_mismatch) and "Branch not found or does not belong to tenant." (branch_not_found).
+  - On success it sets `request.effectiveBranchId`.
+- **Central actor** (JWT branch_id null/absent): with no requested branch, the scope is null (tenant-wide). With a requested branch, it is validated (exists, active, in tenant) and used.
+- **Restricted actor**: a different requested branch is rejected, never rewritten. An omitted branch gives the actor's own branch. The own branch is revalidated.
+- **`authorizeRecordAccess`** (for per-record checks): Central is always allowed. A null record branch is allowed to everyone. A mismatched branch is denied. This is NOT used by expenses-v2 (no references in the module).
+- **Where @BranchScoped is applied** (grep): `expenses` (legacy), `expenses-v2` (list only), `hr/attendance`, `hr/schedules`, `invoices`, `shifts`, `tables/kitchen`, `tables/tables`, `tables/waitlist`.
+- **Login**: `auth.service.ts` validates `users.branch_id` at login (if set, the branch must still be active/exist) and puts `branch_id` in the JWT. Refresh also selects it.
+- **User administration** (`users.service.ts`): create/update validate `dto.branch_id` via `BranchValidatorService`. A branch reassignment revokes all of that user's sessions and writes an `employee.updated` audit entry with `branch_id = <new value>` (NULL when moved back to Central). Otherwise the audit entry's branch_id is null.
+- **audit_logs.branch_id**: `AuditService.log` writes `entry.branch_id ?? null`. `AuditInterceptor` (automatic `@Audit()` path) always writes `branch_id: null`, deliberately (comment explains multi-branch/tenant-wide actions). Services that know a real branch call `AuditService.log` manually: wms, warehouse-tasks, scanner events, users. `reports.service.getAuditSummary` currently filters only by tenant and date, not by branch.
+
+### 4.14 Branches module rules
+
+- **Create**: `billingService.checkBranchLimit(tenantId)` first (plan limit). Inserts with is_active = true.
+- **Update**: 404 if not found. If `default_warehouse_id` is provided and truthy, the warehouse must be in the tenant and not deleted, else BadRequest "Warehouse not found". Setting default_warehouse_id to null skips the check and clears it.
+- **Delete** (soft): 404 if not found. `countActive` counts non-deleted branches, active or not, so the guard is "Cannot delete the last active branch." when count <= 1. It sets deleted_at and is_active = false.
+- All repository queries filter `tenant_id` and `deleted_at IS NULL`.
+- List is ordered by created_at descending and selects id, name, address, is_active, default_warehouse_id, geofence_lat/lng/radius_m, created_at.
+- `findById` swallows any query error into null (so a DB error also produces a 404).
+
+## 5. Services and repositories behavior (summary)
+
+- All V2 services use the service-role Supabase client (injected `SUPABASE_CLIENT`) and filter by `tenant_id` explicitly. RLS is a second layer only.
+- There are no repositories in V2. Services query Supabase directly. Branches has `BranchesRepository` (see 4.14).
+- `ExpensesV2Service.findAll` returns the full list (no pagination) ordered by expense_date descending. `search` is `ilike title %search%` with no escaping of `%` or `_`.
+- `findOne`, `update`, `cancel`, `confirmPayment` and `stopRecurring` do not check the record's branch against the caller. See Gaps.
+- `ExpensesV2Module` registers 4 controllers and 7 providers (Departments, Categories, Expenses, Scheduler, QuickDefinitions, Activity, Attachments services). The revoked recurring-templates controller/service files are NOT registered. Per the module comment they stay on disk; I did not find such files in the directory listing (UNVERIFIED whether they were removed).
+- `BranchesModule` imports `BillingModule`, and exports `BranchesService` and `BranchesRepository`.
+- `branches.service.ts` imports `TenantContext` from `core/tenant/tenant.context`, while the controller imports it from `core/tenant/tenant-context`, which re-exports it.
+
+## 6. Web UI
+
+### 6.1 Routes (Next.js app router, `web/src/app/[locale]/dashboard/...`)
+
+| Route | Renders |
+|---|---|
+| `/branches` | `BranchesPage` |
+| `/expenses-v2` | `ExpenseMasterDataAdminPage` (departments and categories) |
+| `/expenses-v2/expenses` | `ExpensesPage` |
+| `/expenses-v2/recurring-expenses` | `RecurringExpensesPage` |
+| `/expenses-v2/quick-definitions` | `QuickDefinitionsAdminPage` |
+
+### 6.2 `web/src/features/expenses-v2`
+
+**api/expenses-v2.api.ts**
+- `expenseDepartmentsApi`, `expenseCategoriesV2Api` and `quickDefinitionsApi` use the shared `apiClient`. They have no branch header.
+- `expensesApi`, `expenseActivityApi` and `expenseAttachmentsApi` use `branchScopedApi`.
+- The `expensesApi` methods are: getAll, getOne, create, update, cancel, confirmPayment, createFromQuick, stopRecurring.
+- `ExpenseFilters` has no `branch_id`. `toQueryString` skips undefined and empty values. exclude_cancelled and is_recurring are sent as 'true'/'false' strings.
+
+**api/branch-scoped-request.ts**
+- It is a custom fetch helper (base `/api/v1`, credentials include, Bearer token from `useAuthStore`). It sends the `x-branch-id` header on every call.
+- It supports JSON and FormData (`upload`).
+- The comment says there is no app-wide branch header passthrough in `apiClient`.
+
+**Hooks (react-query)**
+- `useExpenseDepartments`, `useExpenseCategoriesV2` and `useQuickDefinitions` each have create, update and deactivate mutations.
+- `useExpensesCore.ts` provides: useExpenses (enabled only when branchId is set), useCreateExpense, useUpdateExpense, useCancelExpense, useConfirmPayment, useCreateFromQuick, useStopRecurring, useExpenseActivity, useExpenseAttachments, useUploadAttachment.
+- All mutations invalidate the key `['expenses-v2','expenses']`.
+
+**Pages**
+- `ExpensesPage`:
+  - Permissions: `usePermission('expenses.view' | 'expenses.create' | 'expenses.manage')`.
+  - Uses `useBranchContext()`, with a branch selector for Central users, and `useUsers()` to map added-by names.
+  - Filters: search, department, category, status, plus a client-side payment-method filter.
+  - KPI cards: total (excluding cancelled), unpaid, paid, count, and vs-last-month (computed client-side from `expense_date`/`created_at` month keys).
+  - Table columns: title, department, category, payment method, source, status, total, added by, date and time. Dates use `ar-SA-u-nu-latn` or `en-CA`; amounts use `en-US` (English numerals).
+  - Row dropdown: attachments, activity, and (when canManage and not cancelled) confirm payment (if unpaid), edit, and either Stop recurring (if recurring) or Cancel.
+  - Includes `QuickExpenseButtons` and `ExpenseFormSheet`.
+- `RecurringExpensesPage`:
+  - Calls `useExpenses(branch, {is_recurring: true})`. Stats are monthly/annual totals, active/paused counts and due-soon, using frequency multipliers.
+  - "Paused" is computed as frequency !== null && !is_recurring. A confirm dialog (`window.confirm`) guards stop-recurring.
+- `QuickDefinitionsAdminPage`: list/add/deactivate/reactivate definitions. Requires `expenses.view`; managing requires `expenses.configure`. Fields: label, amount mode (fixed/variable), fixed amount, tax mode, default department/category, payment method.
+- `ExpenseMasterDataAdminPage` + `MasterDataAdminSection`: departments and categories admin (search, status filter, pagination, add/edit/deactivate/reactivate). The "expense count" column is computed client-side from the currently selected branch's expenses (the comment says there is no tenant-wide aggregate endpoint). Uses `expenses.view` / `expenses.configure`.
+
+**Components**
+- `ExpenseFormSheet`:
+  - Create/edit sheet with sections for basic info, amount/payment and attachments.
+  - `previewTax` mirrors the server computeTax using `profile.tax_rate` (display only).
+  - Recurring toggle with frequency and end date. It is disabled when editing; on edit only a recurring expense shows the section.
+  - Attachments: existing ones are uploaded immediately on edit. New files are staged client-side and uploaded after creation succeeds.
+  - `expense_date` defaults to today.
+- `ExpenseActivitySheet`, `ExpenseAttachmentsSheet` (upload and list), `ExpensesSectionNav` (5-pill nav; departments/categories share `/expenses-v2` with in-page anchors `#departments`/`#categories`), `QuickExpenseButtons`:
+  - Fixed definitions create immediately with `{}`.
+  - Variable definitions show an amount input, with `parseFloat` and a positive check.
+
+### 6.3 `web/src/features/branches`
+
+- `api/branches.api.ts`: getAll (`/branches`), getOne, create, update. There is no delete call in the UI. Create/Update DTOs expose only name, address and is_active.
+- `hooks/useBranchesAdmin.ts`: query key `['branches','admin']`. Mutations also invalidate `['branches']`.
+- `shared/hooks/useBranches.ts`: `useBranches()` calls `/branches?active_only=true` (stale 5 min). `useBranchById(id)` calls `/branches/:id`.
+- `pages/BranchesPage.tsx`:
+  - Permissions `branches.view` / `branches.manage`.
+  - Uses `useUsage`, `useSubscription` and `useWarehouses`.
+  - Shows plan usage (used/limit), with "unlimited" and "plan at capacity" states based on subscription status. It mirrors the backend's valid-status set (comment).
+  - Search and status filter, pagination, an add/edit sheet (name, address), an activate/deactivate toggle, and a warehouse tile.
+  - There is a link to buy an additional branch.
+  - Errors are shown via `toast.error(err.message)`.
+- `core/branch/useBranchContext.ts` (outside the two feature dirs, but used by the pages): derives `isCentral = user.branchId == null`. A restricted user gets their own branch only, and `setCurrentBranch` is a no-op for them. A Central user's selection is persisted in a zustand store. The file's own comment says the backend does not enforce branch scope generally (outdated for the routes listed in 4.13).
+
+### 6.4 i18n
+
+- Namespaces are merged in `web/src/i18n/request.ts` from `web/messages/{en,ar}/expenses-v2.json` (root key `expensesV2`) and `web/messages/{en,ar}/branches.json` (root key `branches`).
+- I scripted a check that every static `t('...')` key used by the feature components exists in `en`. It found none missing. Dynamic keys (the `t(item.key)` calls in nav and master data) were not checked.
+- en and ar have identical key sets: 261 keys for expensesV2 and 51 for branches.
+- **expensesV2 top-level groups**: nav, breadcrumb, departmentsAdmin, categoriesAdmin, expensesCore, quickDefinitionsAdmin, recurringExpenses.
+
+Namespaces used by code:
+- `expensesV2.nav`, `expensesV2.breadcrumb`.
+- `expensesV2` (for `departmentsAdmin.noPermission` and `departmentsAdmin.workingBranch`).
+- `expensesV2.expensesCore` (keys under filters, kpi, actions, table, status, payment, and others).
+- `expensesV2.expensesCore.form` (about 55 keys: addTitle, amount, taxMode*, frequency*, paymentMethod*, section*, ...).
+- `expensesV2.expensesCore.payment`, `.activityDrawer`, `.attachmentsDrawer`, `.quickButtons`.
+- `expensesV2.quickDefinitionsAdmin`, `expensesV2.recurringExpenses`.
+- `branches` (about 27 keys used: title, addNew, addTitle, editTitle, name*, address*, columnAddress, activate, deactivate, active/inactive, planAtCapacity, buyAdditionalBranch, totalCount, activeCount, noWarehouse, warehouseTile, createdTile, pageOf, noPermission, ...).
+
+## 7. Tests present and what they assert
+
+**Expenses V2**: no `*.spec.ts` or e2e test exists under `api/src/modules/expenses-v2` (confirmed: the find over that directory returned only source files). No other spec file referencing the `expenses-v2` module was found by file name (UNVERIFIED for content-level references).
+
+**Branches module**: no `*.spec.ts` under `api/src/modules/branches`.
+
+**Related security specs**
+- `api/src/core/security/branch-authorization.service.spec.ts` (about 17 cases):
+  - Central: with no requested branch it is tenant-wide; own-tenant branch allowed; cross-tenant rejected; null treated as Central; inactive rejected.
+  - Restricted: own branch allowed; another branch rejected (never auto-corrected); omitted branch is forced to own; null is the same as omitted; a deleted own branch is rejected; write mismatch is rejected like read.
+  - `authorizeRecordAccess`: other-branch record rejected, own allowed, Central always allowed, null-branch record allowed.
+- `api/src/core/security/branch-scope.interceptor.spec.ts`:
+  - Handlers without @BranchScoped do not invoke the authorization service.
+  - A scoped handler resolves exactly once.
+  - effectiveBranchId is attached to the request (explicit branch for Central; null when tenant-wide).
+  - A restricted request for another branch is rejected rather than rewritten.
+  - Cases for cross-tenant, inactive and deleted branches, a malformed branch id (clean rejection), `source: 'body'`, and a missing tenant context.
+- `api/src/database/migrations/__tests__/audit-branch-context.regression.spec.ts` (matrix of 13 groups): direct branch recorded; tenant-wide gives NULL; user reassignment A to B records B and to Central records NULL; warehouse-resolved branch; scanner device branch (assigned, unassigned, duplicate-event path); legacy rows default NULL; AuditService only inserts and never validates against branch status; cross-tenant warehouse is not resolved; the AuditInterceptor path always writes null; newly added audit events (work_center activated/deactivated, quality_hold released, corrective_action started).
+- `api/src/database/migrations/__tests__/warehouse-branch-required.regression.spec.ts` exists. It is not about expenses and I did not read it.
+- `permission.guard.spec.ts` / `permissions.service.spec.ts` use `expenses.view` only as example keys.
+
+**Web**: no frontend tests were found for these features (UNVERIFIED beyond a name-based search; a `testsprite_tests` folder exists at the web root and its contents were not read).
+
+## 8. Known gaps and risks visible in code
+
+1. **No branch authorization on single-record V2 endpoints.**
+   - `GET /:id`, `/:id/activity`, `/:id/attachments`, PATCH update/cancel/confirm-payment/stop-recurring, and attachment upload filter only by tenant.
+   - A branch-restricted user who knows an expense id from another branch can read or modify it. `BranchAuthorizationService.authorizeRecordAccess` exists but is unused by this module.
+2. **List scoping uses the query param, not the header.**
+   - The list is `@BranchScoped()` and reads `branch_id` from the query only. The web `getAll` sends the `x-branch-id` header but no `branch_id` query param.
+   - So a Central user (JWT branch_id null) with a selected branch still receives all branches' expenses (effectiveBranchId null). Branch selection in the UI therefore does not filter the list server-side.
+   - A restricted user is forced to their own branch.
+   - The UI KPIs/table may then show cross-branch data for Central users (a UI/server mismatch, derived from reading both sides; not run).
+3. **Create uses the header branch without a restricted-user check.**
+   - `create` and `createFromQuick` use `tenant.branchId` from `x-branch-id`, validated only as "an active branch in the tenant".
+   - A restricted user can create an expense for another branch by sending a different header. Neither the JWT branch nor `BranchScoped` (with mode 'write') is applied to these POST routes.
+   - Also, a missing header gives 400 for everyone, including restricted users who could otherwise default to their own branch.
+4. **Recurring inclusive-tax recomputation** (4.7): generated occurrences of an 'inclusive' source may get a smaller amount and a different tax than the source. A tax_mode-only update has the same quirk (4.2).
+5. **Generated occurrences are always `paid`** (the default), regardless of the source's payment_status. Each cron run creates at most one occurrence per source, so a long outage catches up slowly.
+6. **Timezone mix**: today is computed in UTC (`toISOString`), the cron fires at server-local midnight, and `expense_date` is a DATE. Around midnight in non-UTC timezones the expense_date can be off by one day (UNVERIFIED in practice).
+7. **No approval workflow**: approval_status, resolved_by, resolved_at, and the activity actions accepted/rejected are unused by V2 code. `source='pos'` is also never produced.
+8. **No unique constraint on `expense_quick_definitions(tenant_id, label)`** although the service maps a unique violation to a 409 "label already exists" (dead branch unless some other migration adds it).
+9. **Update of a recurring expense does not recompute `next_occurrence_date`** when frequency changes, and there is no way to re-enable recurrence after stop.
+10. **Update with `department_id` of the same value** logs only `edited`. This is fine. But `dto.category_id` changes are not logged separately.
+11. **Dead artifacts**: `expense_recurring_templates` table and `expenses_v2.recurring_template_id` remain in the schema, unused.
+12. **List endpoint has no pagination or limit**, and the search `ilike` pattern is not escaped. The web page loads the whole list, and the KPIs are computed client-side.
+13. **Attachments**: no delete, no file type restriction, and uploads are allowed on cancelled expenses. The DB `file_url` stored at upload time is replaced by a signed URL on read.
+14. **Branch delete guard** counts all non-deleted branches (active or inactive) as "active" (`countActive` does not filter is_active). Deactivated branches count toward the "last active branch" check. A deleted branch is not checked for assigned users, warehouses or other references; whether FKs prevent that (e.g. `users.branch_id`, `expenses_v2.branch_id` are FKs without ON DELETE) is moot because it is a soft delete. Users assigned to a soft-deleted branch would fail `BranchValidatorService.validate` at login. This follows from the code in auth.service.ts (lines 362-363), not verified at runtime.
+15. **`BranchesRepository.findById`** converts any error to null, so DB errors surface as "Branch not found".
+16. **`audit_logs.branch_id`**: the `AuditInterceptor` always writes null. `GET /reports/audit-summary` does not filter by branch yet, even though the index exists (migration 204 comment says this is future work).
+17. **Web `useBranchContext` header comment** says the backend does not enforce branch scope. That is outdated for the @BranchScoped routes, but accurate for most other routes (including V2 single-record and write routes).
+18. **Permissions**: `expenses.manage` covers edit, cancel, confirm-payment, stop-recurring and attachment upload. There is no separate cancel/approve permission.
+19. **Web UI**: master-data "expense count" is per selected branch only (its own comment says so). Quick-expense buttons call the API without a client-side confirm. Variable-amount validation in the UI is minimal.
+20. **Not verified**: the global ValidationPipe options (whitelist/forbidNonWhitelisted), ScheduleModule registration, StorageService internals, billing `checkBranchLimit` details, and the warehouse-branch-required regression spec.
+
+
+<!-- source: code_doc_wms -->
+
+# Sefay WMS (Warehouse Management) - Documented ACTUAL behavior
+
+Scope: migrations 219-232 and 237-250 in `C:\Fp\api\src\database\migrations`, the NestJS code that calls them, and their spec files. Read-only documentation. Everything below was read from code; anything not directly visible is marked UNVERIFIED. Migrations 233-236 are unrelated (loyalty, tax, dine-in, customers sort) and not covered.
+
+Key paths:
+- SQL: `C:\Fp\api\src\database\migrations\219_*.sql` ... `250_*.sql`
+- WMS controller/service/repo: `C:\Fp\api\src\modules\inventory\wms.controller.ts`, `wms.service.ts`, `repositories\wms.repository.ts`
+- Dashboard: `...\inventory\wms-dashboard.controller.ts`, `wms-dashboard.service.ts`, `repositories\wms-dashboard.repository.ts`
+- Warehouse tasks: `...\inventory\warehouse-tasks.controller.ts`, `warehouse-tasks.service.ts`, `repositories\warehouse-tasks.repository.ts`
+- DTOs: `...\inventory\dto\*.dto.ts` (incl. `wms-list-query.dto.ts`)
+- RPC error mapping: `...\inventory\rpc-error.util.ts`
+- Items (attributes/packaging): `C:\Fp\api\src\modules\items\item-attributes.*`, `item-packaging-levels.*`, `repositories\item-attributes.repository.ts`, `repositories\item-packaging-levels.repository.ts`
+- Goods receipt reversal caller: `C:\Fp\api\src\modules\purchasing\goods-receipts.controller.ts / .service.ts / repositories\goods-receipts.repository.ts`
+- Specs: `C:\Fp\api\src\database\migrations\__tests__\*.regression.spec.ts`, `C:\Fp\api\src\modules\inventory\wms-controller-throttle.spec.ts`
+
+---------------------------------------------------------------------
+
+## 1. Purpose
+
+Migrations 219-250 deliver "Inventory Stage 1" fixes and "Inventory #7" (WMS) features:
+
+1. Stock-engine/purchasing fixes: zero-qty backorder ledger bug (219), posted goods-receipt reversal (220).
+2. Item master: structured attributes + multi-level packaging with per-level barcode (221, 222).
+3. Shared work-status history for warehouse tasks, pick lists, waves, shipments (223, 224, 239 widening).
+4. Pick-list operational parity (priority, assign, cancel with reason) (225, 226), zone-descendant filtering and multi-zone split (227-229).
+5. Waves: data model (230), eligibility evaluation (231, 232), atomic claim and release plus cancel (237, 238), lifecycle released->picking->completed (248).
+6. Exceptions: short pick, damage, lost item, shipment cancel, lost-item recovery, reservation reduction (239-243).
+7. Read-only operational visibility RPCs and supporting indexes (244-247, 249).
+8. Warehouse-task history accuracy fix (250).
+
+Architecture notes stated in the migration headers: picking keeps its own multi-line/multi-shipment tables (not folded into warehouse_tasks); only the capability layer (history, priority, assignment, cancel) is shared. Stock mutations only go through `fn_apply_stock_movement` (and cost layers through `fn_consume_cost_layers` / `fn_add_cost_layer`).
+
+---------------------------------------------------------------------
+
+## 2. Data model
+
+All new tables enable RLS with policy `tenant_session_isolation` (`tenant_id = current_setting('app.tenant_id', true)::uuid`); WMS tables from 223 onward also have `WITH CHECK`. All grant ALL to `service_role`. NestJS uses the service-role Supabase client with explicit `tenant_id` filters (UNVERIFIED that RLS is the effective guard for service-role; the code always passes tenant_id explicitly).
+
+### 2.1 Item attributes and packaging (221, 222)
+- `item_attributes(id, tenant_id, name, is_active default true, deleted_at, created_at)`. Unique `uq_item_attributes_tenant_name (tenant_id,name) WHERE deleted_at IS NULL`.
+- `item_attribute_values(id, tenant_id, item_attribute_id FK cascade, value, deleted_at, created_at)`. Unique `uq_item_attribute_values_attr_value (item_attribute_id,value) WHERE deleted_at IS NULL`.
+- `item_variant_attribute_values(id, tenant_id, item_variant_id FK cascade, item_attribute_id FK cascade, item_attribute_value_id FK cascade, created_at)`. Unique `uq_variant_attribute (item_variant_id,item_attribute_id)` = one value per attribute per variant.
+- `item_packaging_levels(id, tenant_id, item_id FK cascade, parent_level_id self-FK ON DELETE CASCADE, level_name, quantity_in_parent NUMERIC(14,4) default 1 CHECK >0, created_at, deleted_at [added by 222])`.
+  - `chk_root_quantity_is_one`: root (parent NULL) must have quantity_in_parent = 1.
+  - Unique `uq_item_packaging_level_name (item_id, level_name)`; unique `uq_item_packaging_root (item_id) WHERE parent_level_id IS NULL` (one root per item).
+  - Indexes: `idx_item_packaging_levels_item`, `idx_item_packaging_levels_parent` (partial).
+  - The `deleted_at` column (222) exists only to satisfy `ScopedRepository.scopedQuery()`; rows are hard-deleted.
+- `item_barcodes.packaging_level_id UUID NULL REFERENCES item_packaging_levels ON DELETE CASCADE` + partial index `idx_item_barcodes_packaging_level`.
+- `fn_convert_packaging_to_storage_qty(p_item_id, p_packaging_level_id, p_quantity) RETURNS NUMERIC` (STABLE): NULL level returns p_quantity unchanged; raises `packaging level % is not configured for item %` if the level is missing or belongs to another item; walks parents multiplying quantity_in_parent; raises if chain depth > 20 ("possible cycle"). Does NOT touch stock tables.
+
+### 2.2 warehouse_work_status_history (223, widened in 239)
+`(id, tenant_id, entity_type, entity_id, old_status NULL, new_status NOT NULL, actor_id FK users NULL, notes, created_at)`. `entity_type` CHECK: `warehouse_task, pick_list, wave` (223) widened to add `shipment` (239). Index `idx_warehouse_work_status_history_entity (tenant_id, entity_type, entity_id)`. 223 backfilled all rows from `warehouse_task_history`; 224 dropped `warehouse_task_history`.
+
+### 2.3 pick_lists additions (225, 226, 230)
+- 225: `priority TEXT NOT NULL DEFAULT 'medium' CHECK in (low,medium,high,urgent)`, `cancellation_reason TEXT`.
+- 226: `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`.
+- 230: `wave_id UUID REFERENCES waves ON DELETE SET NULL`; index `idx_pick_lists_wave (tenant_id, wave_id) WHERE wave_id IS NOT NULL`; constraint `chk_pick_list_wave_strategy_requires_wave CHECK ((strategy='wave') = (wave_id IS NOT NULL))`.
+- Pre-existing (migration 116, referenced by comments and read): strategies `single,batch,wave,zone`; statuses `open,in_progress,completed,cancelled`; `chk_pick_list_zone_requires_location` (zone strategy requires zone_location_id, others require NULL); `pick_list_lines` has `chk_pick_list_line_picked_le_needed`.
+- 244 index: `idx_pick_lists_tenant_warehouse (tenant_id, warehouse_id) WHERE deleted_at IS NULL`.
+- 247 index: `idx_pick_list_shipments_shipment (shipment_id)`.
+
+### 2.4 waves and wave_shipments (230)
+`waves(id, tenant_id, warehouse_id FK RESTRICT, status default 'planning' CHECK in (planning, evaluating, reviewing, released, picking, completed, cancelled), criteria JSONB default '{}', cancellation_reason, created_by, created_at, updated_at, evaluated_at, released_at, completed_at, cancelled_at)`.
+Constraints: `chk_wave_not_both_completed_and_cancelled`; `chk_wave_completed_at_matches_status` ((status='completed') = (completed_at NOT NULL)); `chk_wave_cancelled_at_matches_status`; `chk_wave_released_at_set_when_past_reviewing` (status in released/picking/completed requires released_at); `chk_wave_cancellation_reason_requires_cancelled`. Indexes `idx_waves_tenant_status`, `idx_waves_tenant_warehouse`.
+
+`wave_shipments(id, tenant_id, wave_id FK cascade, shipment_id FK cascade, included_reason JSONB, excluded_reason JSONB, created_at)`; `chk_wave_shipment_exactly_one_reason` ((included_reason NOT NULL) <> (excluded_reason NOT NULL)); `uq_wave_shipment UNIQUE (wave_id, shipment_id)`; indexes on (tenant_id, wave_id) and (tenant_id, shipment_id).
+
+### 2.5 shipments additions
+- 231: `priority TEXT NOT NULL DEFAULT 'medium' CHECK in (low,medium,high,urgent)`, `route TEXT`, `carrier TEXT`, `cutoff_at TIMESTAMPTZ`; index `idx_shipments_priority (tenant_id, warehouse_id, priority) WHERE status='pending'`.
+- 237: `claimed_by_wave_id UUID REFERENCES waves ON DELETE SET NULL`, `claimed_at TIMESTAMPTZ`; `chk_shipment_claimed_at_matches_claim` ((claimed_by_wave_id IS NULL) = (claimed_at IS NULL)); index `idx_shipments_claimed_by_wave` partial.
+- 239: `cancellation_reason TEXT`.
+- Pre-existing shipment statuses (116): `pending, picking, picked, packing, packed, shipped, cancelled`.
+- shipment_lines (239): `quantity_exception NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK >= 0`; `chk_shipment_line_exception_within_requested CHECK (quantity_picked + quantity_exception <= quantity_requested)`.
+- 246 index: `idx_shipment_lines_tenant (tenant_id, shipment_id)`.
+
+### 2.6 warehouse_exceptions (239, 241)
+`(id, tenant_id, entity_type CHECK in (shipment_line, shipment, pick_list, pick_list_line, wave), entity_id, exception_type CHECK in (short_pick, damaged, lost, cancelled), affected_quantity NUMERIC(14,4) NULL (>=0), reason NOT NULL, notes JSONB default '{}', actor_id, status default 'resolved' CHECK in (open, resolved), resolution TEXT, resolved_at, resolved_by, stock_movement_id FK stock_movements ON DELETE SET NULL, created_at)`.
+Constraints: `chk_warehouse_exception_resolved_matches_status` ((status='resolved') = (resolved_at NOT NULL)); `chk_warehouse_exception_reason_not_blank`. Indexes `idx_warehouse_exceptions_entity (tenant_id, entity_type, entity_id)`, `idx_warehouse_exceptions_type (tenant_id, exception_type)`.
+241 adds `recovered_quantity NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK >= 0` and `chk_warehouse_exception_recovered_le_affected`.
+Also 239: `stock_movements.movement_type` CHECK widened with `lost`. `goods_receipts.status` CHECK widened with `reversed` (220).
+Other indexes: 246 `idx_reservations_tenant_warehouse (tenant_id, warehouse_id)` on `stock_reservations`.
+
+---------------------------------------------------------------------
+
+## 3. State machines (exactly as coded)
+
+### 3.1 Warehouse task (`warehouse_tasks`, statuses pending, assigned, in_progress, completed, cancelled; types putaway, replenishment per migration 170)
+- Create (fn_create_putaway_task 223, fn_run_replenishment_check 223, TS `createManual`): -> `pending`; history NULL->pending.
+- `fn_assign_warehouse_task`: allowed from `pending` or `assigned` (reassign allowed) -> `assigned`. History is always written as old_status `'pending'`, new `'assigned'` (hard-coded literal, even when reassigning from `assigned`). Not corrected by any later migration in scope.
+- `fn_confirm_warehouse_task`: allowed from `assigned` or `in_progress`; -> `completed` if quantity_completed + qty >= quantity else `in_progress`. History old_status is the real prior status since 250.
+- `fn_cancel_warehouse_task`: blocked only when status = `completed`; any other status (including already `cancelled`) -> `cancelled`; history old_status = real prior status (fixed in 223).
+- No path to move a task backward.
+
+### 3.2 Pick list (`pick_lists`)
+- Created directly in `in_progress` (fn_create_pick_list, fn_create_zone_pick_lists_for_shipments, fn_release_wave). `open` is allowed by CHECK and accepted by assign/cancel but nothing in the reviewed code creates it.
+- `fn_assign_pick_list`: from `open` or `in_progress`; does not change status; history row with old_status = new_status = current status and notes `assigned to <uuid>` or `reassigned from <a> to <b>`.
+- `fn_confirm_pick`: when every pick_list_line is settled (see 3.6) -> `completed` (completed_at set, history in_progress->completed, notes NULL). Does not check the pick list's own status (see risks). It does not set updated_at.
+- Exception functions (short/damage/lost): -> `completed` only if currently `in_progress`, notes `settled with short pick(s)` / `settled with damage exception` / `settled with lost-item write-off`.
+- `fn_cancel_pick_list`: from `open` or `in_progress` only -> `cancelled`; reason required (blank rejected via btrim); history notes = reason.
+- `completed` and `cancelled` are terminal in code.
+
+### 3.3 Wave (`waves`)
+- `planning` (insert default, TS `createWave` inserts directly into table).
+- `fn_evaluate_wave_eligibility`: only from `planning` -> `evaluating` -> `reviewing` inside one function (two history rows; `evaluating` is not externally observable). Sets evaluated_at.
+- `fn_release_wave`: from `reviewing` -> `released` -> `picking` in one transaction (248; two history rows). Statuses `released/picking/completed` return the existing pick lists with no writes (idempotent). `cancelled` raises `WAVE_CANCELLED`. Any other status (planning, evaluating) raises `WAVE_NOT_READY`.
+- Zero claimable shipments: from 238 on, function returns no rows and leaves the wave in `reviewing` (exclusion bookkeeping committed). The Nest layer converts an empty result to HTTP 400 `WAVE_NO_ELIGIBLE_SHIPMENTS`.
+- `fn_cancel_wave`: only from `planning`, `evaluating`, `reviewing` -> `cancelled` (reason required). Otherwise raises `WAVE_CANNOT_CANCEL`. Cancelling an already-cancelled wave raises that error (not idempotent).
+- `picking -> completed`: trigger `trg_check_wave_completion` on `pick_lists` (AFTER UPDATE OF status, FOR EACH ROW, WHEN NEW.wave_id NOT NULL AND NEW.status IN (completed, cancelled) AND OLD.status IS DISTINCT FROM NEW.status). Function `fn_check_wave_completion()` locks the wave FOR UPDATE; if wave.status <> 'picking' it does nothing; counts pick lists of the wave with status NOT IN (completed, cancelled); if zero -> wave `completed` (completed_at) and history row picking->completed with actor_id NULL, notes `all operational pick lists complete or cancelled`. No manual complete action exists.
+- Consequence visible in code: a wave whose only pick list is cancelled also becomes `completed`.
+
+### 3.4 Shipment (statuses touched by in-scope code)
+`pending -> picking` (fn_create_pick_list, zone split, wave claim); `picking -> picked` (fn_confirm_pick when all lines settled; exception functions); `picking -> pending` (fn_cancel_pick_list; also clears claimed_by_wave_id/claimed_at since 237); any non-shipped -> `cancelled` (fn_cancel_shipment, idempotent for already-cancelled; `shipped` raises "has already shipped and cannot be cancelled"). picked/packing/packed/shipped transitions are outside this scope (fn_confirm_pack, fn_ship_shipment).
+
+### 3.5 Warehouse exception
+Always inserted already `status='resolved'` with `resolved_at/by` set. Resolutions used: `backordered` (short_pick, damaged), `written_off` (lost), `cancelled` (shipment cancel). `open` status is never written by any in-scope function. Recovery does not change status; it increments `recovered_quantity`.
+
+### 3.6 "Settled" predicate (243)
+A pick list is settled when no pick_list_line has a matching shipment_line (same item, variant (null-safe), location (null-safe)) among the shipments linked to THAT pick list with `quantity_picked + quantity_exception < quantity_requested`. A shipment is settled when no line has `quantity_picked + quantity_exception < quantity_requested`.
+
+---------------------------------------------------------------------
+
+## 4. RPCs / SQL functions
+
+Common conventions: plpgsql functions run in the caller's transaction, so a RAISE rolls back everything. Nest maps all RPC errors via `throwFromRpcError`: messages containing INSUFFICIENT_STOCK/INSUFFICIENT_COST_LAYERS -> 409; containing "not found" -> 404; everything else -> 400 (all branches of the final cases are BadRequest).
+
+### 4.1 fn_apply_stock_movement (219 replacement)
+Signature unchanged (15 params; ends `p_allow_negative DEFAULT false, p_allow_backorder DEFAULT false`), returns `stock_movements`. Behavior: quantity must be > 0. Locks stock level via `_lock_or_create_stock_level`. damage/expiry/quality_hold reclassify into quantity_damaged/expired/quality_held (need available >= qty unless allow_negative, else `INSUFFICIENT_STOCK`); quality_release needs held >= qty else `INSUFFICIENT_HELD_QUANTITY`; direction out: deduct if available >= qty; else if backorder allowed deduct available (min 0) and add remainder to quantity_backorder and (reference_type 'order') insert a `backorders` row; else `INSUFFICIENT_STOCK` or allow-negative deduct. Direction in: add and fulfill open backorders FIFO. Change in 219: ledger row insert and `inventory.stock_movement.recorded` event only when `v_deduct_qty > 0`; fully-backordered call returns a record with NULL fields (spec asserts `data.id` is NULL).
+
+### 4.2 fn_reverse_goods_receipt(p_goods_receipt_id, p_actor_id) RETURNS goods_receipts (220)
+- Locks receipt FOR UPDATE (no tenant parameter; tenant isolation depends on caller). Raises `goods receipt % not found`; raises `... is not posted (status=...)` unless status = `posted`.
+- Pre-flight loop over `stock_movements` (reference_type 'goods_receipt', reference_id = receipt, movement_type 'receipt'): requires a `cost_layers` row with `source_movement_id = movement.id` (else `GOODS_RECEIPT_REVERSAL_UNSAFE ... merged into a pre-existing average-cost layer`) with `quantity_remaining >= movement.quantity` (else `GOODS_RECEIPT_REVERSAL_UNSAFE ... already consumed`).
+- Reversal loop: `fn_apply_stock_movement(... 'adjustment_out','out', qty, unit_cost, 'goods_receipt', receipt_id, actor)` (default allow flags false), DELETEs the cost layer row, decrements `purchase_order_items.quantity_received` by `goods_receipt_items.quantity_received` (matched by item and variant).
+- Sets receipt `reversed`; if PO linked, PO status = `received` if total received >= total ordered, `partially_received` if > 0, else unchanged. Emits event `inventory.goods_receipt.reversed`. Returns receipt.
+- Locking: receipt row and each cost layer FOR UPDATE; stock level locked inside fn_apply_stock_movement.
+- Idempotency: second call fails with "is not posted".
+
+### 4.3 Packaging: see 2.1 (`fn_convert_packaging_to_storage_qty`).
+
+### 4.4 Warehouse task RPCs (223, 250)
+- `fn_create_putaway_task(tenant, warehouse, item, variant, batch, qty, source_loc, suggested_loc, source_doc_type, source_doc_id, created_by)` -> row, pending, history.
+- `fn_assign_warehouse_task(p_task_id, p_tenant_id, p_assigned_to, p_actor_id)`: FOR UPDATE; `not found` if missing; `cannot be assigned` unless pending/assigned.
+- `fn_confirm_warehouse_task(p_task_id, p_tenant_id, p_quantity, p_confirmed_location_id, p_actor_id)`: FOR UPDATE; status must be assigned/in_progress; quantity_completed + qty <= quantity else `cannot confirm`; replenishment without source_location_id rejected. If source_location_id set: stock out (`adjustment_out`) at source location; always stock in (`adjustment_in`) at confirmed location, both unit cost 0, `allow_negative=false`. Updates quantity_completed, confirmed_location_id, status, started_at (COALESCE), completed_at (only when completed, else NULL). Note: stock movement for a putaway with NULL source_location_id adds stock without any out movement (UNVERIFIED whether intended; putaway from receiving normally has a source).
+- `fn_cancel_warehouse_task(p_task_id, p_tenant_id, p_actor_id)`: described in 3.1.
+- `fn_run_replenishment_check(tenant, warehouse, created_by) RETURNS SETOF warehouse_tasks`: for each active replenishment rule, compares SUM(on_hand) at destination location to min_quantity; if lower and no open (pending/assigned/in_progress) task for that rule, inserts task of quantity max - current.
+
+### 4.5 fn_location_is_in_zone(p_location_id, p_zone_id) BOOLEAN STABLE (227)
+NULL args -> false; equal ids -> true; otherwise walks `warehouse_locations.parent_location_id` upward (guard 10) and returns true if zone id found.
+
+### 4.6 fn_create_pick_list(p_tenant_id, p_warehouse_id, p_shipment_ids UUID[], p_strategy, p_zone_location_id, p_actor_id, p_priority DEFAULT 'medium') RETURNS pick_lists (225 -> 227 -> 228 final)
+- Rejects empty array (`at least one shipment is required`); strategy `single` requires exactly one shipment.
+- 228: counts shipments matching id, tenant, warehouse; if count < array length raises `one or more shipment ids were not found in warehouse %` (before any insert).
+- Inserts pick list (`in_progress`, started_at now), then loops `shipments ... FOR UPDATE`: tenant mismatch -> `shipment % not found`; warehouse mismatch; status must be `pending` else `shipment % is not pending`; inserts `pick_list_shipments`; shipment -> `picking`.
+- Lines: groups `shipment_lines` by item, variant, location with SUM(quantity_requested); for strategy `zone` only lines where `fn_location_is_in_zone(sl.location_id, p_zone_location_id)` (227). Each group -> `pick_list_lines` + `fn_create_reservation(tenant, warehouse, item, variant, NULL location, qty, 'pick_list_line', line_id, actor, NULL)`; matching `shipment_lines.reservation_id` set (null-safe match on variant and location, across ALL given shipments). History NULL->in_progress.
+- For a `zone` strategy the shipments are claimed whole even if only some lines fall in the zone; non-matching lines are not picked by this list (documented in 227 header).
+- Errors from the reservation (insufficient stock) roll back the whole call.
+
+### 4.7 fn_create_zone_pick_lists_for_shipments(p_tenant_id, p_warehouse_id, p_shipment_ids, p_actor_id, p_priority DEFAULT 'medium') RETURNS SETOF pick_lists (227 -> 228 -> 229 final)
+- Same empty-array and not-found-count checks as 4.6.
+- 229: read-only zone discovery first: for each shipment_line with location_id NOT NULL, recursive ancestor walk to the first `location_type='zone'`; distinct zones collected. If none: raises `ZONE_SPLIT_NO_RESOLVABLE_ZONE` before any claim.
+- Then claims shipments (`FOR UPDATE`, tenant/warehouse/pending checks, -> `picking`), then for each zone: inserts a `zone` pick list with zone_location_id, links ALL shipments having a line in that zone to it via `pick_list_shipments`, creates lines+reservations for lines in that zone, history row. Returns one row per zone.
+- Lines whose location resolves to no zone (or location_id NULL) are not covered by any pick list; the shipment stays `picking` with the line unpicked (documented in the 227 header; remains true in 229).
+
+### 4.8 fn_confirm_pick(p_pick_list_line_id, p_quantity, p_actor_id) RETURNS pick_list_lines (225 -> 242 -> 243 final)
+- Locks the pick_list_line FOR UPDATE; `not found`; `cannot pick % - only % remaining`. Increments `pick_list_lines.quantity_picked`.
+- Distributes the quantity across shipment_lines of the pick list's shipments (same item/variant/location, `quantity_picked < quantity_requested`, ordered by shipment created_at, FOR UPDATE OF sl).
+- For each shipment of the list: if no line has `quantity_picked + quantity_exception < quantity_requested` -> shipment `picked` (only if currently `picking`). No history row is written for the shipment here (history rows for shipments appear only in 239 functions).
+- Pick-list completion uses the 243 correlated predicate; on completion sets `completed`, `completed_at`, writes history with old_status literal 'in_progress'.
+- No stock movement, no reservation consumption is performed in this function (stock is not moved at pick; handled by later fn_confirm_pack/fn_ship_shipment, out of scope - UNVERIFIED for those).
+
+### 4.9 fn_assign_pick_list(p_pick_list_id, p_tenant_id, p_assigned_to, p_actor_id) (225, 226)
+FOR UPDATE; `not found`; status must be open/in_progress else `cannot be assigned`; sets assigned_to and updated_at; history with notes. FK on users enforced by pick_lists.assigned_to FK (spec 5).
+
+### 4.10 fn_cancel_pick_list(p_pick_list_id, p_tenant_id, p_reason, p_actor_id) (225, 226, 237 final)
+Reason required (`a cancellation reason is required`); FOR UPDATE; status open/in_progress. Releases (`fn_release_reservation(id, 'released')`) every DISTINCT reservation_id on shipment_lines of ALL shipments linked to the pick list; for each linked shipment with status `picking` sets `pending` and clears claimed_by_wave_id/claimed_at; sets `cancelled` + reason + updated_at; history notes = reason. Fires wave-completion trigger when the list has a wave_id.
+- Does not reset `shipment_lines.quantity_picked` or `pick_list_lines` (UNVERIFIED effect; no reset code exists in the function).
+- For zone-split shipments (one shipment linked to several pick lists) it releases reservations and reverts the shipment based on the whole shipment, not only this list's lines (visible from the query; see risks).
+
+### 4.11 fn_evaluate_wave_eligibility(p_wave_id, p_tenant_id, p_actor_id) RETURNS SETOF wave_shipments (231 -> 232 final)
+- Locks wave FOR UPDATE; `wave % not found`; must be `planning` else `cannot be evaluated`.
+- 232 validation BEFORE any state change: unknown keys raise `UNKNOWN_CRITERIA_KEY`; allowed keys: `priority_min, zone_ids, route, carrier, order_type, cutoff_before, release_after, release_before, require_inventory_ready, require_replenishment_ready, capacity_ok, labor_available, dock_ready, customer_service_level_ok`. `priority_min` must be low/medium/high/urgent else `INVALID_CRITERIA_VALUE`. The six boolean-ish keys must be exactly 'true' or 'false' (text compare of the JSONB value) else `INVALID_CRITERIA_VALUE`. Timestamps (`release_after/before`, `cutoff_before`) are cast; a bad format raises a Postgres cast error.
+- Release window: `release_after` in the future raises `WAVE_NOT_YET_IN_RELEASE_WINDOW`; `release_before` in the past raises `WAVE_PAST_RELEASE_WINDOW`. (Evaluated at evaluation time, not at release time.)
+- Candidates: all `shipments` of the wave's tenant and warehouse with status `pending` (no deleted_at filter in the query - UNVERIFIED relevance).
+- Per shipment, eligible unless any applicable test fails: external signal blocked (any of capacity_ok/labor_available/dock_ready/customer_service_level_ok = 'false' blocks ALL shipments, reason `external_signal_blocked`); priority rank < priority_min rank; zone_ids (at least one shipment line with location in any listed zone via fn_location_is_in_zone); route equality (NULL route fails); carrier equality; order_type equals `shipments.reference_type`; cutoff_before (cutoff_at NULL or later than the value fails); require_inventory_ready (each line: `v_stock_balance.quantity_available` for item/variant in the warehouse >= quantity_requested; compared per line, not summed across lines of the same item); require_replenishment_ready (fails if any line has an active `inventory_reorder_points` row where `quantity_on_hand < min_quantity`).
+- Each shipment gets one `wave_shipments` row via upsert (`ON CONFLICT (wave_id, shipment_id)`): included_reason = reasons JSON if eligible, excluded_reason otherwise. Reason keys are descriptive (priority, route, ...), no `reason` key for evaluation exclusions.
+- Wave -> evaluating (evaluated_at) -> reviewing; history rows.
+
+### 4.12 fn_release_wave(p_wave_id, p_tenant_id, p_actor_id, p_priority DEFAULT 'medium') RETURNS SETOF pick_lists (237 -> 238 -> 248 final)
+- Wave row locked FOR UPDATE first (serializes concurrent release of the same wave; second caller sees released/picking/completed and gets existing pick lists).
+- Claim: a single `UPDATE shipments SET claimed_by_wave_id, claimed_at, status='picking' WHERE tenant_id AND status='pending' AND claimed_by_wave_id IS NULL AND id IN (wave_shipments with included_reason)` RETURNING ids. Two waves racing for a shipment are serialized by the row lock; the loser's WHERE no longer matches.
+- Included-but-unclaimed shipments get their wave_shipments row flipped to `included_reason NULL, excluded_reason {reason:'claim_failed_at_release', shipment_status_at_release, claimed_by_other_wave_id}` (always runs, since 238).
+- If nothing claimed: returns zero rows (wave stays `reviewing`; no history).
+- Otherwise: inserts exactly ONE pick list (strategy 'wave', wave_id, zone_location_id NULL, given priority, in_progress), links all claimed shipments, creates lines (grouped by item/variant/location) + reservations + sets shipment_lines.reservation_id; history for the pick list (NULL->in_progress); wave -> `released` (released_at) with history notes `claimed N shipment(s), 1 pick list`, then -> `picking` with a second history row. A reservation failure raises and rolls back the entire release, including the claim and the exclusion bookkeeping (comment in 238).
+- Claimed lines are not filtered by wave zone_ids: all lines of claimed shipments go on the pick list.
+
+### 4.13 fn_cancel_wave(p_wave_id, p_tenant_id, p_reason, p_actor_id) RETURNS waves (237)
+See 3.3. Sets status, cancellation_reason, cancelled_at, updated_at; history notes = reason. It does not touch wave_shipments (nothing is claimed before release).
+
+### 4.14 fn_reduce_reservation(p_reservation_id, p_quantity, p_actor_id) RETURNS stock_reservations (239)
+FOR UPDATE on the reservation; quantity must be > 0; reservation must be `active`; quantity <= reservation.quantity else `RESERVATION_REDUCE_EXCEEDS_QUANTITY`. Decrements `stock_levels.quantity_reserved` (level locked via `_lock_or_create_stock_level` at location NULL). If reducing the full quantity, reservation -> `released` (quantity unchanged, released_at set); otherwise reservation.quantity decreases. Emits `inventory.reservation.reduced`.
+
+### 4.15 fn_record_short_pick(p_shipment_line_id, p_tenant_id, p_reason, p_actor_id) RETURNS warehouse_exceptions (239 -> 243 final)
+Reason required. Locks shipment_line then shipment (tenant-checked; both FOR UPDATE). Shipment must be `picking` else error `... is not in a pickable state ... short pick can only be finalized while picking`. outstanding = requested - picked - exception; if <= 0 raises `NOT_SHORT`. Reduces the line's reservation by outstanding (if reservation_id set). Increments quantity_exception by outstanding. Inserts exception (type short_pick, affected_quantity = outstanding, notes {requested, picked, shipment_id}, resolved, resolution `backordered`). Then if every line of the shipment is settled -> shipment `picked` + shipment history (notes `settled with short pick(s)`); then loops EVERY pick list the shipment belongs to (243) and completes those that are settled under 3.6 (only if currently in_progress, with history).
+- Short pick takes no quantity parameter: it always finalizes the full remaining outstanding quantity.
+- No stock movement; no link into the order-level `backorders` table (239 header).
+
+### 4.16 fn_record_damage(p_shipment_line_id, p_tenant_id, p_quantity, p_reason, p_actor_id) (239 -> 240 -> 243 final)
+Reason and positive quantity required. Same locking/pickable checks. quantity <= outstanding else `DAMAGE_EXCEEDS_OUTSTANDING`. Unit cost = weighted average of cost_layers (`SUM(unit_cost*quantity_remaining)/SUM(quantity_remaining)`, 0 if none) - read only, no layer consumption. Calls `fn_apply_stock_movement(tenant, shipment warehouse, NULL location [240], item, variant, NULL batch, 'damage','out', qty, unit_cost, 'shipment_line', line_id, actor, false, false)`: reclassifies into quantity_damaged and stays in quantity_on_hand; raises INSUFFICIENT_STOCK if available < qty. Then reduces reservation, increments quantity_exception, inserts exception (type damaged, resolution `backordered`, stock_movement_id, notes {shipment_id, unit_cost}), settles shipment/pick lists as in 4.15 (notes `settled with damage exception`).
+
+### 4.17 fn_record_lost_item(p_shipment_line_id, p_tenant_id, p_quantity, p_reason, p_actor_id) (239 -> 240 -> 243 final)
+Same checks, `LOST_EXCEEDS_OUTSTANDING`. `v_unit_cost := fn_consume_cost_layers(tenant, warehouse, item, variant, qty)` (real FIFO consumption; raises INSUFFICIENT_COST_LAYERS if insufficient), then `fn_apply_stock_movement(..., NULL location, NULL batch, 'lost','out', qty, unit_cost, 'shipment_line', ...)` which decrements quantity_on_hand through the generic out branch. Reduces reservation, increments quantity_exception, inserts exception (type lost, resolution `written_off`, notes {shipment_id, unit_cost, write_off:true}), settles as in 4.15 (notes `settled with lost-item write-off`). Order of operations: cost layer consumption happens before the stock movement; both in one transaction.
+
+### 4.18 fn_recover_lost_item(p_exception_id, p_tenant_id, p_quantity, p_reason, p_actor_id, p_unit_cost DEFAULT NULL) RETURNS stock_movements (241)
+Reason and positive quantity required. Locks the exception (tenant-scoped, FOR UPDATE); must be type `lost` (`... is not a lost-item exception`); remaining = affected_quantity - recovered_quantity; quantity > remaining raises `RECOVERY_EXCEEDS_LOST`. Looks up the original shipment_line (error if deleted) and shipment (no lock). Unit cost = p_unit_cost, else exception.notes->>'unit_cost', else 0. Calls `fn_apply_stock_movement(... NULL location, 'receipt','in', qty, unit_cost, 'warehouse_exception', exception_id, actor, false, false)` then `fn_add_cost_layer(tenant, warehouse, item, variant, NULL, qty, unit_cost, movement.id)`, then increments `recovered_quantity`. Partial recovery over several calls is allowed. It does not alter shipment_lines.quantity_exception, the reservation, or the original exception's status; it writes no status-history row. The original shipment_line.quantity_exception stays as is (recovered stock goes back to on-hand but the line is not reopened) - behavior as coded.
+
+### 4.19 fn_cancel_shipment(p_shipment_id, p_tenant_id, p_reason, p_actor_id) RETURNS shipments (239; signature changed from the 116 version)
+Reason required; FOR UPDATE; `shipment % not found`; if already `cancelled` returns it unchanged (no new rows); if `shipped` raises `... has already shipped and cannot be cancelled`. Releases every DISTINCT reservation_id on its lines (`fn_release_reservation(..., 'released')`), sets `cancelled`, cancellation_reason, clears claim columns, history (shipment) with reason, inserts a `cancelled` exception (entity_type 'shipment', affected_quantity NULL, resolution `cancelled`). Does not touch pick lists/pick_list_shipments/wave_shipments of the shipment (UNVERIFIED consequence).
+Note: after 239 the old 1-arg-style signature is a different overload only if the old signature still exists; the migration uses CREATE OR REPLACE with a new parameter list, so the old function (if it had a different arity) may remain (see memory note on overloads; UNVERIFIED whether 116's signature differed).
+
+### 4.20 Visibility RPCs (244, 245, 249) - all STABLE, read-only, return JSONB
+All take tenant first, optional `p_warehouse_id DEFAULT NULL`.
+- `fn_wms_task_overview(tenant, wh)`: total and per-status counts of `warehouse_tasks`; `open` = pending+assigned+in_progress; `by_task_type` (all statuses), `by_priority` (open statuses only).
+- `fn_wms_pick_list_overview(tenant, wh)`: counts by status over non-deleted pick_lists; `assigned`/`unassigned` count only open/in_progress lists; `by_priority`, `by_strategy`.
+- `fn_wms_wave_overview(tenant, wh)`: counts by each wave status; `active` = planning..picking; `eligible_shipments`, `excluded_shipments` (all wave_shipments rows with included/excluded reason across ALL waves incl. cancelled), `failed_at_release_shipments` (excluded_reason.reason = claim_failed_at_release; note these also count inside excluded_shipments), `claimed_shipments` (shipments with claimed_by_wave_id set to a wave in scope, regardless of wave status).
+- `fn_wms_shipment_overview(tenant, wh)`: counts per shipment status; `backordered_shipments` = DISTINCT shipments reachable from exceptions with resolution 'backordered' on shipment_line; `quantities` {requested, picked, exception, unfulfilled = requested - picked - exception}.
+- `fn_wms_exception_overview(tenant, wh, date_from, date_to)` (245 final): scoped CTE with warehouse resolved for entity_type shipment_line (via line -> shipment) and shipment (direct); entity types other than those two pass through for any warehouse filter. Returns total, by_type {count, quantity}, resolved, open, backordered, total_affected_quantity, top_reasons (10), volume_by_day. Date filter `created_at >= from AND < to`.
+- `fn_wms_reservation_overview(tenant, wh)`: counts by status and active quantity; `reservation_affecting_exceptions` (short_pick/damaged/lost, warehouse-resolved via shipment_line).
+- `fn_wms_wave_shipment_summary(wave, tenant)` (249 final): eligible, excluded (excluded_reason NOT NULL and reason IS DISTINCT FROM claim_failed_at_release), failed_at_release, shipments list {shipment_id, status, included_reason, excluded_reason, claimed = claimed_by_wave_id equals this wave}, ordered by wave_shipments.created_at. Join to shipments has no tenant filter on shipments (UNVERIFIED impact; wave_shipments rows are tenant-filtered).
+- `fn_wms_cycle_time_overview(tenant, entity_type, wh)` (plpgsql): entity_type must be warehouse_task, pick_list or wave else raises `invalid entity_type`; returns sample_size, avg/min/max seconds of `completed_at - created_at` for completed rows only. No SLA/overdue logic.
+
+---------------------------------------------------------------------
+
+## 5. Endpoints
+
+Guard stack on every controller below: `JwtAuthGuard, TenantGuard, PermissionGuard`; permission via `@RequirePermission`. Tenant from `@GetTenant()`, actor from `@CurrentUser().sub`.
+
+### 5.1 WmsController - base `inventory/wms` (`@SkipThrottle({ auth: true })`)
+| Method Path | Permission | Body/Query DTO | Calls |
+|---|---|---|---|
+| GET shipments | inventory.view | ShipmentsQueryDto (status, warehouse_id, date_from, date_to, page, limit<=100 default 20, sortBy created_at/status, sortOrder) | repo.findShipments |
+| GET shipments/:id | inventory.view | - | findShipmentById (404 if missing) |
+| POST shipments | inventory.fulfill | CreateShipmentDto {warehouse_id UUID, reference_type string, reference_id UUID, items[>=1] {item_id, variant_id?, location_id?, quantity_requested >= 0.0001}} | createShipment (validates each location via LocationsService.findById) |
+| POST shipments/:id/cancel (200) | inventory.fulfill | CancelShipmentDto {reason} | fn_cancel_shipment + audit `shipment.cancelled` |
+| POST shipments/:id/ship (200) | inventory.fulfill | ShipShipmentDto {tracking_number?} | fn_ship_shipment (out of scope) + stock cache invalidation |
+| POST shipment-lines/:id/pack (200) | inventory.fulfill | ConfirmPackDto {quantity >= 0.0001} | fn_confirm_pack (out of scope) |
+| POST shipment-lines/:id/short-pick (200) | inventory.fulfill | RecordShortPickDto {reason} | fn_record_short_pick + audit `shipment_line.short_pick` |
+| POST shipment-lines/:id/damage (200) | inventory.fulfill | RecordDamageDto {quantity >= 0.0001, reason} | fn_record_damage + audit `shipment_line.damaged` |
+| POST shipment-lines/:id/lost (200) | inventory.fulfill | RecordLostItemDto {quantity, reason} | fn_record_lost_item + audit `shipment_line.lost` |
+| POST exceptions/:id/recover (200) | inventory.fulfill | RecoverLostItemDto {quantity >= 0.0001, reason, unit_cost? number} | fn_recover_lost_item + audit `warehouse_exception.lost_item_recovered` |
+| GET exceptions | inventory.view | ExceptionsQueryDto (entity_type, entity_id, exception_type, warehouse_id, date_from, date_to, page, limit, sortBy created_at/exception_type, sortOrder) | repo.findExceptions |
+| GET pick-lists | inventory.view | PickListsQueryDto (status, warehouse_id, priority, strategy, page, limit, sortBy created_at/priority, sortOrder) | findPickLists |
+| GET pick-lists/:id | inventory.view | - | findPickListById (adds per-line `exception_quantity` from pick_list_line exceptions; 404 if missing) |
+| POST pick-lists | inventory.fulfill | CreatePickListDto {warehouse_id, strategy in single/batch/wave/zone, zone_location_id?, shipment_ids[>=1 UUID v4], priority?} | fn_create_pick_list + audit `pick_list.created` |
+| POST pick-lists/zone-split | inventory.fulfill | CreateZoneSplitPickListsDto {warehouse_id, shipment_ids[>=1], priority?} | fn_create_zone_pick_lists_for_shipments + one audit `pick_list.created` per pick list (after_data via zone_split) |
+| GET pick-lists/:id/history | inventory.view | - | warehouse_work_status_history (entity pick_list, newest first) |
+| POST pick-lists/:id/assign (200) | inventory.fulfill | AssignPickListDto {assigned_to UUID} | fn_assign_pick_list + audit `pick_list.assigned` |
+| POST pick-lists/:id/cancel (200) | inventory.fulfill | CancelPickListDto {reason} | fn_cancel_pick_list + stock cache invalidation + audit `pick_list.cancelled` |
+| POST pick-list-lines/:id/pick (200) | inventory.fulfill | ConfirmPickDto {quantity >= 0.0001, batch_id? UUID} | findPickListLineWithContext, fn_validate_pick_requirements (migration 171), optional update of pick_list_lines.batch_id, fn_confirm_pick, cache invalidation, audit `pick_list.pick_confirmed` |
+| GET waves | inventory.view | WavesQueryDto (status, warehouse_id, page, limit, sortBy created_at/status, sortOrder) | findWaves |
+| GET waves/:id | inventory.view | - | findWaveById (`waves` + `wave_shipments(*)`; 404 if missing; no deleted_at) |
+| GET waves/:id/history | inventory.view | - | warehouse_work_status_history (entity wave) |
+| POST waves | inventory.fulfill | CreateWaveDto {warehouse_id UUID, criteria? object} | direct insert into `waves` (no RPC, no try/catch) + audit `wave.created` |
+| POST waves/:id/evaluate (200) | inventory.fulfill | - | fn_evaluate_wave_eligibility + audit `wave.evaluated` {included, excluded} |
+| POST waves/:id/release (200) | inventory.fulfill | ReleaseWaveDto {priority?} | fn_release_wave; empty result -> 400 `WAVE_NO_ELIGIBLE_SHIPMENTS`; audit `wave.released` {pick_list_ids} |
+| POST waves/:id/cancel (200) | inventory.fulfill | CancelWaveDto {reason} | fn_cancel_wave + audit `wave.cancelled` |
+
+Pagination behavior (all list endpoints in `wms.repository.ts` and warehouse tasks): when `page` is omitted the legacy unpaged array is returned (no limit); with `page`, returns `{data, total, page, perPage}` with data and count queries sharing the same filters, secondary sort by `id` asc.
+Notes on the DTOs: `ExceptionsQueryDto.warehouse_id` is declared but `WmsRepository.findExceptions` does not apply it (comment says warehouse filtering lives in the dashboard drill-down). Shipment/pick-list/exception filters use `@IsString()` (no UUID validation). `CreateWaveDto.criteria` is free-form; key validation happens only at evaluate time.
+
+### 5.2 WmsDashboardController - `inventory/wms/dashboard` (all GET, permission `inventory.view`; NO `@SkipThrottle`)
+- `overview` (aggregates all six RPCs in parallel into `{tasks, pickLists, waves, shipments, exceptions, reservations}`), `tasks`, `pick-lists`, `waves`, `shipments`, `reservations` - query `warehouse_id?`.
+- `exceptions` - query `warehouse_id?, date_from?, date_to?`.
+- `exceptions/drill-down` - `DashboardExceptionsDrillDownQueryDto` (warehouse_id, exception_type, entity_type, date_from, date_to, page default 1, limit default 50 max 200, sortBy, sortOrder). Paginated list from `warehouse_exceptions` with `count: exact`; warehouse filter resolved by first fetching all matching `shipment_lines` ids and `shipments` ids for the warehouse and building a PostgREST `.or()` with `entity_id.in.(...)` lists.
+- `wave-shipment-summary` - `wave_id` required (400 otherwise).
+- `cycle-time` - `entity_type` required (400 otherwise; value validated only inside the RPC).
+- No audit, no write operations.
+
+### 5.3 WarehouseTasksController - `inventory/warehouse-tasks`
+| Method Path | Permission | DTO |
+|---|---|---|
+| GET / | inventory.view | WarehouseTasksQueryDto (task_type, status, assigned_to, warehouse_id, page, limit, sortBy created_at/priority/status, sortOrder) |
+| GET :id | inventory.view | - (404 `Warehouse task not found`) |
+| GET :id/history | inventory.view | - (warehouse_work_status_history entity warehouse_task, newest first) |
+| POST / | warehouse.manage | CreateWarehouseTaskDto {warehouse_id, task_type putaway/replenishment, item_id, variant_id?, batch_id?, quantity >= 0.0001, source_location_id?, suggested_location_id?, priority?, source_document_type?, source_document_id?} - repo inserts directly (status pending) and writes the history row in a second, un-checked insert |
+| POST :id/assign (200) | warehouse.manage | AssignWarehouseTaskDto {assigned_to UUID} |
+| POST :id/confirm (200) | warehouse.approve | ConfirmWarehouseTaskDto {quantity >= 0.0001, confirmed_location_id UUID} |
+| POST :id/cancel (200) | warehouse.manage | - |
+Task RPC errors from assign/confirm/cancel are NOT passed through `throwFromRpcError` in `WarehouseTasksService`/repo (they throw the raw Supabase error object; HTTP status then depends on the global exception filter - UNVERIFIED).
+Note: `priority` in CreateWarehouseTaskDto is `@IsIn(...)` validated; `source_document_type` is a free `@IsString` but the DB CHECK allows only goods_receipt, replenishment_rule, manual.
+
+### 5.4 Goods receipt reversal - `POST purchasing/goods-receipts/:id/reverse` (200), permission `purchasing.receive`
+Service: `findById(id, tenantId)` first (tenant check), then `rpc fn_reverse_goods_receipt(p_goods_receipt_id, p_actor_id)`, errors mapped by `throwFromRpcError` (`GOODS_RECEIPT_REVERSAL_UNSAFE` and "is not posted" fall to 400; "not found" to 404), then audit `goods_receipt.reversed`.
+
+### 5.5 Items - attributes (`item-attributes`, permission items.view for GET, items.manage for writes)
+GET `/`, GET `:id`, GET `:id/values`, POST `/` {name}, PATCH `:id`, DELETE `:id` (204; 409 if any variant assignment uses it; soft delete), POST `values` {item_attribute_id, value}, PATCH `values/:id` {value}, DELETE `values/:id` (204; soft delete, no in-use check), GET `variant-assignments/:variantId`, POST `variant-assignments` {item_variant_id, item_attribute_id, item_attribute_value_id} (validates that value belongs to the attribute; upserts on (item_variant_id, item_attribute_id)), DELETE `variant-assignments/:id` (204). Unique violations -> 409.
+
+### 5.6 Items - packaging (`item-packaging-levels`)
+GET `/?item_id=` (item_id required; items.view), GET `:id`, GET `:id/resolve?item_id=&quantity=` (calls fn_convert_packaging_to_storage_qty; returns `{storage_quantity}`), POST `/` (items.manage; CreatePackagingLevelDto {item_id, level_name, parent_level_id?, quantity_in_parent? >= 0.0001}), PATCH `:id` (UpdatePackagingLevelDto = {level_name?, quantity_in_parent?}; root must stay 1), DELETE `:id` (204; refuses when it has child levels or barcodes - 409 - even though DB would cascade).
+Service rules: parent must belong to the same item; non-root needs quantity_in_parent > 0; second root -> 409; duplicate name -> 409.
+
+---------------------------------------------------------------------
+
+## 6. Defect-fix migrations (per migration header)
+
+- 219 `fix_zero_qty_backorder_movement`: Bug (first-sale "DEFECT-001"): fn_apply_stock_movement backorder branch inserted a `stock_movements` row with quantity 0 when nothing was available, violating CHECK (quantity > 0); hit on every POS sale of has_inventory item (called with p_allow_backorder=true from fn_process_sale_stock_deduction, 105). Change: skip the ledger insert and event when v_deduct_qty = 0; function returns NULL-field record; backorders row remains the only record. Only call site discards the return (per header).
+- 222 `item_packaging_levels_deleted_at`: Bug: every read failed with Postgres 42703 because ScopedRepository appends `.is('deleted_at', null)` and item_packaging_levels had no such column. Change: add nullable `deleted_at` (never written).
+- 226 `fix_pick_lists_updated_at`: Bug: fn_assign_pick_list and fn_cancel_pick_list wrote `updated_at` but pick_lists had no such column. Change: add `updated_at`, re-create both functions (bodies as 225).
+- 228 `fix_pick_list_missing_shipment_validation`: Bug: a nonexistent or cross-tenant/cross-warehouse shipment id produced zero loop iterations so the "not found" raise never ran; zone-split returned 201 with an empty array. Change: pre-count matching shipments and raise `one or more shipment ids were not found in warehouse %` if short; applied to both fn_create_pick_list and fn_create_zone_pick_lists_for_shipments.
+- 229 `zone_split_reject_no_resolvable_zone` (business decision "Option A"): Bug: zone split claimed all shipments before discovering zones, leaving shipments claimed with no pick list when no zone resolved. Change: resolve zones first (read-only); raise `ZONE_SPLIT_NO_RESOLVABLE_ZONE` before any claim.
+- 232 `wave_eligibility_criteria_validation`: Bug: unknown criteria keys were silently ignored; invalid `priority_min` produced NULL rank and disabled the filter; non-'true'/'false' booleans silently did not gate. Change: validate everything up front (`UNKNOWN_CRITERIA_KEY`, `INVALID_CRITERIA_VALUE`) before the wave leaves `planning`.
+- 238 `wave_release_zero_claim_audit_fix`: Bug: when zero shipments were claimable, the SQL RAISE (`WAVE_NO_ELIGIBLE_SHIPMENTS`) rolled back the exclusion-reason bookkeeping (found by concurrency Test B). Change: no raise; bookkeeping always runs; zero-claim returns an empty set, wave stays `reviewing`; the Nest service raises 400 `WAVE_NO_ELIGIBLE_SHIPMENTS`.
+- 240 `exception_location_null_fix`: Bug: fn_record_damage / fn_record_lost_item passed the shipment line's real location_id to fn_apply_stock_movement, which created/read a separate empty stock_levels row, causing false INSUFFICIENT_STOCK / INSUFFICIENT_COST_LAYERS. Change: pass NULL location (warehouse-level aggregate, matching fn_create_reservation).
+- 242 `exception_zone_wave_completion_fix`: Defect A: exception functions found "the" pick list with `LIMIT 1`, so zone-split shipments (several pick lists) left others stuck `in_progress`; fixed by looping over all pick lists. Defect B: fn_confirm_pick completion checks ignored `quantity_exception`; widened to `picked + exception`.
+- 243 `exception_pick_list_completion_correlation_fix`: Bug in 242's fix: the per-pick-list check joined shipment_lines only through pick_list_shipments, so another zone's outstanding lines blocked completion; also fn_confirm_pick's pick-list check read pick_list_lines only and ignored exceptions. Change: all four functions (fn_confirm_pick, short, damage, lost) use the correlated item/variant/location predicate (3.6).
+- 245 `wms_exception_overview_shipment_warehouse_fix`: Bug: fn_wms_exception_overview resolved warehouse only for `shipment_line` entities, so `shipment`-typed cancellation exceptions leaked into every warehouse's overview (found in QA). Change: resolve both entity types. Also documents that reservation overview needed no change.
+- 246 `wms_visibility_scale_indexes`: Measured at ~50k shipments: shipment overview 30ms -> 2,910ms and reservation overview ~2ms -> 2,102ms. Change: add `idx_shipment_lines_tenant`, `idx_reservations_tenant_warehouse` (index-only; no function change).
+- 247 `pick_list_shipments_shipment_id_index`: Measured at 40,985 rows a shipment_id-only lookup took 182.8ms (used in exception functions). Change: add `idx_pick_list_shipments_shipment`.
+- 249 `wave_shipment_summary_excluded_count_fix`: Bug: `excluded_reason ->> 'reason' <> 'claim_failed_at_release'` is NULL for evaluation exclusions (no `reason` key) so they were not counted. Change: `IS DISTINCT FROM`.
+- 250 `warehouse_task_confirm_history_fix`: Bug: fn_confirm_warehouse_task history hard-coded old_status 'in_progress'. Change: capture prior status before update.
+- Fixes embedded in feature migrations: 223 corrected fn_cancel_warehouse_task logging old_status = new_status = 'cancelled'; 237 extended fn_cancel_pick_list to clear wave claim markers (otherwise shipments of a cancelled wave pick list would stay permanently claimed).
+- Non-fix feature migrations for reference: 220, 221, 223, 224, 225, 227, 230, 231, 237, 239, 241, 244, 248 (described above).
+
+---------------------------------------------------------------------
+
+## 7. Tests present and what they assert
+
+All suites under `C:\Fp\api\src\database\migrations\__tests__\` except the throttle spec are live-database integration tests using the Supabase service-role client and `.env` credentials (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`); most use a hard-coded demo tenant id `9bcd3369-d664-47c8-b297-3bc9b429aacf`. They are described in the files as "not wired into CI - run via npm test". They insert/clean up rows in the real project (UNVERIFIED whether cleanup is complete).
+
+- `zero-qty-backorder-fix.regression.spec.ts` (219): zero-available sale with backorder does not error and returns a NULL-id record; backorders row qty 5 status open; no stock_movements row; stock_levels on_hand 0 / backorder 5; partial availability still logs a 2-unit movement; documents (not fixes) that allow_negative cannot produce negative on-hand due to another CHECK.
+- `goods-receipt-reversal.regression.spec.ts` (220): reverse a clean receipt -> status reversed, on_hand 0, cost layers `every(remaining==0)` (vacuously true if layers are deleted); second reversal rejected `is not posted`; partially consumed receipt rejected `GOODS_RECEIPT_REVERSAL_UNSAFE` with stock/receipt unchanged; unknown id `not found`. Not covered: PO quantity/status rollback, merged-average-layer rejection, other tenants.
+- `item-attributes-and-packaging.regression.spec.ts` (221): attribute/value/assignment creation; duplicate attribute per variant rejected; Piece->Box(24)->Carton(12)->Pallet(10) chain; second root rejected; conversion results; NULL level passthrough; other item's level rejected `not configured for item`; barcode with packaging level and resolved 288 pieces; cascade delete of children.
+- `packaging-transaction-wiring.regression.spec.ts`: carton barcode resolves to item+level+quantity; receiving 2 cartons posts 48 pieces; selling 1 carton deducts 24 and consumes 24 cost-layer units; repeated resolution idempotent; plain barcode has no multiplier. (Exercises repository/RPC chain of other modules.)
+- `warehouse-task-confirm-history-fix.regression.spec.ts` (250): old/new status correct for assigned->in_progress, in_progress->in_progress, in_progress->completed; tenant isolation (no history row written); chronological ordering; no duplicate rows.
+- `warehouse-tasks-lifecycle-f11.regression.spec.ts` (223): assign writes history; assign rejects in_progress/completed/cancelled; reassign allowed; partial then full confirm; over-confirm rejected; replenishment without source rejected; cancel records real prior status; completed cannot be cancelled; tenant isolation. (Does not assert the reassign history old_status literal - UNVERIFIED.)
+- `wms-13.20.regression.spec.ts`: older suite for location/putaway/replenishment/task flow and fn_validate_pick_requirements, permission seeds `warehouse.manage`/`warehouse.approve`.
+- `pick-lists-list-f2.regression.spec.ts`: findPickLists unpaged vs paged envelope, pagination without duplicates/gaps, warehouse/strategy/priority/status filters compose, sort by priority, tenant isolation.
+- `pick-list-detail-f3.regression.spec.ts`: detail fields, per-line `exception_quantity` aggregate (zeros included), zone/wave pick list fields, cancellation_reason, not-found null, tenant isolation, history rows and empty history, per-line exception lookup.
+- `pick-list-assign-f4.regression.spec.ts`: assign/reassign set assigned_to and history notes; completed and cancelled rejected; invalid user FK rejected; wrong tenant not found; repeated assign leaves one assignee (>=2 history rows); two parallel assigns end in one valid state.
+- `pick-list-cancel-f5.regression.spec.ts`: cancel sets status/reason/history (notes = reason); empty and whitespace reasons rejected; long reason verbatim; completed and already-cancelled rejected; not found; tenant isolation; reservation released and shipment back to pending; two parallel cancels -> exactly one success, one history row.
+- `pick-list-zone-split-f6.regression.spec.ts` (227-229): single-zone one list; two zones two lists both linked to the same shipment with total qty 10; same-zone consolidation across shipments; separate lines per location; no resolvable zone rejected atomically (shipment stays pending, nothing linked); second attempt rejected; tenant and warehouse isolation; reservation created/linked; two parallel requests -> exactly one succeeds; empty selection rejected.
+- `exception-handling-7.7.regression.spec.ts` (239): 13 tests - short pick reduces reservation 10->6 and settles shipment with history; second call `NOT_SHORT`; concurrent short pick -> exactly one success (error matches `NOT_SHORT|not in a pickable state`) and a single exception row; damaged reclassification (on_hand unchanged, quantity_damaged up, movement 'damage'); `DAMAGE_EXCEEDS_OUTSTANDING`; lost write-off (on_hand down, movement 'lost', unit_cost > 0); `LOST_EXCEEDS_OUTSTANDING` with no leak; shipment cancel releases reservation, records reason, one history row, one exception, idempotent on repeat; cancel without reason rejected; shipped cancel rejected; exception on non-picking shipment rejected; missing line rejected; multi-line shipment completes only after both lines settle.
+- `wave-claim-release-7.6.regression.spec.ts` (237/238): happy path (claim, one pick list, reservation, history, audit); idempotent sequential release; concurrent release creates one pick list; two waves racing for one shipment (loser gets exclusion reason); shipment claimed elsewhere excluded while release still succeeds for the rest; release rejected from planning; zero eligible returns empty (SQL layer) and wave stays reviewing; cancel before release then release rejected; cancel after release rejected; cancelling the wave pick list frees the shipment for a new wave; wrong tenant; wave not found.
+- `wave-actions-f8.regression.spec.ts`: evaluate happy path, empty warehouse, status gate, tenant and warehouse isolation, blank cancel reason, history rows for evaluate/cancel, cancel rejected after release.
+- `wave-zone-criteria-f10.regression.spec.ts`: zone listing by location_type, warehouse/tenant isolation; evaluation with `zone_ids` for direct zone, full descent chain, different zone, multiple zones, shipment with no location.
+- `wave-lifecycle-f7-gap.regression.spec.ts` (248): release puts wave in picking synchronously; single pick list completion completes the wave; multiple pick lists (one incomplete blocks; all complete completes - second list is a direct insert); cancelled list does not block completion; duplicate completion signal idempotent; concurrent completion gives one completion; tenant and warehouse isolation; history row actors/statuses/notes.
+- `wave-overview-f7.regression.spec.ts`: findWaves unpaged/paged, filters, sort, status round trip, tenant isolation, empty page, findWaveById (+ tenant isolation), findWaveHistory empty and tenant isolated, lifecycle through real RPCs.
+- `wave-shipment-summary-excluded-fix.regression.spec.ts` (249): evaluation exclusions by route, priority, inventory readiness counted as excluded; claim_failed_at_release counted separately; included never counted as excluded; mixes; tenant and warehouse isolation.
+- `wms-operational-visibility-7.8.regression.spec.ts` (244/245): task overview matches DB truth; shipment quantities reconcile requested = picked + exception + unfulfilled; exception overview warehouse scoping for shipment_line and shipment (245 leak); drill-down warehouse filter is DB-level; tenant isolation; zone-split shipment counted once in shipments total; empty warehouse returns zeroed structure; drill-down pagination consistent.
+- `wms-controller-throttle.spec.ts` (unit, no DB): WmsController has `THROTTLER:SKIPauth` metadata true and does not skip `global`, `global-ip`, `session`.
+
+Coverage gaps (no spec found by grep for the symbols): `fn_recover_lost_item` (241); `fn_reduce_reservation` directly; 232 criteria validation errors (`UNKNOWN_CRITERIA_KEY`, `INVALID_CRITERIA_VALUE`) and release-window errors; `fn_wms_cycle_time_overview`, `fn_wms_pick_list_overview`, `fn_wms_wave_overview`, `fn_wms_reservation_overview` outputs (7.8 suite names only task, shipment, exception, drill-down, wave many-to-many); the Nest controllers/services themselves (no HTTP-level or unit tests apart from the throttle metadata test); `fn_assign_warehouse_task` history old_status; goods-receipt reversal PO side effects; fn_create_pick_list `zone` strategy direct call filter (227) - covered only indirectly UNVERIFIED.
+
+---------------------------------------------------------------------
+
+## 8. Known gaps / risks visible in code
+
+1. `fn_assign_warehouse_task` logs old_status literal `'pending'` even when reassigning an `assigned` task (223). 250 fixed only confirm. Cancelling an already-cancelled task is allowed and logs cancelled->cancelled (only `completed` is blocked).
+2. `fn_confirm_pick` does not verify the pick list status: a line of a `cancelled` or `completed` pick list can still be confirmed (no status check in 225/242/243 bodies). The wave-completion trigger fires only on pick list status change, so late confirms on cancelled lists would not be rejected here. UNVERIFIED whether another layer blocks it (service code does not).
+3. `fn_cancel_pick_list` operates on whole shipments: for zone-split shipments (one shipment, several pick lists), cancelling one list releases all reservations on that shipment's lines and reverts the shipment to `pending` while sibling lists remain `in_progress`. For wave lists it clears the wave claim. It does not reset `quantity_picked` on shipment_lines. Impacts UNVERIFIED (no test combining these).
+4. Reservations are consolidated per pick-list line and shared across several shipment_lines (`shipment_lines.reservation_id` points to the same reservation). `fn_cancel_shipment` releases the whole shared reservation even though other shipments may depend on it; `fn_reduce_reservation` handles quantities but a fully released shared reservation raises "is not active" for sibling lines later. UNVERIFIED in practice.
+5. A wave whose only pick list is cancelled is auto-marked `completed` by the trigger (completion rule "completed + cancelled" with zero completed).
+6. `fn_release_wave` produces exactly one pick list for all claimed shipments (no zone-split); wave `zone_ids` criterion only decides eligibility, it does not limit which lines go on the pick list. Release window (`release_after/before`) is only checked at evaluation, not at release.
+7. `fn_evaluate_wave_eligibility` evaluates per line independently for inventory readiness (two lines of the same item are not summed) and ignores `shipments.deleted_at` (no filter in the candidate query). Re-evaluation is impossible (only from planning); stale `wave_shipments` rows are never removed (only upserted).
+8. `POST /inventory/wms/pick-lists` accepts `strategy: 'wave'` and `'zone'` from the API; the DB constraints `chk_pick_list_wave_strategy_requires_wave` and `chk_pick_list_zone_requires_location` would reject `wave` always and `zone` without `zone_location_id`; the user would see a 400 carrying the raw constraint message (via `throwFromRpcError` default branch). Behavior inferred from constraints; UNVERIFIED by test.
+9. `createWave` in `WmsService` and `WarehouseTasksService` assign/confirm/cancel have no `throwFromRpcError` mapping (raw errors; HTTP status depends on the global filter - UNVERIFIED). `WarehouseTasksRepository.createManual` ignores errors of the history insert.
+10. `fn_reverse_goods_receipt` takes no tenant parameter and relies on `GoodsReceiptsService.findById(id, tenantId)` beforehand; it only reverses when each receipt movement has its own discrete cost layer (average-cost merged layers are rejected). Cost layers are DELETEd on reversal (history of the layer is not kept). Only `movement_type='receipt'` rows for the receipt are reversed; batch/serial specifics UNVERIFIED.
+11. Lost-item recovery (`fn_recover_lost_item`) has no test, writes no status/audit history row at SQL level (the Nest service writes an audit_log), does not reopen the shipment line or restore the reservation, and uses the shipment loaded without a tenant filter (it relies on the tenant-checked exception row).
+12. Exceptions are always created `resolved`; the `open` status and `pick_list`, `pick_list_line`, `wave` entity types are never written by in-scope functions (but the pick-list detail endpoint reads `pick_list_line` exceptions).
+13. Exception and visibility scoping: `fn_wms_exception_overview` lets exceptions with entity types other than shipment_line/shipment pass any warehouse filter; `fn_wms_wave_overview.claimed_shipments` counts shipments whose `claimed_by_wave_id` is set even for finished waves (the marker is never cleared on completion); `eligible_shipments`/`excluded_shipments` aggregate across all waves including cancelled ones; failed-at-release rows are counted in both `excluded_shipments` and `failed_at_release_shipments`.
+14. Dashboard exception drill-down with `warehouse_id` loads all shipment line ids and shipment ids of that warehouse into a PostgREST `.or(...in.(...))` string - unbounded URL length and extra queries at scale (UNVERIFIED limit). The dashboard controller does not skip the 'auth' throttle tier (unlike `WmsController`), so the F2 audit comment's throttling concern applies there too (UNVERIFIED whether the same tier is applied).
+15. `warehouse_id` query params are plain strings (no UUID validation) in list/dashboard DTOs; a malformed value would fail inside PostgREST/RPC (UNVERIFIED status code).
+16. `findExceptions` ignores `warehouse_id` (declared in DTO). `GET waves/:id` and wave list queries have no soft-delete filter (waves has no deleted_at column).
+17. Audit logging is best-effort (`.catch(() => {})`) everywhere in WmsService, and `assignPickList` audit omits the assignee; the wave completion by trigger writes only a status-history row (actor NULL), no audit_log.
+18. Item attributes: `removeValue` does not check whether the value is assigned to variants (soft delete leaves assignments pointing at a deleted value); `assignToVariant` does not verify the variant belongs to the tenant beyond the FK (UNVERIFIED RLS reliance). Packaging: DB cascade is deliberately blocked only in the service layer.
+19. Legacy `warehouse_task_history` was dropped (224); any external consumer is not visible in this repo (224 header claims zero references).
+20. Test infrastructure: suites mutate the real Supabase project, hard-code a tenant id, and are not in CI per their own headers; results depend on the live schema.
+
+
+<!-- source: code_doc_misc -->
+
+# Sefay misc code documentation (from code, read-only pass)
+
+Base paths: API = `C:\Fp\api\src`, migrations = `C:\Fp\api\src\database\migrations` (MIG), regression specs = `MIG\__tests__` (run against the real shared Supabase project via service-role client; not wired into CI per comment in safety-stock spec). Web = `C:\Fp\web\src`.
+Everything below was read from code. "UNVERIFIED" marks inference I could not confirm from code alone. No test was executed.
+
+---------------------------------------------------------------------
+## 1. Migrations 087, 088, 089 - user_roles backfill, reconcile, grant
+Files: `MIG\087_backfill_stray_user_roles.sql`, `088_reconcile_stale_role_id.sql`, `089_grant_user_roles_privileges.sql`; table created in `086_create_user_roles.sql`.
+
+**Purpose**
+- 087: idempotent re-run of the 086 backfill (`users.role_id` -> `user_roles` primary row) for users who got a `role_id` after 086 ran.
+- 088: repair of stale `users.role_id`/`user_roles` caused by the old `changeRole()` that only updated `users.role` TEXT.
+- 089: GRANT missing on `user_roles` for `service_role` (086 forgot it; prod returned 42501).
+
+**Data model** (086): `user_roles(id, user_id FK users CASCADE, role_id FK roles RESTRICT, is_primary bool default false, granted_by FK users, created_at, UNIQUE(user_id, role_id))`, indexes on user_id and role_id. No `tenant_id` column.
+
+**Logic exactly as coded**
+- 087: `INSERT INTO user_roles(user_id, role_id, is_primary=true) SELECT u.id,u.role_id FROM users WHERE role_id IS NOT NULL AND NOT EXISTS(row for same user+role) ON CONFLICT DO NOTHING`. Note it inserts `is_primary=true` for any user lacking that exact (user, role) pair, even if the user already has another primary row (would yield two primaries).
+- 088 three steps: (1) `UPDATE users SET role_id = roles.id` joined on `roles.tenant_id IS NULL AND roles.name = users.role` where different (so `users.role` TEXT is treated as the truth, system roles only); (2) set `is_primary=false` on any primary `user_roles` row whose role_id differs from fresh `users.role_id`; (3) insert `(user, role_id, true)` for every user with a role_id, `ON CONFLICT (user_id,role_id) DO UPDATE SET is_primary=true`.
+- 089: `GRANT ALL PRIVILEGES ON public.user_roles TO service_role;` (verification query only in comments).
+
+**Endpoints/callers (code that uses user_roles)**
+- Read: `modules/access-control/access-control.repository.ts` `getUsersByRole`, `countUsersForRole` (join `users!inner`, filter `user.tenant_id`, `user.deleted_at IS NULL`); `core/permissions/permissions.service.ts` `fetchUserRoleNames`; `modules/auth/auth.service.ts` `getUserRoleNames` (used for JWT `roles`); `core/pricing/effective-role.resolver.ts`; `modules/users/users.repository.ts` `findUserRoles`, `countUserRoles`.
+- Write: `auth.service.ts` register (~L570: inserts owner primary row; failure -> ServiceUnavailable and tenant delete cascades); `users.repository.ts` `insertUserRole`, `deleteUserRole`, `syncPrimaryRole`.
+- `users.controller.ts`: `PATCH /users/:id/role` (`users.manage`, ChangeRoleDto enum, system roles only; rejects superadmin target/assign) -> `UsersService.changeRole` updates `users.role`+`role_id`, then `syncPrimaryRole` (delete other primary rows, upsert new primary on `user_id,role_id`), invalidates user permission cache, audit `user.role_change`. `GET /users/:id/roles` (`users.view`). `POST /users/:id/roles` (`users.manage`, AddRoleDto `role_id` UUID): `findAccessibleRole` (system role or own-tenant custom role), inserts with `is_primary = (current role count == 0)`, 409 on unique violation, audit `user.role_added`. `DELETE /users/:id/roles/:roleId`: 404 if not held; 403 if it is the only role; 403 if it is primary (must use PATCH role); audit `user.role_removed`.
+- `access-control.controller.ts` (`/access-control/*`, guards JwtAuth, Tenant, `AccessControlAdminGuard` = hardcoded `owner` or `superadmin` in `user.roles` (fallback `[user.role]`)): permission-groups, permissions, roles list (user_count from `user_roles`, permission_count, customized_permission_count), `roles/:id/users`, create/delete role, per-role permission get/patch/delete, `roles/:id/reset`. Details in section 3.
+
+**Tests present**: no spec targets the 087/088/089 SQL. `access-control.service.spec.ts` (25 `it/describe`) and `core/permissions/permissions.service.spec.ts` cover service logic with mocks. No spec for `UsersService.addRole/removeRole/changeRole` (no `users.service.spec.ts`; `ls modules/users` shows no spec).
+
+**Gaps/risks**
+- 087 can create a second `is_primary=true` row for a user whose primary differs from `users.role_id` (088 step 2 later demotes). No DB constraint enforces a single primary per user.
+- 088 resolves only system roles; a user whose `users.role` is a custom-role name is not matched (`r.tenant_id IS NULL`), left unchanged.
+- `syncPrimaryRole` DELETES the old primary row (not demote), so the previous primary role is dropped when `changeRole` runs; `addRole`-granted secondary roles are kept. `changeRole`/`syncPrimaryRole` is two separate non-transactional statements (delete then upsert).
+- `user_roles` has no tenant_id; tenant scoping relies on joining `users` (access-control) or a prior `findOne` (users service). `findUserRoles` itself is unscoped.
+- Seen directly: `UsersService.addRole` does not validate the role is assignable to the user's tenant beyond `findAccessibleRole`; it allows granting any system role including `owner`/`superadmin` names (no check in code I read). UNVERIFIED whether another layer blocks it.
+
+---------------------------------------------------------------------
+## 2. Migration 090 - user_permissions_override (Hybrid RBAC+ABAC)
+Files: `MIG\090_create_user_permissions_override.sql`; `core/permissions/permissions.service.ts`; `core/permissions/permission-resolution.util.ts`; `modules/users/users.controller.ts` + `users.service.ts` (L660-760); `modules/users/dto/set-permission-override.dto.ts`.
+
+**Purpose**: per-user GRANT/DENY on top of role-derived permissions.
+
+**Data model**: `user_permissions_override(id uuid, user_id FK users CASCADE, permission_key TEXT FK permissions(name) CASCADE, action CHECK IN ('GRANT','DENY'), is_active bool default true, created_at)`. Partial UNIQUE `idx_user_permission (user_id, permission_key) WHERE is_active`; partial index `idx_user_permissions_override_user_id (user_id) WHERE is_active`. `GRANT ALL ... TO service_role` included. No `updated_at`, no `tenant_id`, no RLS statement in this file.
+
+**Logic exactly as coded** (`permissions.service.ts`)
+- `hasPermissionForUser(userId,key,tenantId)`: `fetchUserRoleNames` from `user_roles`; if any role name is `'owner'` -> true (overrides never queried). Else `getGrantedSetForUser`.
+- `getGrantedSetForUser`: Redis key `permissions:user:{userId}:tenant:{tenantId}` (or without tenant), TTL `PERMISSIONS_TTL = 600` s. On miss: union of `resolveGrantedKeys(role, tenantId)` for each held role (global `role_permissions` + `tenant_role_permissions` merge), then for each active override: `GRANT` -> add key, else delete key. Result cached as array. So DENY beats role grants, and GRANT beats role denies; order within a user is irrelevant because only one active row per key.
+- `setOverride`: UPDATE active row's action; if none updated INSERT new active row (manual because supabase `.upsert()` cannot target a partial unique index - commented as confirmed 500). Then `invalidateUserPermissions`.
+- `removeOverride` / `resetAllOverrides`: `UPDATE is_active=false` (soft disable, history kept), invalidate cache. `resetAllOverrides` filters only by `user_id` and `is_active`.
+- `getOverridesForUser`: active rows `(permission_key, action)`; DB error returns `[]` silently.
+- `resolveUserPermission` (`permission-resolution.util.ts`, used by PermissionGuard and scanner ActionExecutor): superadmin in `roles` -> true; tenant id `9bcd3369-d664-47c8-b297-3bc9b429aacf` (hardcoded) -> true; else computes legacy `hasPermission(user.role,...)` and hybrid `hasPermissionForUser` in parallel, logs `[ShadowMode] Permission divergence` warning when they differ; returns hybrid only if env `ENFORCE_HYBRID_PERMISSIONS === 'true'` and hybrid is non-null, otherwise legacy. i.e. by default overrides and multi-role are NOT enforced, only shadow-logged.
+
+**Endpoints** (`users.controller.ts`, class guards JwtAuth+Tenant+PermissionGuard, plus method-level `AccessControlAdminGuard`)
+- `POST /users/:id/permissions/overrides` body `{permission_key, action: GRANT|DENY}` (audit `user.permission_override.set`) -> `findOne` (tenant check), `setOverride`; FK violation -> 404 "Unknown permission"; audit log `user.permission_override_set`.
+- `DELETE /users/:id/permissions/overrides` body `permission_key` (no DTO validation, raw `@Body('permission_key')`).
+- `GET /users/:id/permissions/overrides`.
+- `DELETE /users/:id/permissions/overrides/reset-all`. Route-order note: declared after `DELETE :id/permissions/overrides` but different path depth, no conflict. UNVERIFIED at runtime.
+
+**Tests present**: `core/permissions/permissions.service.spec.ts` `describe('Phase B - user_permissions_override')`: owner bypass never queries overrides; GRANT adds a permission; DENY removes one. No tests for `setOverride/removeOverride/resetAllOverrides`, the guard `ENFORCE_HYBRID_PERMISSIONS` branch, nor the controller.
+
+**Gaps/risks**
+- `setOverride`/`removeOverride`/`resetAllOverrides` filter by user id only; tenant isolation depends on the `findOne(id, tenant)` call in `UsersService`, not the permissions service.
+- `setOverride` does not block overriding platform-only keys (`analytics.view.all`, `audit.view.all`, `resource='superadmin'`) which `AccessControlService.assertPermissionIsCustomizable` blocks for role overrides. Not checked in the users path. If hybrid enforcement is on, a tenant owner could GRANT those to a user. (Seen: no such check in `UsersService.setPermissionOverride`.)
+- Update-then-insert in `setOverride` is not atomic; concurrent calls could hit the partial unique index (unhandled 500).
+- `DELETE overrides` body param not DTO-validated (undefined key just matches nothing).
+- Enforcement is off by default (shadow mode); the documented model is only effective if `ENFORCE_HYBRID_PERMISSIONS=true`.
+- Comment in `invalidateUserPermissions` ("not called from anywhere yet") is stale; it is now called by users service.
+- Role-change cache: `invalidateRole` is called by access-control writes but per-user caches (`permissions:user:*`) of OTHER users holding that role are not invalidated (UNVERIFIED by me beyond reading `AccessControlService`, which only calls `permissionsService.invalidateRole`). Up to 10 min staleness.
+
+---------------------------------------------------------------------
+## 3. access-control module (consumer of 087-090)
+Files: `modules/access-control/access-control.{controller,service,repository,module}.ts`, `guards/access-control-admin.guard.ts`, `platform-only-permissions.const.ts`, dto `create-role.dto.ts`, `update-role-permission.dto.ts`.
+
+**Logic**
+- All routes under `/access-control`, guards JwtAuth, Tenant, AccessControlAdminGuard (owner/superadmin only, deliberately not `@RequirePermission`).
+- `listPermissions(actor)`: catalog from `permissions` joined `permission_groups(code)`, ordered by name; excludes `resource='superadmin'` unless actor.role==='superadmin'; also removes `HARDCODED_PLATFORM_ONLY_KEYS = {analytics.view.all, audit.view.all}` for non-superadmin.
+- `listRoles`: roles with `tenant_id IS NULL OR = tenant`, name != 'superadmin'; per role parallel: `countUsersForRole` (user_roles join), `permissionsService.getRolePermissions(role.name, tenantId).length`, `countCustomizedPermissions` (rows in `tenant_role_permissions`).
+- `createRole`: trims name; empty -> ForbiddenException (sic, 403); insert `is_system=false`; unique violation -> `DUPLICATE_ROLE_NAME` -> 403 "already exists". Audit `role.created` fire-and-forget.
+- `deleteRole`: role must belong to tenant (`tenant_id === tenantId`) else 403 "System roles cannot be deleted"; refuses if `user_roles` count > 0; deletes all `tenant_role_permissions` overrides for the role, then the role, then `invalidateRole`; audit `role.deleted`.
+- `getRolePermissions`: catalog + `getResolutionDetail` -> list `{permission_key, group_code, description, granted, source: 'tenant_override'|'global'}`.
+- `updatePermission` (PATCH): role must be editable (`PROTECTED_ROLE_NAMES = owner, superadmin` -> 403); permission must exist (404) and not be `resource='superadmin'` or a hardcoded platform key (403); upsert `tenant_role_permissions(tenant_id, role_id, permission_key, is_granted, updated_at)` on conflict `tenant_id,role_id,permission_key`; `invalidateRole(role.name, tenantId)`; audit `role_permission.granted|revoked` with before/after state (`inherited_default|granted|denied`).
+- `resetPermission` (DELETE): deletes override row, invalidates, audit `role_permission.reset`, returns current resolved `granted` with `source:'global'`. `resetRole`: lists overrides first, deletes all, one audit entry per override; returns `reset_count`.
+- `getUsersByRole`: reads `user_roles` (secondary roles included) with `users!inner`, tenant and `deleted_at IS NULL` filters; returns `{id,name,email,is_active,is_primary}`.
+
+**Tests present**: `access-control.service.spec.ts`: protected roles, tenant isolation (other tenant's role rejected, own custom allowed, system role allowed), superadmin permission rejection, reset-deletes-not-rewrites, audit before/after + per-override on resetRole + audit failure not thrown, catalog visibility, cache invalidation. None for the repository `getUsersByRole/countUsersForRole` against real DB, none for the guard, none for `deleteRole`/`createRole` (UNVERIFIED: 25 it/describe lines; I did not see deleteRole titles in the grep).
+
+**Gaps/risks**
+- `createRole` empty-name uses ForbiddenException rather than BadRequest.
+- `deleteRole` not transactional: overrides deleted before role delete; if `roles` delete fails (FK RESTRICT from `user_roles`) overrides are already gone. `countUsersForRole` precheck mitigates.
+- Cache invalidation is `invalidateRole(role.name, tenantId)` only; per-user multi-role cache keys are not invalidated by role permission edits (up to 600 s stale for hybrid path).
+- The platform-only block is explicitly a stopgap (comment cites STATUS.md section 83).
+- `getResolutionDetail` includes overrides map keyed by permission; owner role is blocked from edits so UI "owner" always granted.
+
+---------------------------------------------------------------------
+## 4. Migration 092 - gift_card payment method (superseded)
+File: `MIG\092_gift_card_payment_method.sql`; superseded by `MIG\185_remove_gift_cards.sql`.
+
+**Purpose**: add `'gift_card'` to the `orders.payment_method` CHECK so orders fully covered by a gift card were honestly tagged.
+
+**Logic as coded**: DO block finds the existing CHECK on `orders` whose definition ILIKE `%payment_method%` and drops it; adds `orders_payment_method_check IN ('cash','card','split','wallet','mada','visa','mastercard','stc_pay','apple_pay','tab','gift_card')`.
+
+**Current reality (important)**: migration 185 later dropped `gift_cards` table, `fn_redeem_gift_card`, `orders.gift_card_code/gift_card_amount`, set `payment_method='cash'` for historical `gift_card` rows, re-created the CHECK WITHOUT `'gift_card'`, and deleted permission `gift_cards.manage`. `CreateInvoiceDto.payment_method` (`modules/invoices/dto/create-invoice.dto.ts` ~L110-135) accepts only cash, card, split, wallet, mada, visa, mastercard, stc_pay, apple_pay, tab. A grep of `src` (excluding migrations 0xx and dist) finds `gift_card` only in 185. So 092 describes behavior that no longer exists. The Persian comment in `invoices.service.ts` (~L114) still mentions "gift card" among side effects: stale comment (UNVERIFIED whether any gift-card code remains; grep for `gift_card|giftCard|amountDueAfterGiftCard` in modules/invoices returned nothing).
+
+**Endpoints/callers**: none currently. **`modules/payments`**: contrary to the task framing, `modules/payments` is SaaS subscription billing history (not POS tender): `payments.controller.ts` `GET /payments` (paginated payment history), `GET /payments/invoices`, `GET /payments/invoices/:id`, `GET /payments/invoices/:id/payments`; guards JwtAuth+TenantGuard only (no PermissionGuard); service uses `core/billing` repositories; `QueryPaymentsDto` page>=1, limit 1..100 default 20; meta `{total,page,limit,pages=ceil(count/limit)}`; missing invoice -> 404. No spec for payments. It has no relationship to 092.
+
+**Tests**: none for 092. **Gaps**: dead migration; the 092 `DO` constraint-name lookup is generic and would also drop any other CHECK mentioning payment_method.
+
+---------------------------------------------------------------------
+## 5. Migration 139 - SKU auto generation (items module)
+Files: `MIG\139_sku_auto_generation.sql`; `modules/items/items.service.ts` (L19, 99-140, 170-185, 200-270); `items/utils/sku.util.ts`; `items/repositories/items.repository.ts` L153-180; `items/dto/create-item.dto.ts` L90, `create-variant.dto.ts`.
+
+**Purpose**: auto-assign unique SKUs to items (`0000001`) and variants (`<parentSku>-01`), with manual override.
+
+**Data model**
+- `items.sku_source`, `item_variants.sku_source` TEXT NOT NULL DEFAULT `'auto'` CHECK in (`auto`,`manual`).
+- Unique indexes `uq_items_tenant_sku (tenant_id, sku) WHERE sku IS NOT NULL AND sku != ''` and `uq_item_variants_tenant_sku` (same). No deleted_at/is_active filter, so SKU is never recyclable.
+- `tenant_sku_sequences(tenant_id PK, next_seq BIGINT default 1)`; `item_variant_sku_sequences(tenant_id, item_id, next_seq, PK(tenant_id,item_id))`.
+- `fn_next_sku_seq(p_tenant_id)`: `INSERT ... VALUES (tenant, 2) ON CONFLICT DO UPDATE SET next_seq = next_seq+1 RETURNING next_seq - 1` -> first call returns 1. `fn_next_variant_sku_seq(tenant,item)` identical pattern. Plain plpgsql (SECURITY INVOKER); EXECUTE and table privileges granted to `service_role`. No RLS on these tables (comment says only accessed via function).
+
+**Logic exactly as coded**
+- `formatProductSku(seq) = String(seq % 10000000).padStart(7,'0')`; `formatVariantSku(parent, seq) = parent + '-' + String(seq % 100).padStart(2,'0')`.
+- `ItemsService.create`: `assertStandardCostPresent`; if DTO `sku` truthy -> insert with `sku_source='manual'`; else loop up to `MAX_SKU_GENERATE_ATTEMPTS = 5`: `nextSkuSequence` -> format -> insert with `sku_source='auto'`; on `isUniqueViolation` retry (consumes another sequence value), else rethrow; after 5 failures throw generic `Error`. Then invalidates list cache and `attachAutoBarcode` (best-effort `barcodesService.generateForItem`, skipped if `has_variants`).
+- `ItemsService.update`: `sku_source='manual'` whenever `dto.sku !== undefined` (presence, not value).
+- `createVariant`: manual sku truthy -> manual; else if parent has no sku -> creates variant with no SKU (defensive); else same 5-attempt loop with `nextVariantSkuSequence(tenant, item)`; then best-effort variant barcode generation. `updateVariant` same presence rule.
+- Endpoints: standard items controller (`items.controller.ts`; not re-read fully) -> `POST /items`, `PATCH /items/:id`, variant routes. UNVERIFIED exact route paths/permissions (I read only the service/repo).
+
+**Tests present**: none specific. grep of `__tests__` for "sku" returns only `production-orders-read-model.regression.spec.ts` (unrelated). No unit spec for `ItemsService` or `sku.util.ts`.
+
+**Gaps/risks**
+- Variant suffix is `seq % 100`: after 99 variants of one item the suffix wraps (`-00`, `-01`...) and collides with existing SKUs; each collision burns a sequence value and retries up to 5 times, then fails with an `Error` (500). Product SKU wraps at 10,000,000 similarly.
+- A retry on unique violation can also be triggered by an unrelated unique constraint, burning sequence numbers (gaps).
+- `PATCH` with `sku: ''` sets `sku_source='manual'` with an empty SKU (index excludes empty strings, so allowed). UNVERIFIED whether DTO rejects empty.
+- Sequence is not rolled back if the insert fails, so SKUs have gaps by design.
+- `update` of a manual SKU to a duplicate surfaces the raw unique violation (no friendly mapping seen in service).
+
+---------------------------------------------------------------------
+## 6. Migrations 143, 144 - Advanced Analytics phases 2 and 3
+Files: `MIG\143_advanced_analytics_phase2.sql`, `144_advanced_analytics_phase3.sql`; API `modules/inventory/advanced-analytics.{controller,service}.ts`, `repositories/advanced-analytics.repository.ts`; web `features/inventory-analytics/*` (the actual caller) and `features/inventory-dashboard/*`.
+
+**IMPORTANT correction**: `web/src/features/inventory-dashboard/*` (api `analytics.api.ts`, hook `useInventoryDashboard.ts`, `types/dashboard.types.ts`, `pages/InventoryDashboardPage.tsx`, 247 lines) calls ONLY `GET /inventory/analytics/dashboard` (`AnalyticsController`, `modules/inventory/analytics.controller.ts/analytics.service.ts`, cached in Redis 300 s under `dashboard:tenant:{id}`) returning `{summary, warehouses, recentMovements, lowStock, purchaseOrdersWaitingReceipt}`. It does NOT call any 143/144 RPC. The 143/144 RPCs are consumed by `web/src/features/inventory-analytics/*` (page route `app/[locale]/dashboard/inventory-analytics/page.tsx`). I did not read the SQL behind `/inventory/analytics/dashboard` (migrations other than 143/144 out of scope).
+
+**All RPCs**: SQL `LANGUAGE sql STABLE`, SELECT only. Params in order required-first.
+
+**Endpoints (all GET, `inventory/analytics/*`, guards JwtAuth, Tenant, Permission, `@RequirePermission('inventory.view')`)**
+| Route | Query params | RPC |
+|---|---|---|
+| `abc-analysis` | date_from, date_to, warehouse_id | `fn_inventory_abc_analysis(p_tenant_id,p_date_from,p_date_to,p_warehouse_id)` |
+| `dead-stock` | lookback_days (default 90 in repo), warehouse_id | `fn_inventory_dead_stock_report` |
+| `slow-moving` | lookback_days (90), max_units_sold (5), warehouse_id | `fn_inventory_slow_moving_report` |
+| `overstock` | warehouse_id | `fn_inventory_overstock_report` |
+| `stock-accuracy` | date_from, date_to, warehouse_id | `fn_inventory_stock_accuracy_report` |
+| `coverage` | warehouse_id | `fn_inventory_coverage_report` |
+Also valuation/turnover/aging (Phase 1, migration 142, not covered). Controller passes `Number(lookbackDays)` with no DTO/validation; dates are raw strings. Service is a pass-through to repository `rpc(...)`; `if (error) throw error` (no mapping).
+
+**Logic exactly as coded**
+1. ABC (143): CTE `item_cogs` = `SUM(sm.total_cost)` of `stock_movements` with `movement_type='sale' AND direction='out'` and `occurred_at::date BETWEEN from AND to`, optional warehouse, grouped by `(item_id, warehouse_id, item name)`. `running_total = SUM(cogs) OVER (ORDER BY cogs DESC ROWS UNBOUNDED PRECEDING)`; `cumulative_percentage = ROUND(running/NULLIF(grand_total,0)*100, 2)`; class `A` if `running/grand <= 0.80`, `B` if `<= 0.95`, else `C`. Output ordered by cogs desc. Consequence: the row whose cumulative first exceeds 80% is classed B (class is by cumulative INCLUDING itself); a single dominant item above 80% is B. Rows are per (item, warehouse), not per item; variant ignored. Returns no rows when no sales (grand_total NULL cross join empty).
+2. Dead stock (143): `last_out` = `MAX(occurred_at)` over ALL `direction='out'` movements (any movement_type) per (item, warehouse); `valuation` = `SUM(quantity_remaining*unit_cost)` from `cost_layers` with `quantity_remaining>0`. Rows from `stock_levels` with `quantity_on_hand>0` where `last_outbound_at IS NULL OR < NOW() - make_interval(days => lookback)`; `total_value = COALESCE(v.total_value,0)`.
+3. Slow moving (143): `sold` = `SUM(quantity)` and `SUM(total_cost)` of sale/out movements in `NOW() - lookback`; rows with `quantity_on_hand>0`, `0 < units_sold <= p_max_units_sold`; `turnover_ratio = cogs_in_window / current_value` when current value>0 else NULL (note: window COGS divided by CURRENT inventory value, not average inventory, and not annualized).
+4. Overstock (143): average cost per (item, warehouse) = weighted from cost layers; LEFT JOIN `inventory_reorder_points` on tenant/warehouse/item/variant (COALESCE uuid); `has_reorder_point = rp.id IS NOT NULL AND rp.is_active AND rp.max_quantity IS NOT NULL`; `excess_quantity = GREATEST(on_hand - max_quantity, 0)`; `excess_value = excess_qty * COALESCE(avg_cost,0)`; both NULL when no usable reorder point. Returns ALL stock_levels rows with on_hand>0 (not only those over max).
+5. Stock accuracy (144): from `stock_counts` with `status='completed'` and `completed_at::date` in range, joined `stock_count_items`; per warehouse: `total_items_counted=COUNT(sci.id)`, `zero_variance_items = COUNT FILTER (COALESCE(variance,0)=0)`, `total_expected_quantity = SUM(expected_quantity)`, `total_absolute_variance_quantity = SUM(ABS(COALESCE(variance,0)))`, `accuracy_percentage = ROUND((expected - abs_variance)/expected*100, 2)` if expected>0 else NULL. (No clamp: can go negative if variance exceeds expected.)
+6. Coverage (144): for each `stock_levels` row with on_hand>0: `avg_demand = fn_calculate_demand_forecast(tenant, warehouse, item, variant, 30)` (migration 113: `COALESCE(SUM(quantity),0)/GREATEST(lookback,1)` over sale/out movements in last 30 days, matched by warehouse/item/variant); `days_of_coverage = ROUND(on_hand / avg_demand, 2)` if `avg_demand>0` else NULL. Uses `quantity_on_hand` (not available/reserved), lookback fixed at 30 days.
+
+**Web behavior (`features/inventory-analytics`)**: `InventoryAnalyticsPage.tsx` (546 lines) 10 tabs (dashboard, valuation, turnover, aging, abc, deadStock, slowMoving, overstock, accuracy, coverage). react-query hooks with `staleTime` 60 s; date-range hooks `enabled` only when both dates set. Defaults: range = last 30 days; lookback state 90 (input `min=1`, falls back to 90 if 0/NaN); slow-moving always passes `max_units_sold = 5` (no UI control); accuracy always uses last 90 days (`todayMinus(90)`..today), not the picked range. Dashboard tab KPIs computed client-side: total valuation sum, dead stock value sum, overstock value sum, slow-moving value = qty * valuation avg cost looked up by `item_id:warehouse_id`, average accuracy = unweighted mean of per-warehouse `accuracy_percentage`. CSV export via `utils/exportAnalytics.ts` (Blob download; `csvEscape` only quotes values containing `" , \n`). Overstock tab filters rows client-side to `has_reorder_point && excess_quantity > 0`; the empty-state check uses the unfiltered length. ABC table row key = `item_id` only.
+
+**Tests present**: `MIG\__tests__\advanced-analytics-phase2.regression.spec.ts` (ABC exact COGS + class consistent with cumulative %, dead stock inclusion/exclusion, slow moving inclusion/exclusion, overstock excess and `has_reorder_point=false`), `advanced-analytics-phase3.regression.spec.ts` (stock accuracy totals vs independent recomputation; coverage exact days and zero-demand NULL). Real-DB specs. No tests for controller/service/web.
+
+**Gaps/risks (seen in SQL)**
+- Fan-out/double counting: `stock_levels` is unique per (tenant, warehouse, location, item, variant, batch) (017 `uq_stock_levels_point`), but dead stock, slow moving and overstock join `last_out`/`sold`/`valuation` at (item, warehouse) grain only. An item stocked in several locations/batches/variants of one warehouse yields several rows each carrying the full warehouse-level `total_value`/`excess_value`, and the web dashboard sums those (`deadStockValue`, `overstockValue`) -> inflated KPIs. Variant is also not output. UNVERIFIED in data, evident from SQL.
+- Dead stock treats any outbound movement type (damage, transfer_out, adjustment_out, production consumption) as "movement".
+- ABC key mismatch in web (key by `item_id`) duplicates React keys across warehouses.
+- Coverage uses `fn_calculate_demand_forecast` per row via LATERAL on every stock row (N calls; performance on large tenants UNVERIFIED).
+- Date params unvalidated (`occurred_at::date` uses DB session time zone); invalid `lookback_days` (NaN) would be sent to the RPC.
+- Slow-moving `max_units_sold` and accuracy range not exposed in UI.
+
+---------------------------------------------------------------------
+## 7. Migrations 146, 147 - stock_ownership_layers (+ modules/ownership)
+Files: `MIG\146_inventory_ownership.sql`, `147_fix_ownership_layer_quantity_check.sql`; `modules/ownership/{ownership.controller,ownership.service,ownership.module}.ts`, `repositories/ownership.repository.ts`, dto `create-ownership-layer`, `transfer-ownership`, `release-ownership`; callers `modules/invoices/invoices.service.ts` (~L762-800), `modules/manufacturing/production-orders.service.ts` (`assertNoOwnedComponents`, L315-340), `modules/purchasing/goods-receipts.service.ts` + `repositories/goods-receipts.repository.ts` L86-93.
+
+**Purpose**: advisory overlay tracking consignment/customer-owned stock inside your warehouses. Company stock gets no layer. No change to stock_levels/stock_movements/cost_layers/`fn_apply_stock_movement`.
+
+**Data model**: `stock_ownership_layers(id, tenant_id, warehouse_id RESTRICT, location_id SET NULL, item_id RESTRICT, variant_id, batch_id, ownership_type CHECK ('company','consignment','customer'), owner_customer_id, owner_supplier_id, quantity NUMERIC(14,4), status CHECK ('active','released','closed') default 'active', reason, source_reference_type, source_reference_id, created_by, closed_at, created_at)`. 147 replaces CHECK with `quantity > 0 OR (quantity = 0 AND status='closed')`. Partial index for active lookups (tenant, warehouse, item, COALESCE(variant), created_at) WHERE status='active'; reference index; RLS policy `tenant_session_isolation` on `app.tenant_id`; grant to service_role. `goods_receipt_items` gains `ownership_type` (NULL or company/consignment/customer) and `owner_supplier_id`.
+
+**Logic exactly as coded**
+- `fn_consume_ownership_layers(tenant, wh, item, variant, qty)`: loops ACTIVE layers matching warehouse/item/COALESCE(variant) `ORDER BY created_at FOR UPDATE`; `take = LEAST(layer.qty, remaining)`; if `take >= layer.quantity` -> status `closed`, quantity 0, `closed_at=NOW()`, else `quantity = quantity - take`; returns total consumed (0 if none). Never raises. Matching ignores `location_id`, `batch_id`, ownership_type and owner.
+- `fn_post_goods_receipt_with_ownership(receipt_id, actor)`: calls existing `fn_post_goods_receipt` first (its draft-status guard prevents double post), then if no layer exists yet with `source_reference_type='goods_receipt'` and that id, inserts one active layer per `goods_receipt_items` line where `ownership_type IS NOT NULL AND <> 'company'` using `quantity_received`, `owner_supplier_id`, line location, `batch_id` NULL. Atomic (single function).
+- `GoodsReceiptsService.create` (L105-170): throws 400 if line `ownership_type==='consignment'` and no `owner_supplier_id`; stores `ownership_type` NULL for company. Posting calls the `_with_ownership` RPC via the repository.
+- `OwnershipService.create`: validates warehouse and item exist for tenant; `consignment` requires `owner_supplier_id`, `customer` requires `owner_customer_id` (400); inserts with `status='active'`; DTO restricts type to consignment|customer, quantity `@Min(0.0001)`. Audit `ownership_layer.created` (fire-and-forget, with branch from warehouse).
+- `transfer` (POST `:id/transfer`, 200): repo finds the ACTIVE layer (null -> 400 "not active"), UPDATEs it to `closed` + `closed_at`, INSERTs a new active layer copying warehouse/location/item/variant/quantity with `source_reference_type='ownership_transfer'`, `source_reference_id=oldId`, plus new ownership_type/owners/reason and `created_by: null`. Audit `ownership_layer.transferred`.
+- `release` (POST `:id/release`, 200): active layer -> `status='released'`, `closed_at`, `reason` optional; 400 if not active. Audit `ownership_layer.released`.
+- Sale path (`InvoicesService`, after expired-batch check, before `deductStockForSale`): for each built item calls `consumeForSale` in a try/catch; if `consumed > 0` appends warning "Sold item(s) held under non-company ownership: ..." to `stockWarning`; errors only logged. Never blocks the sale.
+- Manufacturing: `ProductionOrdersService.complete` calls `assertNoOwnedComponents`: for each BOM line, `findActiveForItem(tenant, warehouse, component, variant)`; any active layer -> 400 "Cannot complete production order: component ... has active non-company ownership".
+
+**Endpoints** (`/ownership`, JwtAuth+Tenant+Permission): `GET /` (filters status, warehouse_id, item_id, ownership_type; `ownership.view`), `GET /:id`, `POST /` (`ownership.manage`), `POST /:id/transfer`, `POST /:id/release`. Permissions seeded in `database/seeds/permissions.seed.ts` (`ownership.view`, `ownership.manage`, listed in two role arrays at ~L770 and ~L848).
+
+**Tests**: `MIG\__tests__\inventory-ownership.regression.spec.ts`: company receipt creates no layer; consignment receipt creates layer and stock/cost unaffected; duplicate posting rejected, no duplicate layer; ownership transfer mirrors repo logic; consume partial then full closes, returns 0 when none. Header admits the HTTP-level invoice path and the manufacturing guard are NOT automatically tested. No unit spec for OwnershipService/controller.
+
+**Gaps/risks**
+- Layers are not tied to actual on-hand: `create` does not check stock exists or that layer total <= on_hand; sale consumption only decrements layers, never checks.
+- `transfer` to `ownership_type='company'` creates an ACTIVE company-typed layer (CHECK allows it). Such a layer is still consumed by sales (producing the "non-company ownership" warning) and blocks production completion via `assertNoOwnedComponents`, since `findActiveForItem` does not filter on type. Also `TransferOwnershipDto` does not require owner ids for consignment/customer (only `create` does).
+- `transfer` close+insert are two non-transactional statements; a failure after close loses the layer.
+- Consumption ignores `location_id`/`batch_id` and owner type; FIFO across mixed customer/consignment layers.
+- Goods-receipt posting layer qty uses `quantity_received` including any unit/packaging conversion (already converted before insert).
+- `OwnershipRepository.findAll` unpaginated.
+
+---------------------------------------------------------------------
+## 8. Migration 148 - inventory snapshots
+Files: `MIG\148_inventory_snapshots.sql`; `modules/inventory/snapshots.{controller,service}.ts`, `repositories/snapshots.repository.ts`, `dto/generate-snapshot.dto.ts`, `rpc-error.util.ts`.
+
+**Purpose**: historical valuation snapshots (reporting layer; never writes stock tables).
+
+**Data model**: `inventory_snapshot_runs(id, tenant_id, snapshot_date DATE, status CHECK ('active','superseded') default 'active', generated_by, created_at)` with unique partial index `uq_snapshot_runs_active_date (tenant_id, snapshot_date) WHERE status='active'`; `inventory_snapshot_items(id, tenant_id, snapshot_run_id CASCADE, warehouse_id, item_id, variant_id, quantity_on_hand NUMERIC(14,4), average_unit_cost NUMERIC(14,4), inventory_value NUMERIC(16,4), created_at)`. RLS tenant policies + service_role grants.
+
+**Logic**: `fn_generate_inventory_snapshot(tenant, actor, date default CURRENT_DATE, supersede default false)` VOLATILE: selects existing active run for the date `FOR UPDATE`; if exists and not supersede -> `RAISE EXCEPTION 'An active snapshot already exists for % - pass supersede=true to replace it'`; if supersede -> mark old `superseded`. Inserts new active run, then inserts items from `cost_layers` where `quantity_remaining>0` grouped by warehouse/item/variant: `quantity = SUM(quantity_remaining)`, `average_unit_cost = SUM(qty*unit_cost)/SUM(qty)` (0 if qty 0), `inventory_value = SUM(qty*unit_cost)`. Important: the snapshot takes CURRENT cost_layers regardless of `p_snapshot_date`; a back-dated date still captures present state. Source is cost_layers, not stock_levels (despite header comment mentioning both).
+
+**Endpoints** (`/inventory/snapshots`): `GET /` (`inventory.view`; runs ordered by snapshot_date desc), `GET /:id` (run + items with `items(name,sku)` and `warehouses(name,code)`, 404 if missing), `POST /generate` (`inventory.manage`, 200, `@Audit('inventory_snapshot.generated')`). DTO: `snapshot_date` `@IsDateString` optional, `supersede` boolean optional. Service: when `supersede` it first reads the previous active run for the date to write an extra audit `inventory_snapshot.superseded` (before/after status); RPC errors go through `throwFromRpcError` (message containing "not found" -> 404; "not active"/"invalid" -> 400; everything else 400). So the "already exists" exception becomes a 400 BadRequest (not 409).
+
+**Tests**: `MIG\__tests__\inventory-snapshots.regression.spec.ts` Tests 1-5: creation, valuation equals `fn_inventory_valuation_report`, multi-warehouse, tenant isolation, immutability (duplicate rejected, supersede creates new active run, old retained). No controller/service specs.
+
+**Gaps/risks**: no scheduler found in my read (manual only; UNVERIFIED if cron exists elsewhere); date param does not make a historical snapshot; snapshots exclude stock_levels-only quantities (uses cost layers); `findAll` not paginated; supersede audit and RPC are separate steps (audit logged after success only).
+
+---------------------------------------------------------------------
+## 9. Migration 149 - supplier_items (lead time and MOQ)
+Files: `MIG\149_supplier_items.sql`; `modules/purchasing/supplier-items.{controller,service}.ts`, `repositories/supplier-items.repository.ts`, dto `create-supplier-item.dto.ts`, `update-supplier-item.dto.ts`; consumer `fn_purchase_suggestions` via `modules/inventory/planning.*`.
+
+**Data model**: `supplier_items(id, tenant_id, supplier_id CASCADE, item_id CASCADE, variant_id CASCADE nullable, lead_time_days NUMERIC(6,2) >= 0 nullable, minimum_order_quantity NUMERIC(14,4) > 0 nullable, is_preferred bool default false, created_at, updated_at)`; unique index `uq_supplier_items_scope (tenant, supplier, item, COALESCE(variant,zero-uuid))`; RLS tenant policy; service_role grant. Hard delete (no deleted_at).
+
+**Logic exactly as coded**
+- `fn_resolve_supplier_item(tenant,item,variant)`: rows for tenant+item where `(variant given AND si.variant_id = variant) OR si.variant_id IS NULL`, `ORDER BY (variant_id IS NOT NULL) DESC, is_preferred DESC, updated_at DESC LIMIT 1`. Variant-specific beats item-level; then preferred; then newest. Returns NULL row when none (note: not constrained by supplier).
+- `fn_purchase_suggestions(p_tenant_id)` re-created (DROP then CREATE, new return column `minimum_order_quantity` appended). Per active reorder point `rp`: `si = fn_resolve_supplier_item(...)` LATERAL; effective lead time = `COALESCE(si.lead_time_days, rp.lead_time_days, fn_supplier_item_lead_time(tenant,item,NULL), 7)`; `avg_daily_demand = fn_calculate_demand_forecast(..., 30)`; `forecasted_demand_during_lead_time = demand * lead`; `suggested_order_quantity = GREATEST(rp.reorder_quantity, demand*lead - available - incoming, COALESCE(si.minimum_order_quantity,0), 0)`; output `minimum_order_quantity = si.minimum_order_quantity`. Row included when `available <= rp.min_quantity OR available + incoming < demand*lead`. Balances from `v_stock_balance`.
+- API `POST/GET/PATCH/DELETE /purchasing/suppliers/:supplierId/items[/:id]`: view `purchasing.view`; mutate `purchasing.manage` with `@Audit('supplier_item.created|updated|deleted')`. `create` verifies supplier and item exist for tenant (404), defaults `variant_id` null, `lead_time_days` null, `minimum_order_quantity` null, `is_preferred` false. DTO: lead_time `@Min(0)`, MOQ `@Min(0.0001)`. Update DTO omits `item_id`,`variant_id`. Unique violation -> 409 "A configuration for this supplier/item/variant already exists". `update` sets `updated_at` in code.
+
+**Tests**: `MIG\__tests__\supplier-items.regression.spec.ts` Tests 1-6 (create, variant overrides item-level, suggestions use lead time first tier, MOQ floors quantity, no row -> unchanged fallback chain, tenant isolation). No service/controller spec.
+
+**Gaps/risks**
+- `fn_resolve_supplier_item` picks across all suppliers (non-supplier-specific): MOQ/lead of the preferred or latest supplier is applied regardless of which supplier will be used.
+- Variant not validated to belong to item on create (only item is validated).
+- Safety stock (158/159) and the 127 unified lead time function do NOT use `supplier_items`; only `fn_purchase_suggestions` does (grep of migrations 16x and modules shows no other consumers). MRP (161) calls the suggestion function (header reference), UNVERIFIED how it consumes the new column.
+- MOQ is a floor, not a multiple (no rounding up to MOQ multiples).
+- `lead_time_days = 0` is valid in `supplier_items` and wins the COALESCE (0-day lead time -> forecast 0), unlike the 159 safety-stock floor of 1.
+
+---------------------------------------------------------------------
+## 10. Migration 157 - subcontract_orders (+ manufacturing subcontracting code)
+Files: `MIG\157_manufacturing_subcontracting.sql`; `modules/manufacturing/subcontract-orders.{controller,service}.ts`, `repositories/subcontract-orders.repository.ts`, dto `create-subcontract-order.dto.ts`, `create-subcontract-cost.dto.ts`; `purchasing/dto/create-supplier.dto.ts` (`is_subcontractor`).
+
+**Data model**: `suppliers.is_subcontractor bool default false`. `stock_movements.movement_type` CHECK extended with `subcontract_out`, `subcontract_in`. `subcontract_orders(id, tenant_id, production_order_id nullable SET NULL, supplier_id RESTRICT, warehouse_id RESTRICT, order_number, status CHECK ('draft','sent','processing','received','cancelled') default draft, sent_at, received_at, created_by, notes, deleted_at, timestamps)` unique `(tenant_id, order_number)`. `subcontract_order_lines(material_item_id, material_variant_id, quantity_sent >0, quantity_returned >=0 nullable, material_unit_cost, output_item_id, output_variant_id, output_quantity >0, output_unit_cost, sent_movement_id, received_movement_id)`. `subcontract_costs(cost_type CHECK service_fee|shipping|other, amount >= 0, notes, created_by)`. RLS tenant policies, service_role grants.
+
+**Logic exactly as coded**
+- `fn_send_subcontract_materials(tenant, order, actor)`: locks order `FOR UPDATE`; must be `draft` (else exception "is not draft"); for each line: `unit_cost = fn_consume_cost_layers(tenant, wh, material, variant, quantity_sent)`; `fn_apply_stock_movement(..., 'subcontract_out','out', quantity_sent, unit_cost, 'subcontract_order', order_id, actor)`; stores `material_unit_cost`, `sent_movement_id`. Sets status `sent`, `sent_at`, emits domain event `inventory.subcontract_order.sent`. Material physically leaves on-hand (INSUFFICIENT_STOCK guards apply).
+- `fn_receive_subcontract_output`: order must be `sent` or `processing`; `total_service_cost = SUM(subcontract_costs.amount)`; `total_material_value = SUM(quantity_sent*COALESCE(material_unit_cost,0))`; per line `line_material_value = quantity_sent*material_unit_cost`; `output_unit_cost = ROUND((line_material_value + COALESCE(total_service_cost*line_material_value/NULLIF(total_material_value,0),0)) / output_quantity, 4)` (service cost allocated by material value share); posts `subcontract_in` movement and `fn_add_cost_layer(... output_quantity, output_unit_cost, movement_id)`; sets `quantity_returned = COALESCE(quantity_returned, quantity_sent)`, `output_unit_cost`, `received_movement_id`; order -> `received`, `received_at`; event `inventory.subcontract_order.received` with `total_service_cost`.
+- Service/controller: `POST /manufacturing/subcontract-orders` (`manufacturing.manage`): warehouse exists; supplier exists AND `is_subcontractor` else 400; lines required (>=1) and each material/output item exists; `order_number` required string; header insert then lines insert (separate statements), then re-read; unique violation -> 409. `POST :id/send` and `:id/receive` (`manufacturing.execute`, 200) call the RPCs and map errors with `throwFromRpcError` (substring rules; "is not draft" falls to default 400). `GET /`(optional `status`), `GET :id`, `GET :id/costs` (`manufacturing.view`), `POST :id/costs` (`manufacturing.manage`; allowed unless status is `received` or `cancelled`; `amount >= 0`). Audit entries `subcontract_order.created|sent|received|cost_added` (only when actor present, fire-and-forget).
+
+**Tests**: `MIG\__tests__\manufacturing-subcontracting-13.16C.regression.spec.ts` (Tests 1-10: create + reject non-subcontractor; supplier flag; send posts `subcontract_out` and reduces stock; receive with service cost posts `subcontract_in` with material+service cost; optional production-order link; tenant isolation). No controller spec.
+
+**Gaps/risks**
+- No code path sets status `processing` or `cancelled` (only `draft -> sent -> received`); `cancelled` unreachable; no delete endpoint though `deleted_at` exists.
+- Service cost is lost if `total_material_value = 0` (allocation yields NULL -> COALESCE 0).
+- Costs are accepted in `sent` state, but a cost added after receive is blocked only in app layer (not DB).
+- `quantity_returned` never input by users; partial returns unsupported (always defaults to quantity_sent; output_quantity used in stock).
+- Header and lines inserted non-atomically; lines failure leaves an empty order header.
+- `output_variant_id`/material variants not validated against items.
+- Lines are processed in loop order with a single RPC transaction; one line failing rolls back the whole send (good) but error text mapping may give 400 for "not draft".
+- Comment: ownership is not modeled for goods at the subcontractor (as designed).
+
+---------------------------------------------------------------------
+## 11. Migration 159 - fn_calculate_safety_stock zero lead-time fix
+File: `MIG\159_fix_safety_stock_zero_lead_time.sql` (fixes 158). Callers: `modules/inventory/planning.{controller,service}.ts`, `repositories/planning.repository.ts`; also used by MRP (161, referenced `v_safety`).
+
+**Purpose**: avoid `SQRT(0)` zeroing the result when resolved lead time is 0.
+
+**Logic exactly as coded** (`STABLE` plpgsql, returns NUMERIC):
+1. `SELECT COALESCE(rp.service_level_z,1.65), rp.lead_time_days` from `inventory_reorder_points` for tenant/warehouse/item/variant (COALESCE uuid) `LIMIT 1`.
+2. If `lead_time` NULL: `AVG` of per-supplier `EXTRACT(DAY FROM AVG(gr.received_at - po.created_at))` over `purchase_orders` joined posted `goods_receipts` with non-null `received_at`, tenant-wide (all items, all suppliers; note it uses `po.created_at`, whereas migration 127's `fn_supplier_item_lead_time` uses `po.order_date` and item filter).
+3. `v_lead_time := GREATEST(COALESCE(v_lead_time,7), 1)`; `v_z := COALESCE(v_z,1.65)`.
+4. `STDDEV_SAMP` of daily sale/out `SUM(quantity)` for each day in `generate_series(CURRENT_DATE-(lookback-1), CURRENT_DATE)` (days with no sales count as 0), default lookback 90.
+5. Result `GREATEST(ROUND(z * COALESCE(stddev,0) * SQRT(lead_time), 2), 0)`.
+Endpoint: `GET /inventory/planning/safety-stock?warehouse_id&item_id&variant_id&lookback_days` (`inventory.view`; returns recommendation, writes nothing). Also `demand-forecast`, `purchase-suggestions` on same controller.
+
+**Tests**: `MIG\__tests__\safety-stock-and-replenishment.regression.spec.ts` (7 cases from migration 158: >0 recommendation, manual min unaffected, suggestions unchanged, shortage, suggestion, PR conversion, tenant isolation). None specifically asserts the 159 zero/same-day lead-time case (grep for lead/same-day found no test).
+
+**Gaps/risks**: lead-time resolution here ignores `supplier_items` (149) and uses a different formula (`po.created_at`, tenant-wide average, `EXTRACT(DAY ...)` truncating fractional days) than `fn_supplier_item_lead_time` (127); floor of 1 day also applies to genuine sub-day lead times; no controller input validation (`Number(lookback_days)` unchecked; `lookback<=0` would make `generate_series` degenerate).
+
+---------------------------------------------------------------------
+## 12. Migration 219 - zero-quantity backorder movement fix (fn_apply_stock_movement)
+File: `MIG\219_fix_zero_qty_backorder_movement.sql`; test `MIG\__tests__\zero-qty-backorder-fix.regression.spec.ts`; caller: `fn_process_sale_stock_deduction` (migration 105) with `p_allow_backorder := true` per header comment (I did not re-read 105).
+
+**Logic exactly as coded**: drops the 15-arg overload and recreates `fn_apply_stock_movement(tenant, warehouse, location, item, variant, batch, movement_type, direction, quantity, unit_cost, reference_type, reference_id, created_by, allow_negative=false, allow_backorder=false) RETURNS stock_movements`.
+- `p_quantity <= 0` -> exception. Locks/creates stock level row.
+- `damage|expiry|quality_hold`: `available = on_hand - reserved - damaged - expired - quality_held`; if `NOT allow_negative AND available < qty` -> `INSUFFICIENT_STOCK`; increments the respective bucket (on_hand unchanged).
+- `quality_release`: requires `quantity_quality_held >= qty` else `INSUFFICIENT_HELD_QUANTITY`; decrements held.
+- direction `out`: if `available >= qty` deduct on_hand; elsif `allow_backorder`: `v_deduct_qty = GREATEST(available,0)`, `v_backorder_qty = qty - deduct`, deduct on_hand by deduct, add backorder to `quantity_backorder`, and if `reference_type='order'` insert `backorders(tenant, warehouse, item, variant, order_id=reference_id, quantity=backorder_qty)`; elsif not allow_negative -> `INSUFFICIENT_STOCK`; else deduct full qty (may be blocked by `quantity_on_hand >= 0` CHECK, see test 6).
+- direction `in`: add on_hand; if level has `quantity_backorder > 0`: `v_bo_remaining = LEAST(qty, backorder)`, reduce level backorder, then FIFO (`created_at`) `FOR UPDATE` over open/partially_fulfilled `backorders` of the same warehouse/item/variant, fulfilling `LEAST(remaining, quantity - quantity_fulfilled)` and setting status `fulfilled`/`partially_fulfilled`, `fulfilled_at`.
+- THE FIX: the `stock_movements` INSERT and `_emit_domain_event('inventory.stock_movement.recorded')` are now wrapped in `IF v_deduct_qty > 0`; when fully backordered (deduct 0) nothing is inserted and the function returns NULL (`v_movement` unassigned). Movement row records `v_deduct_qty`, `total_cost = v_deduct_qty*p_unit_cost`, `before/after` quantities.
+
+**Tests present**: zero-qty-backorder spec Tests 1-6: no CHECK violation on zero-available backorder; backorders row for full qty; no movement row; stock level shows backorder not deduction; partial-availability still records real movement; test 6 documents (not fixes) that `p_allow_negative` cannot produce negative on-hand because of another CHECK.
+
+**Gaps/risks**: domain event `quantity` is `p_quantity` (requested) while ledger quantity is `v_deduct_qty` - inconsistent on partial backorder; the backorders row is only created if `reference_type='order'`, otherwise `quantity_backorder` is incremented with no backorders row (later fulfillment loop finds nothing to update but still reduces the level count); a NULL return would break any future caller that reads the returned movement (header says none do); cost layers for the deducted part are not handled in this function (caller's job). Backorder-fulfilment on 'in' also runs for transfer_in/receipts of any type.
+
+---------------------------------------------------------------------
+## 13. Migrations 221, 222 - item attributes and packaging levels
+Files: `MIG\221_item_attributes_and_packaging.sql`, `222_item_packaging_levels_deleted_at.sql`; `modules/items/item-attributes.{controller,service}.ts`, `repositories/item-attributes.repository.ts`, `item-packaging-levels.{controller,service}.ts`, `repositories/item-packaging-levels.repository.ts`, related DTOs, `item-barcodes.service.ts` (validatePackagingLevel L50-65), wiring in `invoices.service.ts` (L185-205), `purchasing/goods-receipts.service.ts` (L135-150), `inventory/transfers.service.ts` (L60-95).
+
+**Data model**
+- `item_attributes(id, tenant_id, name, is_active, deleted_at, created_at)` unique `(tenant_id,name) WHERE deleted_at IS NULL`; `item_attribute_values(item_attribute_id CASCADE, value, deleted_at)` unique `(item_attribute_id,value) WHERE deleted_at IS NULL`; `item_variant_attribute_values(item_variant_id, item_attribute_id, item_attribute_value_id)` unique `(item_variant_id,item_attribute_id)`. RLS + service_role grants.
+- `item_packaging_levels(id, tenant_id, item_id CASCADE, parent_level_id self-FK CASCADE, level_name, quantity_in_parent NUMERIC(14,4) >0 default 1, created_at)`; CHECK `chk_root_quantity_is_one (parent_level_id IS NOT NULL OR quantity_in_parent = 1)`; unique `(item_id, level_name)` (not filtered by deleted_at); unique `uq_item_packaging_root (item_id) WHERE parent_level_id IS NULL`. 222 adds `deleted_at TIMESTAMPTZ` only so `ScopedRepository.scopedQuery()` (`.is('deleted_at', null)`) works; levels are hard-deleted. `item_barcodes.packaging_level_id` FK CASCADE added.
+- `fn_convert_packaging_to_storage_qty(item, level, qty)`: NULL level -> returns qty; level not found or wrong item -> exception; loops up the parent chain multiplying `quantity_in_parent` (guard > 20 hops -> exception), returns `qty * factor`. The root level contributes factor 1. STABLE.
+
+**Endpoints**
+- `/item-attributes` (view=`items.view`, mutate=`items.manage`): attribute CRUD (`GET`, `GET :id`, `GET :id/values`, `POST`, `PATCH :id`, `DELETE :id` 204), values (`POST values`, `PATCH values/:id`, `DELETE values/:id`), variant assignment (`GET variant-assignments/:variantId`, `POST variant-assignments`, `DELETE variant-assignments/:id`). Logic: duplicate names/values -> 409; `removeAttribute` blocked (409) if any `item_variant_attribute_values` rows reference it; soft delete via `deleted_at`; assignment validates value belongs to attribute (400) then upserts on `(item_variant_id,item_attribute_id)` (re-assigning replaces); `removeValue` has no in-use check.
+- `/item-packaging-levels` (`items.view`/`items.manage`): `GET ?item_id=` (400 if absent), `GET :id`, `GET :id/resolve?item_id&quantity` (calls the SQL function, returns `{storage_quantity}`; `Number(quantity ?? 1)` unvalidated), `POST`, `PATCH :id`, `DELETE :id` 204. Create: item must exist; with parent -> parent must exist for same item and `quantity_in_parent` required >0; root -> quantity must be omitted/1, 409 if a root already exists; duplicate name -> 409. Update: root keeps 1; non-root >0; `item_id`/`parent_level_id` not editable (DTO Omit). Delete: refused (409) if child levels or barcodes exist.
+- Wiring: invoice lines with `packaging_level_id` get `item.quantity = resolveToStorageQty(item, level, quantity)` BEFORE price resolution/totals/stock deduction; goods receipt lines with `packaging_level_id` (and no `unit_id`) get `quantity_received` converted, `unit_cost` left per storage unit; transfers convert each line's quantity in `create`; barcode create/update validates the level belongs to the item (404 else).
+
+**Tests**: `item-attributes-and-packaging.regression.spec.ts` (9 tests: attribute+value+assignment, one value per attribute, hierarchy Piece->Box(24)->Carton(12)->Pallet(10), single root, conversion math, NULL passthrough, wrong-item level rejected, barcode on packaging level, cascade delete) and `packaging-transaction-wiring.regression.spec.ts` (scan resolution, receiving by carton posts 48 pieces, selling 1 carton deducts 24 pieces/consumes 24 cost units, idempotent resolution, non-packaging barcode unaffected). `invoices.service.spec.ts` passes `{}` for packagingLevelsRepo (no packaging in those tests). No service/controller specs.
+
+**Gaps/risks**
+- Invoice line: quantity is converted to storage units but `unit_price` is untouched; whether the client sends a per-storage-unit price or per-carton price is not enforced in the code I read (UNVERIFIED), so a carton scan could price at unit price x pieces.
+- Root-level delete: `remove` blocks only on children/barcodes; deleting the root with no children is allowed, leaving none (then `create` of a new root permitted).
+- `uq_item_packaging_level_name` has no `deleted_at` filter (irrelevant since hard delete).
+- Chain depth limit 20 only enforced in the converter; no cycle prevention at write time (update cannot re-parent, so cycles impossible via API).
+- Attribute `is_active` updatable but not used in assign validation.
+- `removeValue` can delete a value currently assigned to variants (soft delete leaves assignment rows pointing at deleted value).
+- `variant-assignments` do not verify variant belongs to tenant beyond table RLS/`tenant_id` insert (service sets tenant_id but does not check variant ownership; UNVERIFIED).
+
+---------------------------------------------------------------------
+## 14. Migration 233 - fn_customer_loyalty_points_total
+File: `MIG\233_fn_customer_loyalty_points_total.sql`; `modules/customers/customers.repository.ts` L255-310 (stats).
+
+**Logic**: SQL STABLE function returning `(total_loyalty_points BIGINT)` = `COALESCE(SUM(loyalty_points),0)` from `customers` where `tenant_id = p_tenant_id AND deleted_at IS NULL`. EXECUTE granted to `authenticated, service_role`. No second balance source (balance mutated only via `fn_adjust_loyalty_points`, migrations 041/069/209/210 per comment).
+**Caller**: `CustomersRepository` stats method (served by `GET` stats route; controller line `@Get('stats')`): when `tenant.tenantId` present runs `rpc('fn_customer_loyalty_points_total')` in parallel with total and new-this-month counts and reads `data[0].total_loyalty_points`; for superadmin (tenantId null) falls back to selecting all customers' `loyalty_points` and summing in JS (unbounded fetch, no tenant filter). Returns `{total, new_this_month, total_loyalty_points}`.
+**Tests**: none for the function or stats (customers specs: `customers.repository.spec.ts` covers upsertRelationship and `getCustomerIdentityScope` only; `customers.service.spec.ts`/`customers-permissions.spec.ts` contain no reference to the function).
+**Gaps**: SUM of INTEGER returns BIGINT, converted with `Number()`; superadmin fallback fetches every customer row (and Supabase default 1000-row cap could truncate - UNVERIFIED); does not apply branch-scope restriction used in list.
+
+---------------------------------------------------------------------
+## 15. Migration 234 - tax inclusive pricing (+ code using it)
+File: `MIG\234_tax_inclusive_pricing.sql`: `ALTER TABLE tenants ADD COLUMN tax_inclusive_pricing BOOLEAN NOT NULL DEFAULT false;` `tenants.tax_rate` stays the single rate source.
+
+**Code using it**
+- Backend: `modules/tenants/repositories/tenants.repository.ts` `getTaxConfig` (select `tax_rate, tax_inclusive_pricing`; on error/miss returns `{tax_rate:0, tax_inclusive_pricing:false}`; `?? false`); tenant profile select list includes it; `update-tenant-profile.dto.ts` `tax_inclusive_pricing?: boolean` (`@IsOptional @IsBoolean`); `tenants.service.ts getPosConfig` returns it (route `/tenant/pos-config`); `engines/pos-engine/pos.engine.ts`; `modules/invoices/invoices.service.ts` (L125-135, L283-370).
+- `PosEngine`: `calculateSubtotal` = sum(unit_price*qty) rounded 2dp. `applyTax(subtotal, discount, rate, inclusive)`: `afterDiscount = subtotal - discount`; inclusive -> `base = round2(afterDiscount/(1+rate))`, `tax = round2(afterDiscount - base)` (derived by subtraction); exclusive -> `round2(afterDiscount*rate)`. `calculateTotal`: inclusive -> `round2(subtotal - discount)`; exclusive -> `round2(subtotal - discount + tax)`. `buildInvoice` returns stored `subtotal` = rawSubtotal (exclusive) or `round2(rawSubtotal - tax)` (inclusive), explained as required by accounting `fn_post_sales_order` (migration 184) invariant `subtotal - discount + tax = total`. `taxRate` is a fraction (0.15). Default `taxRate=0.15`, `taxInclusive=false` in `buildInvoice` signature.
+- `InvoicesService.create`: `taxConfig` fetched in parallel with customer check and loyalty settings; `manualBuilt = buildInvoice(...)` (default exclusive) used only for item list and raw pre-discount subtotal; `combinedDiscountAmount = MIN(manual + loyalty + coupon + reward discounts, manualBuilt.subtotal)`; then `applyTax`/`calculateTotal` with the mode; `finalSubtotal = taxInclusive ? round2(raw - tax) : raw`; split payment must equal `built.total` exactly (2dp); cash requires `cash_tendered`.
+- Dine-in: `modules/tables/dine-in.service.ts` `recalculateAndRespond` calls `buildInvoice(items, undefined, taxRate)` with NO inclusive flag (comment in `pos.engine.ts`: "dine-in - out of this Phase-1 scope").
+- Web: `features/pos/page/POSPage.tsx` loads `/tenant/pos-config` (L84) and passes `taxInclusive` (default false) into `useCart(taxRate, taxInclusive)`; `hooks/useCart.ts` `calcCart` mirrors the server formulas (comment says exactly); `CartPanel.tsx`/`ReceiptModal.tsx` show an inclusive/exclusive label (`taxMode.*`). The settings UI toggling the flag was not read (UNVERIFIED).
+
+**Tests**: `engines/pos-engine/pos.engine.spec.ts` ("PosEngine - tax pricing"): exclusive 5.00@15% -> tax 0.75/total 5.75; default exclusive; inclusive 5.75@15% -> base 5.00, tax 0.75; 0% rate; multiple items; inclusive with 10% discount reconciles `subtotal - discount + tax = total` (total 23.17); direct `applyTax/calculateTotal`. `invoices.service.spec.ts` mocks `getTaxConfig` as exclusive only. No tenants service test; no test for dine-in with inclusive tenant.
+
+**Gaps/risks**
+- Dine-in always exclusive: a tenant with `tax_inclusive_pricing=true` gets exclusive tax added on dine-in orders (visible mismatch with POS).
+- Coupon/reward percentage discounts are computed on the raw gross under inclusive mode (intended per comment); loyalty/others unchanged.
+- Changing the flag later reinterprets existing item prices (no migration of prices; per migration comment).
+- Rounding: inclusive tax derived by subtraction; per-line tax not stored (no order_items tax).
+
+---------------------------------------------------------------------
+## 16. Migration 235 - dine-in sale_attempt_id fix
+File: `MIG\235_dine_in_sale_attempt_id_fix.sql`; `modules/tables/repositories/dine-in.repository.ts` `openTableAtomic` (L35-48), `dine-in.service.ts`.
+
+**Logic exactly as coded**: `fn_open_dine_in_table(tenant, table, branch, cashier) RETURNS SETOF orders`: selects `tables.status` for tenant+table `FOR UPDATE`; NULL -> exception 'Table not found'; status <> 'available' -> exception 'Table is not available (status: %)'; `UPDATE tables SET status='occupied'`; inserts an `orders` row with status `pending`, subtotal/discount/tax/total 0, and `sale_attempt_id = uuid_generate_v4()` (needed because migration 187 dropped the column DEFAULT; before this fix the insert failed with NOT NULL violation). Repository returns `data?.[0] ?? null`. The row lock is the duplicate-open protection; the generated UUID gives no client-side idempotency.
+**Tests**: none (grep of specs for `fn_open_dine_in_table` and `sale_attempt_id` shows only unrelated regression specs that supply their own UUIDs).
+**Gaps**: no regression test; the earlier "no open order for this table" incident referenced in the repository comment is outside this migration. Not tenant-checked on the `UPDATE tables` (uses only `id = p_table_id`, though preceded by a tenant-scoped SELECT FOR UPDATE).
+
+---------------------------------------------------------------------
+## 17. Migration 236 - customers server-side sort
+File: `MIG\236_customers_server_side_sort.sql`; `modules/customers/customers.repository.ts` L17-185; `dto/customer-query.dto.ts`; `customers.service.ts` L180-200.
+
+**Logic exactly as coded**
+- DTO: `sortBy IN ('full_name','created_at','loyalty_points','total_spent')` default `created_at`; `sortOrder` asc|desc default desc; `limit` 1..100 default 20.
+- `findAll`: if `sortBy==='total_spent'` and `tenant.tenantId` -> `findAllSortedBySpend` (RPC); otherwise standard PostgREST query `.order(sortBy)` + `.range()` and a separate count query, then orders aggregated for the page's ids in JS (completed orders only) to attach `orders_count`/`total_spent`. Superadmin (null tenant) + `total_spent` falls back to `created_at` ordering.
+- Search escaping: `search.replace(/[%,]/g,'')`; default path `.or('full_name.ilike.%s%, phone.ilike, custom_fields->>key.ilike ...')`.
+- `fn_customers_page_by_spend(p_tenant_id, p_search, p_custom_field_keys TEXT[], p_restrict_ids UUID[], p_ascending, p_limit, p_offset)`: `filtered` = customers where tenant, `deleted_at IS NULL`, optional `id = ANY(restrict)`, search ILIKE on `full_name`, `phone`, or any `custom_fields` key in `p_custom_field_keys` (via `jsonb_each_text`); `agg` LEFT JOIN `(SELECT customer_id, SUM(total), COUNT(*) FROM orders WHERE tenant_id = p AND status='completed' GROUP BY customer_id)`; select with `COUNT(*) OVER () AS total_count`; `ORDER BY` spend asc or desc `NULLS LAST`, then `id ASC`; `LIMIT/OFFSET`. Repository strips `total_count` out of each row and returns `{data,total: rows[0].total_count ?? 0}`.
+- Restriction to branch scope: `CustomersService.findAll` computes `restrictToCustomerIds` (via `findRelatedCustomerIds`) and returns `{data:[],total:0}` early if empty.
+
+**Tests**: none for the function or the sort path (`customers.repository.spec.ts` has no sort tests).
+**Gaps/risks**
+- Default path has no secondary ORDER BY (`full_name`, `created_at`, `loyalty_points` can tie), so pagination can repeat/skip rows; the RPC path does use `id` as tiebreak.
+- `p_restrict_ids` array of many UUIDs passes through RPC params (size limits UNVERIFIED).
+- Function output type `loyalty_points INTEGER`/`odometer INTEGER` must match `customers` column types; a mismatch would error at runtime (UNVERIFIED, not checked against the customers DDL).
+- custom field keys are interpolated into the PostgREST `.or()` string in the default path (not escaped; keys come from tenant field definitions).
+
+---------------------------------------------------------------------
+## Quick cross-cutting observations
+- Several of these features are only shadow/advisory: hybrid permissions (090) need `ENFORCE_HYBRID_PERMISSIONS=true`; ownership layers (146) never constrain stock.
+- Real-DB regression specs exist for 139? (no), 143/144, 146/147, 148, 149, 157, 158 (not 159 specifically), 219, 221/222; none for 087-089, 090 SQL, 092, 233, 234 (engine unit test only), 235, 236.
+- The task described `modules/payments` as gift card related; actual code is SaaS billing history and is unrelated to 092.
+- The task described `src/features/inventory-dashboard` as the caller of the 143/144 RPCs; the actual caller is `src/features/inventory-analytics`.
+
+
+---
+
+<!-- DEFECT-BACKLOG-COPY-2026-11-08 -->
+## Defect Backlog (2026-11-08) - copy of the TASKS.md backlog (append-only record)
+
+Copied verbatim from TASKS.md on 2026-11-08 so STATUS.md carries the same record. TASKS.md is the working list; statuses there (VERIFIED/AGENT-REPORTED) may be updated later, this copy is a snapshot. Nothing listed is fixed.
+
+
+## Defect Backlog (2026-11-08) - found by reading code, NOT fixed
+
+Verification pass 2026-11-08: D1-D7 and the listed parts of D8/D10 re-checked directly in code (see row notes). Unchecked: D9, D11, D12, birthday/campaign, cancel/wave parts.
+
+Source: code-derived documentation in STATUS.md ("Code-Derived Behavior Documentation 2026-11-08"). Status column: VERIFIED = checked directly in code by me; AGENT-REPORTED = from a read-only agent report, re-check before fixing. Nothing below has been changed; each fix needs owner approval (Execution Gate).
+
+### P1 - feature does not work at all
+| # | Defect | Status | Where |
+|---|---|---|---|
+| D1 | spend_threshold rewards never unlock: web sends `trigger_config.threshold`, DB function reads `amount` | VERIFIED | web RewardFormModal.tsx:83 vs api migration 217 line 51 |
+| D2 | Category rewards need `count` in trigger_config; form does not send it | VERIFIED 2026-11-08 | form sends only category_id (RewardFormModal.tsx:85); fn reads count (migration 216:47) |
+| D3 | `tenants.rewards_enabled` is never read; birthday and campaign rewards are created but never evaluated | VERIFIED for rewards_enabled (only in migration 205, no .ts reads it); birthday/campaign not evaluated still agent-reported | api/src rewards |
+
+### P2 - data or security correctness
+| # | Defect | Status | Where |
+|---|---|---|---|
+| D4 | Branch-scope check missing in expenses-v2: only list is @BranchScoped; findOne/update/cancel/confirm-payment/stop-recurring/attachments take only tenant+id | VERIFIED 2026-11-08 (controller) | api/src/modules/expenses-v2 |
+| D5 | Reward redemption happens before invoice creation, no rollback if invoice fails | VERIFIED 2026-11-08: invoices.service.ts:467 redeems, repo.create at :528, catch block :575-603 has no release | rewards redemption |
+| D6 | User permissions (migration 090) are shadow-only unless `ENFORCE_HYBRID_PERMISSIONS=true` | VERIFIED 2026-11-08 (permission-resolution.util.ts:18 + guard spec) | migration 090 |
+| D7 | Variant SKU counter wraps at 100 (`seq % 100`), duplicate SKUs possible | VERIFIED 2026-11-08: items/utils/sku.util.ts:10 uses sequence % 100 | migration 139 |
+| D8 | `fn_confirm_pick` ignores pick-list status; cancel acts on whole shipments; wave auto-completes after its only pick list is cancelled | fn_confirm_pick pick-list-status gap VERIFIED 2026-11-08 (migration 243 reads the line only, no pick_lists.status check); cancel and wave parts still agent-reported | WMS migrations |
+| D9 | Company-level transfer leaves the blocking layer in place (146) | AGENT-REPORTED | migration 146 |
+
+### P3 - quality and gaps
+| # | Defect | Status |
+|---|---|---|
+| D10 | expenses-v2 and branches have no specs; no expense approval workflow; tax re-run issue | no specs VERIFIED 2026-11-08 (0 spec files in expenses-v2 and branches); approval workflow/tax re-run still agent-reported |
+| D11 | WMS tests run against the live DB and are not in CI | AGENT-REPORTED |
+| D12 | Analytics (143) double-counting; supplier items ignored by safety stock (159); dine-in tax ignores tax_inclusive_pricing; subcontracting statuses unreachable (157) | AGENT-REPORTED |
+
+### Open decisions for owner
+- Order of work and whether to start with D1-D3 (rewards).
+- Fate of the uncommitted code (see Reconstructed Position above): fixes should land together with that decision.
+
+### Verification pass 2 (2026-11-08) - corrections to the backlog above (append-only)
+- D3 birthday/campaign: reclassified BY DESIGN. reward-eligibility.service.ts:14-30 states they are configurable via CRUD but intentionally not evaluated (no automatic event); only purchase_count, spend_threshold, product_category are order-evaluated, loyalty_points via a separate path. Only the rewards_enabled finding stays a defect (flag unused).
+- D8 wave auto-completion: VERIFIED but matches an owner-specified rule (migration 248 lines 189-197: completed + cancelled = wave completed; counts only pick lists not in completed/cancelled). Open question only: a wave whose ONLY pick list is cancelled becomes `completed` rather than `cancelled`. Not a bug against the stated rule.
+- D11 CI: VERIFIED and WIDER than reported: .github/workflows/api.yml runs only `npm ci` and `npm run build` (lines 28-31); NO test step at all, not just WMS tests.
+- D12 safety stock: PARTLY VERIFIED: fn_calculate_safety_stock (159) takes lead time from inventory_reorder_points then purchase_orders/goods-receipt history, never supplier_items.
+- STILL UNVERIFIED (agent-reported only): D9 (146 company transfer leaves blocking layer), fn_cancel_shipment acting on whole shipments, 143 double counting, 157 unreachable statuses, dine-in tax ignoring tax_inclusive_pricing, expense approval workflow gap (only an approval_status column exists in expenses-v2; no approve endpoint seen), expense tax re-run.
+
+
+---
+
+
+## Defect Backlog 2 (2026-11-08) - POS, cash drawer/shifts, expenses, printing
+
+Source: code-only review (no runtime test, no live DB). Full reports in the session scratchpad (review_pos_printer.md, review_shifts.md, review_expenses.md). V = I re-read the exact code myself; A = subagent report, file:line evidence in its report, not re-checked by me. Nothing here is fixed. Fixes need owner approval (Execution Gate).
+
+Decision 2026-11-08 (owner): the legacy expenses page is NOT wanted in the sidebar; expenses-v2 is the one to use. Done in web: sidebar now links /dashboard/expenses-v2/expenses (nav.config.ts, DashboardSidebar.tsx). Legacy page and the dashboard "new expense" button (DashboardOverview.tsx:680) still point to legacy.
+
+### POS (invoices)
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| P1 | HIGH | Loyalty points and reward instances are consumed before the order transaction and never refunded if insert/accounting fails; web keeps the same sale_attempt_id so a retry burns them again | A |
+| P2 | HIGH | PaymentModal uses remainingDue = cart.total (loyalty/reward discounts ignored): split payment sends a card amount that mismatches the server total -> 400; cash change on receipt understated | V (PaymentModal.tsx:97-110) |
+| P3 | MED | No return/refund path, only full cancel; cancel does not reverse loyalty, coupon or reward redemptions | A |
+| P4 | MED | Stock deduction is best-effort after commit; silently skipped when branch has no default_warehouse_id; COGS not in sale journal (flagged for reconciliation only) | A |
+| P5 | MED | Dine-in checkout is a weaker separate path: no accounting posting, no shift check, no idempotency, split not persisted, tax always exclusive; fn_checkout_dine_in_table frees the table even if the order update matches no rows | A |
+| P6 | MED | Cancel and GET :id have no @BranchScoped (cross-branch access inside a tenant) | A (inferred) |
+| P7 | LOW | No minimum item count on DTO; coupon race loss only logged; free_item rewards not added as order lines; orders list omits cash_amount/card_amount; 409 "already created" on retry does not open the receipt | A |
+
+### Cash drawer / shifts
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| S1 | HIGH | No unique constraint for one open shift per cashier (only non-unique idx_shifts_cashier_open, 001:726); check is read-then-insert -> race gives two open shifts | V |
+| S2 | HIGH | assertOpenSession checks only that the shift is open in the tenant, not cashier or branch; shift_id comes from the client body | V (shifts.service.ts:196-211) |
+| S3 | HIGH | Expenses reduce expected cash only if expense.shift_id is set; it is optional and no web expenses code passes it; all approved expenses treated as cash with no payment source -> expected cash likely wrong | A |
+| S4 | HIGH | No cash-in/out and no refund handling; only status=completed orders count; cancel after close does not adjust expected_cash; no cash movements table | A |
+| S5 | MED | wallet, mada, visa and other methods fall in neither cash nor card in the summary | A |
+| S6 | MED | Close is not atomic (summary read then update, no status=open guard) -> sale between reads excluded, double close can overwrite | A |
+| S7 | MED | Close notes accepted but never saved; no accounting entry for variance; closed-shift immutability only in app code, no DB trigger | A |
+| S8 | MED | GET /shifts/current with branch scope returns any cashier's open shift; another cashier's POS sells into it and then gets "Not your shift" on close | A |
+| S9 | LOW | Shift summary has no ownership check and recomputes live (can differ from stored expected_cash); web types say close returns Shift but API returns {shift, summary}; CloseShiftModal shows no expected cash or variance; repo reads swallow errors and return null/[]; no shifts specs | A |
+
+### Expenses (v2 is now the active module)
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| E1 | HIGH | Inclusive-tax edit divides twice: stored amount is pre-tax, edit form preloads it (ExpenseFormSheet.tsx:137) and resends with tax_mode inclusive, update() treats it as the total (expenses-v2.service.ts:468-480) -> amount shrinks on every save | V |
+| E2 | HIGH | Same bug in recurring generation (service ~691-696) for inclusive-tax sources | A |
+| E3 | MED | Possible duplicate recurring runs: occurrence inserted, then next_occurrence_date update unchecked, no lock/unique (source,date), multi-instance cron risk | A |
+| E4 | MED | No accounting (journal) and no shift cash-drawer link anywhere in expenses-v2; dashboard reads legacy data only | A |
+| E5 | MED | Paid expenses editable with no old-value history; recurring_end_date/expense_date not range-checked; changing frequency does not recompute next_occurrence_date | A |
+| E6 | MED | Only findAll is @BranchScoped; findOne/update/cancel/confirm-payment/stop-recurring/attachments take tenant+id only; no spec files | V (see Backlog 1, D4/D10) |
+| E7 | LOW | findAll has no pagination/totals, search wildcards unescaped; attachments no MIME allow-list, allowed on cancelled expenses, orphan file on failed insert; scheduler uses UTC dates; UPDATEs lack status predicate; cancelling a recurring source leaves is_recurring true; no deleted_at/delete endpoint (inferred) | A |
+| E8 | CHECK | Runtime checks needed: migration 199 widening tax_mode CHECK to allow none; expense_activity CHECK list (edited, payment_confirmed, department_changed) - insert failures are swallowed | A |
+| E9 | MED | Legacy expenses module still registered and reachable; dashboard "new expense" button still links to legacy | V |
+
+### Printing
+| # | Sev | Defect | Status |
+|---|---|---|---|
+| R1 | HIGH | Only browser window.print() exists (ReceiptModal, OrderDetailsModal, OrdersPage); no ESC/POS, thermal, WebUSB/Serial/Bluetooth anywhere | A |
+| R2 | HIGH | No print CSS (no @media print / print: / @page) in POS or receipt files -> prints likely the whole page, not an 80mm slip | V (no match outside Attend/Settings pages); behavior itself unverified |
+| R3 | MED | Settings paper width (58/80) and auto-print toggle are saved to tenants.printer_settings but nothing reads them; printer_name exists only in the web type | V (only SettingsPage + settings.api reference them) |
+| R4 | MED | Receipt ignores stored business name, logo, tax number, footer; invoice number is last 6 chars of UUID; tab payments labelled "card" | A |
+
+### Needs runtime check by owner
+Split payment with loyalty/reward (expect 400); what window.print() prints from POS and Orders; points lost when posting fails; null default_warehouse_id behavior; POOLED_INVOICE_WRITES_ENABLED true in production (default false, local .env true); accounting role/branch assignment exists per tenant; whether a later migration changed shifts constraints; role permissions seed shift.*.
+
+### Open decisions for owner
+Fix order (suggested: E1/E2 first since v2 is now live, then S1-S4 cash correctness, then P1/P2, then printing); whether dashboard "new expense" button moves to v2; whether legacy expenses module is retired.
+
+
+
+---
+
+<!-- SUNMI-PRINTING-RESEARCH-2026-11-08 -->
+## Sunmi Printing - researched method and decisions (2026-11-08)
+
+Provenance: research only, 2026-11-08, from Sunmi public documentation, the public npm registry, public GitHub repos and local files on the owner machine. Nothing was implemented, installed or run on a Sunmi device. Items are labelled DOC (stated by a Sunmi page that was opened), CODE (read in a package source on npm) or UNVERIFIED (needs a test on a real device). Append-only.
+
+### 1. Goal and context
+- The owner will give the system FREE to a car wash as a pilot to collect problems. The cashier device is expected to be a Sunmi terminal with a built-in thermal printer; model not fixed (owner decision: do not hard-code a model). Devices to support: Sunmi, phone, tablet, laptop/PC.
+- Owner decision: build on Sefay (no new project).
+
+### 2. State of printing in Sefay today (verified in code before this research)
+- Only browser window.print() in ReceiptModal, OrderDetailsModal, OrdersPage. No print CSS. No ESC/POS, Bluetooth, USB or thermal code in web/src or api/src.
+- tenants.printer_settings (migration 040: paper_width 58mm/80mm, auto_print, printer_name) and its Settings UI exist but NOTHING reads them.
+- The "Printing Engine" in ignore/ENGINES.md (routePrintJob, printReceipt, connectSunmi...) was designed but never built (no src/engines/printing-engine, no printers module). api/src/modules/scanner/adapters/sunmi.adapter.ts is a SCANNER adapter only.
+
+### 3. The method found for printing from a WEB page on a Sunmi device (DOC)
+Sources opened: docs.sunmi.com Integration Guide > Printer Development > Built in printer service > JavaScript Printer (JavaScript SDK Overview, page updated 2026-05-27; Thermal Receipt / Label / Command / Query API pages exist), "Introduction to SUNMI Printing Services" (2026-01-04), "Inbuilt Non-detachable Printers Documentation" (2025-09-24), developer.sunmi.com/en-US/ability/print-service.
+1. Install the plugin "JS USDK" from the Sunmi App Store on the device (search "JS USDK").
+2. The web page uses the npm package `sunmi-js-sdk` (npm i sunmi-js-sdk, or UMD script): `const s = new SUNMI(); s.launchPrinterService().then(() => s.init());`
+3. Printer object APIs: lineApi (thermal receipt), canvasApi (labels), commandApi (raw ESC / TSPL), queryApi (printer status and info).
+4. lineApi (from the package type definitions, CODE): initLine, addText, printText, printTexts (columns with widths and styles - suits invoice item rows), printBarCode, printQrCode, printBitmap, dividing line. TextStyle: size, width/height ratio, bold, underline, align, custom font. commandApi.sendEscCommand for raw ESC/POS. queryApi.getStatus() / getInfo().
+5. CODE: the package opens a WebSocket to ws://localhost:7070/ws (a local service provided by the JS USDK app).
+
+Other documented routes (not chosen for now):
+- Native SDK / AIDL (SunmiPrinterService) inside an Android app; Bluetooth virtual printer named "InnerPrinter" (ESC/POS by default, TSPL optional) - needs no Sunmi SDK.
+- Plugin "Sunmiprinterplugin" (Sunmi App Store) described as printing web page content through the Android native print function.
+- Printer settings live in the device Settings > SunmiPrinter: density 70-130%, font, an 80mm printer can be switched to 58mm mode, automatic cutter switch, low-paper voice alerts.
+- Custom printers can be added to the device (LAN only for Sunmi cloud printers, Bluetooth, USB) and made the DEFAULT printer: the same SDK calls then print on the external printer without app changes.
+- Docs also list Flutter, Uniapp, Cordova and Cloud Printer V2 sections.
+- Models listed for the built-in print service include V1, V1s, V2, V2s, V2s PLUS, P1, P2, P2 PRO, T1, T2, T1 MINI, T2 MINI, D2s, S2, D2 MINI. Newer families (V3, D3 PRO, CPad) appear on the developer home; support for them is UNVERIFIED.
+
+### 4. UNVERIFIED - must be tested on a real Sunmi device before relying on it
+- That a https web page in the device browser may open ws://localhost:7070 (mixed content / local network rules).
+- That the "JS USDK" app supports the pilot device model.
+- That Arabic text prints correctly (glyphs, shaping, right-to-left) through lineApi; may need fonts or printing the receipt as a bitmap (printBitmap).
+- That auto-print after invoice creation works silently.
+
+### 5. What the owner already had (local search, 2026-11-08)
+- Local Expo project "washcloud-mobile" (Desktop\washcloud-mobile and Desktop\اوراق المغسلىة\washcloud-mobile, plus washcloud-mobile.zip and an APK). It declares react-native-sunmi-printer ^1.0.0 and expo-print, and lists "Sunmi T2 / V2 Pro" as compatible, but contains NO call to the Sunmi printer. What worked before was most likely expo-print (PDF print/share), not the SDK.
+- react-native-sunmi-printer (npm) is abandoned: versions 1.0.0 and 1.2.0, last modified 2022-05; do not build on it. Maintained alternatives seen on npm: @mitsuharu/react-native-sunmi-printer-library 3.0.0 (2026-09-07, MIT, tested on V2 PRO and V2s, Android only, needs a development build, not Expo Go) and @es-webdev/react-native-sunmi-printer 2.0.10 (2025-10).
+- GitHub repos checked (public): sefay-web (old Sefay web), washcloud, washcloud-mobile, topclean - none has Sunmi SDK code; they print with window.print(). Sunmi SunmiPrinterDemo repo is a native Android demo (no web code).
+- Local Gradle cache shows com.sunmi.library downloaded 2026-04-19/20, i.e. an Android build with a Sunmi library was done on this machine; its source was not found.
+
+### 6. Documented mobile plan (pos_m) and how this fits
+- Documented (STATUS.md sections 10 and 13, ignore/ENGINES.md, DECISIONS.md): separate project pos_m at C:\Fp\pos_m (does not exist yet), React Native + Expo, SQLite offline-first, MMKV, Zustand; Phase E = E1 Setup, E2 Auth + Sync, E3 POS Engine offline, E4 Expense flow, E5 Shift engine, E6 Printing Engine (Sunmi + Bluetooth); business engines in api/src/engines are meant to be reusable from pos_m.
+- The old STATUS.md "Application Layer Deferral" (top of file) was superseded by the "Application / Mobile Execution Rule" in api/CLAUDE.md (2026-08-20): an app capability may be built when its 8 dependency checks pass.
+- Owner statement 2026-11-08: a mobile app is wanted now only as an initial app for the pilot, to be developed later; a "professional global SaaS app" is the long-term aim.
+
+### 7. Decision (proposed, pending owner go-ahead; nothing built)
+1. WEB first (no database, no API change): receipt template (business name, logo, tax number, footer, invoice fields), print CSS for 58/80 mm, a single `printReceipt()` with drivers chosen automatically: (a) Sunmi via `sunmi-js-sdk` when the JS USDK service is reachable, (b) otherwise browser print. Read printer_settings (paper width, auto print); per-device choice (Sunmi / phone / tablet / computer) stored locally. Reprint from the Orders page.
+2. Owner tests on the pilot Sunmi device (items in section 4).
+3. pos_m (Expo WebView shell + a maintained Sunmi library) is built only if the local WebSocket route fails or native features are needed; it then becomes Phase E1 + part of E6 of the documented plan.
+
+### 8. Pilot risk to tell the owner and the client (see Defect Backlog 2)
+Known HIGH defects will be visible in daily use: expected cash in the shift summary is unreliable (S1-S4), inclusive-tax edit of an expense shrinks the amount (E1/E2), split payment combined with a loyalty/reward discount is rejected (P2), and printing itself (R1-R4) until the work above is done.
+
+
+
+---
+
+<!-- OWNER-DECISIONS-APP-AND-CASH-2026-11-08 -->
+## Owner decisions 2026-11-08: Sefay Android app scope + cash-drawer defect S3 must be fixed
+
+Provenance: stated by the owner in chat on 2026-11-08. Nothing below is implemented. Append-only.
+
+### A. S3 (expenses vs cash drawer) - owner decision: MUST BE FIXED
+- Defect (S3 in Defect Backlog 2, reported by a read-only code review; the shift-service parts were re-read, the full effect is not runtime-tested): shift close computes expected cash as opening cash + cash sales - approved expenses, but an expense only counts if expenses.shift_id is set. shift_id is optional, expenses-v2 does not link to shifts at all, and the website expense form does not pass it. Result: a cash expense paid from the drawer during a shift is not deducted from the expected cash, so the close screen shows a shortage equal to that amount.
+- Why it matters more now: owner decision - expenses are NOT in the mobile app; the owner records expenses only on the website. So no cashier-side path can attach an expense to a shift.
+- Status: OPEN, priority HIGH, to be fixed before the free car wash pilot (task T8 below).
+- Design options to bring to architectural review (NO implementation before the exact approval message "Approved - Proceed with Implementation", per api/CLAUDE.md Execution Gate, because options 1 and 2 touch the database schema):
+  1. Link on the server: when a CASH expense is recorded, attach it to the open shift of the same branch (at the expense date/time) and subtract it in the expected-cash calculation; define behaviour when no shift is open or several are.
+  2. A small "cash out" record inside the shift (amount, reason, by whom) shown in shift close, separate from the full expense module.
+  3. Mark expenses with a payment source (drawer vs bank/other) and only drawer expenses reduce expected cash.
+- Related open items in the same area: S1 (no unique open shift per cashier), S2 (open-session check ignores cashier and branch), S4 (no refunds or cash movements in expected cash), S5 (wallet/mada/visa not counted), S6 (close not atomic). They should be reviewed together with S3.
+
+### B. Android app scope (owner statements)
+- Goal: initial app for a free pilot at a car wash, developed later into a professional global SaaS app (15-20 year horizon).
+- Platform: Android now; iPhone maybe later, maybe never. Recommendation given by the assistant: native Android in Kotlin with Jetpack Compose (strongest for Sunmi hardware, official Sunmi SDK is native), backend Sefay stays the source of truth so iPhone can be added later (Kotlin Multiplatform or Swift). The owner has NOT yet explicitly confirmed Kotlin; the earlier documented plan (STATUS.md section 13, pos_m = React Native + Expo) is still the written record until the owner confirms.
+- Expenses are NOT part of the app. Expenses are recorded by the owner on the website only (expenses-v2). The sidebar already points to /dashboard/expenses-v2/expenses (changed 2026-11-08).
+- App screens for the first version: login, open shift, cashier/POS (service grid by vehicle size, plate number, cart), payment (cash/card/split), receipt + print, close shift, and a car queue board (waiting / washing / ready). Not in the first version: expenses, offline mode, native back-office screens.
+- UI direction: an AI-generated mockup (ChatGPT image) was reviewed 2026-11-08: navy + teal, RTL Arabic, English numerals, six screens + dark variant. Missing items noted: queue board, cart editing, assigned worker per service (needed for commission), customer/discount/loyalty, price change per vehicle size, error states (printer out of paper, offline, payment failed), larger text. Small texts in the image are generator errors and are not specifications.
+- Printing method: see STATUS.md section "Sunmi Printing - researched method and decisions (2026-11-08)".
+
+
+
+---
+
+<!-- DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09 -->
+## Architecture review (proposal only, NOTHING implemented): Register = Shift, daily close report, returns/cancellations, tenant-timezone day
+
+Status: REVIEW MODE per api/CLAUDE.md Execution Gate. No migration, DDL, backend or frontend code until the exact message "Approved - Proceed with Implementation". Provenance: owner statements 2026-11-09 plus the runtime test (TASKS.md POS-RUNTIME-TEST-2026-11-09).
+
+### 0. Owner decisions recorded (2026-11-09)
+1. Shifts are KEPT but merged with the register: the cashier sees ONE concept ("الصندوق / Register"); open register = open shift, close register = close shift. The Shifts page stays as an owner review log.
+2. Closing the register = a reconciliation screen: the cashier enters what was counted per payment method (cash, mada, visa, mastercard, others in use), the system closes it, then offers Print and Share PDF (WhatsApp). That PDF is the daily report.
+3. Report content: invoice count, items/services sold count, sales per payment method, recorded vs expected vs difference per method, discounts, tax, cancelled and returned documents, cash expenses, who/when opened and closed.
+4. Add an explicit "Returns / Cancellations" figure so every report shows it clearly.
+5. Open question (not yet answered by the owner): one register per cashier, or several cashiers on one register in the same day.
+
+### 1. Architectural audit (verified in code or by runtime test)
+- No separate cash-drawer entity exists. "Close Register" in POS calls POST /shifts/:id/close; "Open Cash Drawer" only logs an event (useOpenDrawer -> shifts.api openDrawer).
+- Shift summary buckets only cash and card (split order shares) - mada/wallet/visa/mastercard/apple/stc payments fall in no bucket (runtime: cash + card 105.80 vs total 123.05). Defect N1/S5.
+- Closing cash is a single number; no per-method counted amounts exist.
+- Cancellation exists (PATCH /invoices/:id/cancel, status 'cancelled', reason stored only in audit data); no sales return / refund document exists (the "return" tables in migrations are WMS, unrelated). A cancelled cash sale is excluded from the summary (verified) but nothing shows it as a figure.
+- Expenses reach expected cash only if expenses.shift_id is set; expenses-v2 does not set it (S3, owner decision: must be fixed).
+- Reports/dashboard day boundary is UTC (runtime: orders at 00:45 local counted on the previous day). Shift summary itself is not date-based, so it is unaffected; daily report by calendar date would be.
+- Open-shift checks: per user only, no unique index (S1/S2), close not atomic (S6).
+
+### 2. Proposed business rules
+R1. One open register per cashier per branch (partial unique index) - or per branch if the owner says several cashiers share one (decision pending).
+R2. Close requires counted amounts for every payment method that had sales in the session, plus cash; counting happens BEFORE the expected figures are shown to the cashier (blind count), expected/difference shown after submit. Owner can configure "show expected before count" later (not now).
+R3. Expected cash = opening cash + cash sales + cash share of split - cash returns/refunds paid out - cash expenses taken from the drawer - cash-outs. Expected for every other method = sum of its completed sales (+ split card share) - returns on that method.
+R4. Cancelled and returned documents are never part of sales totals; they are reported as separate counts and amounts ("Cancelled: n / amount", "Returned: n / amount") in the close report, the Orders page and the dashboard.
+R5. A cancelled invoice that was paid in cash reduces expected cash only if the cancellation happens in the SAME open register session before close; if cancelled after the session closed it is recorded as a return in the CURRENT open session (cash paid back) - rule to confirm with the owner.
+R6. Cash expenses link to the open register of the branch at the expense time (design option 1 of T8); an expense with no open register is blocked for cash source or recorded as "unassigned" and flagged (to decide).
+R7. Day boundaries (dashboard, reports, daily report) use the tenant/branch timezone, not UTC.
+R8. The daily report is generated from the CLOSED session snapshot and is immutable; a reprint shows the same numbers. Report number format uses English numerals; labels follow the user locale.
+
+### 3. Proposed data design (to be reviewed, not created)
+- shifts (existing) gets: closed_by, close_notes, counted_by_method jsonb or a child table shift_counts(shift_id, payment_method, counted, expected, difference, tenant_id, deleted_at), totals snapshot columns (invoice_count, items_count, cancelled_count/amount, returned_count/amount, discount_total, tax_total) filled at close.
+- Prefer the child table shift_counts for per-method rows (queryable, tenant-isolated, grants + deleted_at per the new-table checklist).
+- Sales return: new document returns (id, tenant_id, order_id, shift_id, amount, method, reason, created_by, created_at, deleted_at) + items child - ONLY if the owner wants partial returns now; otherwise phase 1 treats "return" = full cancellation with reason and the refund method recorded.
+- orders: add cancelled_at, cancelled_by, cancel_reason columns (today the reason lives only in audit data).
+- tenants (or branches): timezone column (default Asia/Riyadh) used by report queries.
+- expenses: payment_source (drawer/bank/other) + shift_id filled automatically for drawer cash expenses (T8).
+- Partial unique index on shifts (tenant_id, cashier_id) WHERE status='open' AND deleted_at IS NULL (S1); close as a single DB function (S6), taking a row lock on the shift.
+
+### 4. State machine
+register session: (none) --open--> OPEN --begin_close--> COUNTING (optional, UI-only) --submit counts--> CLOSED (snapshot written, report available) ; CLOSED is terminal. Re-open by owner only, with audit and reason (to decide; default: not allowed).
+Order: draft/held -> completed -> cancelled (terminal) ; return = a separate document attached to a completed order (phase 2).
+
+### 5. Report / PDF
+- One report model (server-built, from the closed snapshot). Outputs: on-screen, browser print (58/80 mm and A4), PDF download, share (Web Share API on Android Chrome; elsewhere download then manual send). No WhatsApp API integration in phase 1.
+- Arabic and English, English numerals only.
+
+### 6. Migration matrix (proposed; numbers assigned at implementation)
+| Item | Change | Risk |
+|---|---|---|
+| shifts | snapshot columns, closed_by, partial unique open index | existing duplicate open shifts must be cleaned first |
+| shift_counts | new table + GRANT service_role + deleted_at | none |
+| orders | cancelled_at/by/reason | backfill from audit logs optional |
+| returns (+items) | only if partial returns approved | new module, bigger scope |
+| tenants/branches | timezone column + report queries use it | touches several report endpoints |
+| expenses | payment_source + auto shift_id | UI form change on website |
+| fn_close_shift | atomic close function (drop old signature first if overloaded) | Postgres overload gotcha |
+
+### 7. Rollout order proposed (each fully finished before the next)
+1) Timezone + N1 (all payment methods in summary) - lowest risk, high value. 2) Close-with-counts + report PDF/print. 3) Cancellation fields + returns/cancelled figure in all reports. 4) S1/S2/S6 hardening (unique open shift, atomic close). 5) T8/S3 expenses link. 6) Partial returns document (only if approved).
+
+### 8. Open questions for the owner
+Q1 one register per cashier or shared per branch? Q2 which payment methods must be counted separately (mada, visa, mastercard, others)? Q3 blind count (recommended) or show expected first? Q4 partial returns now or full cancellation only? Q5 may the owner re-open a closed register? Q6 cash cancellation after the session closed: paid back from the current session (R5)?
+
+
+<!-- DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09-OWNER-ANSWERS -->
+### Owner answers to Q1-Q6 (2026-11-09) - still review mode, nothing implemented
+- Q1: one register PER CASHIER (partial unique open index per tenant+cashier, per branch as designed).
+- Q2: payment methods counted separately at close: cash, mada, visa, mastercard (others, e.g. wallet/stc/apple, still need a bucket so totals reconcile - to confirm "other").
+- Q3: BLIND count (cashier enters counts, then sees expected and difference).
+- Q4: PARTIAL returns are in scope now -> new returns document (+items) is part of phase 1, with refund method per return.
+- Q5 / Q6: owner asked for a recommendation. Recommended (pending owner confirmation): Q5 NO re-open of a closed register; the owner records a signed ADJUSTMENT line (amount, reason) attached to the closed session, original report unchanged. Q6 a cash refund after the original register closed is paid from the CURRENT open register as a return linked to the original invoice; blocked if no register is open; card refunds do not touch cash.
+
+
+<!-- DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09-Q5-UPDATE -->
+### Q5 updated by owner (2026-11-09): re-opening a closed register IS allowed
+Owner view: the report screen can be dismissed without sharing, so re-open is acceptable. Replaces the earlier "no re-open" recommendation. Proposed guards (to confirm at implementation): owner-only, mandatory written reason, only when the same cashier has no newer register session, audited, and the re-closed report carries a revision number (Revision 2) and an "amended" mark so it is distinguishable from a report already shared. Adjustment lines are not needed in phase 1. Q6 still awaiting owner confirmation (recommended: cash refund after the original register closed is paid from the current open register, blocked if none is open).
+
+
+<!-- DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09-Q5-Q6-FINAL -->
+### Q5 and Q6 FINAL (owner, 2026-11-09) - supersede the Q5 update above
+- Q5: NO re-open. A closed register is terminal; opening a register again starts a NEW session from zero. Corrections are made with ADJUSTMENT LINES (owner only): amount (+/-), payment method, mandatory reason, linked to the closed session, shown in that session's report in a separate section; the original counted/expected figures never change. Adjustments are part of phase 1 (new table shift_adjustments with tenant_id, shift_id, payment_method, amount, reason, created_by, created_at, deleted_at, service_role GRANT).
+- Q6: YES. A cash cancellation/return after the original register closed is deducted from the CURRENT open register as a return linked to the original invoice; blocked when no register is open. Card refunds do not touch cash.
+- All six questions are now answered. Remaining gate: the exact message "Approved - Proceed with Implementation" (and the written phase order in the design review).
+
+
+<!-- DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09-Q5-FINAL-2 -->
+### Q5 FINAL-2 (owner, 2026-11-09) - supersedes the adjustment-lines decision above
+- A closed register is final: NO re-open and NO adjustment lines (shift_adjustments is cancelled, not part of any phase). Example from the owner: cashier opens at 5 PM, closes at 12 midnight and sends the report; that report never changes. If someone opens a register at 1-2 AM it is a NEW independent session (opens normally, enters POS), and closing it without sales shows zeros.
+- Q6 unchanged: cash cancellation/return after the original register closed is deducted from the CURRENT open register, linked to the original invoice, blocked if no register is open.
+
+
+<!-- DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09-REPORT-OPTIONAL -->
+### Report sharing is OPTIONAL (owner, 2026-11-09)
+Closing the register never requires printing or sharing. Print / Share PDF are optional buttons after close; dismissing the window completes nothing extra. The closed-session report is stored with the session so it can be printed or shared later from the closed registers log.
+
+
+<!-- PHASE-1-IMPLEMENTED-2026-11-09 -->
+## Phase 1 implemented (2026-11-09) after the exact approval message "Approved - Proceed with Implementation"
+Scope (design review DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09, rollout item 1): tenant-timezone day boundaries + all payment methods in the shift summary. No migration (tenants.timezone already exists, default Asia/Riyadh). Local only: NOT committed, NOT pushed, NOT deployed (Railway is offline anyway).
+- New: src/shared/time/tenant-time.util.ts (+ spec, 7 tests): localDayBoundIso, localDateOf, startOfLocalToday, safeTimezone.
+- reports.service.ts: getTenantTimezone (10 min cache); getDateRange is now async and tenant-timezone aware (bare custom dates = local days; TODAY = local midnight; returns tz); called AFTER the branch-scope check so a rejected branch still runs zero queries; revenue and tax by-day buckets use localDateOf; sparklines (7 local days, bucketing) and getDailyReconciliation (date omitted = today in tenant tz, response date = resolved local day) use the tenant timezone. reports.controller.ts: daily reconciliation no longer defaults the date to the UTC day.
+- shift.engine.ts (defect N1/S5): totalCard now = every non-cash method + split card share, so cash + non-cash = total sales; new byMethod breakdown (split shown as split_cash / split_card); expected cash unchanged. New spec (5 tests) reproduces the 2026-11-09 runtime figures (cash 67.42, non-cash 55.63, total 123.05).
+- Tests updated for intended behaviour changes only: custom bare dates now return UTC instants with Z, churn tests count one extra query (tenant timezone lookup), fakes default the tenant to UTC; 2 new Riyadh boundary tests. Result: tsc clean, reports + shifts + engines + time = 124 tests passed.
+- Not touched on purpose: HR audit summary and attendance "today" (UTC), other UTC date usages outside the revenue/dashboard/daily-report path.
+- Not verified at runtime (owner reviews): dashboard Nov 9 now non-zero for sales after midnight local; closed shift summary Card Sales shows 55.63 (cash 67.42 unchanged).
+
+
+<!-- PHASE-2-IMPLEMENTED-2026-11-09 -->
+## Phase 2 implemented in code (2026-11-09): close the register with per-method counts + PDF report
+Owner-approved design (DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09). Local only: NOT committed, NOT pushed, NOT deployed. **Migration 251 is written but NOT applied to the live database** (the auto-mode classifier denied `npm run migrate`; the owner must run it). Until it is applied, closing a register fails (the new code writes shifts.closed_by / close_notes / report_snapshot and the shift_counts table).
+- Migration 251_shift_close_counts_report.sql: shifts + closed_by, close_notes, report_snapshot (jsonb); new table shift_counts (tenant_id, shift_id, payment_method cash|mada|visa|mastercard, counted, expected, difference, deleted_at, UNIQUE(shift_id, payment_method), RLS policy, service_role GRANT). Only 251 was pending at check time (249 applied vs 250 local before it).
+- shift.engine.ts: COUNTED_METHODS, CloseReport types, buildCloseReport (expected per method; cash expected = opening + cash sales + split cash share - approved expenses; mada/visa/mastercard = their sales; "other" = the remaining non-cash incl. wallet/apple/stc and the split card share, expected-only so rows add up to total sales; missing counts = 0). Blind count: the close request carries counts, expected/difference are computed server-side.
+- shifts.service.ts: closeShift parses/validates counts (unknown method or negative -> 400; legacy closing_cash still accepted), builds and stores the immutable report snapshot, stores shift_counts rows, records closed_by, close is guarded on status='open' (double close matches no row -> "Shift already closed"); new getShiftReport (closed shifts only; shifts closed before phase 2 get a legacy report built on demand) and getShiftReportPdf. New routes: GET /shifts/:id/report (JSON) and GET /shifts/:id/report.pdf?lang=ar|en (real PDF), both permission shift.view.own.
+- PDF: puppeteer-core (new dependency; headless Chrome renders HTML to a one-page PDF, 105 mm wide; Arabic shaping and bidi verified visually on a real render with Arabic branch/cashier names). Chrome path: PUPPETEER_EXECUTABLE_PATH / CHROME_PATH, common paths, then PATH. nixpacks.toml now also installs chromium and noto-fonts (Railway deploy config changed; if hosting moves, the server needs Chromium + an Arabic font).
+- Web: CloseShiftModal = 4 count fields (cash, mada, visa, mastercard), no expected amounts shown; after closing, ShiftReportModal shows the report with Print (hidden iframe print of the server PDF) and Share PDF (Web Share API with the file on Android Chrome/Sunmi; otherwise the PDF downloads); a Report action on every closed register in the history list; ShiftReportHost mounted once in DashboardLayout (zustand shift-report.store) so the report survives the POS screen switching to "register closed". N2 fixed (summary refetched; summary cache dropped on close). New messages in messages/{en,ar}/shifts.json.
+- Tests: tsc clean (api and web), eslint clean on the changed web files, jest shifts + engines + time + reports = 135 passed (new: engine close-report tests, report HTML tests incl. escaping, English numerals and timezone).
+- Not verified at runtime (owner reviews): the full close flow in the browser, WhatsApp share on a real Android device, print from the dialog, the report button in the history list. The legacy report path for old closed registers needs no migration and can be tried first.
+- Not done by design (later phases): cancellation fields/returns document (phase 3), unique open register + atomic close function (phase 4), expenses link (T8/S3, phase 5), partial returns (phase 6).
+
+
+<!-- PHASE-2-I18N-CORRECTION-2026-11-09 -->
+### Phase 2 correction (2026-11-09): hardcoded report labels moved to the language files
+The owner pointed out that the docs forbid hardcoded user-facing text (web/docs/architecture/backend-architecture.md rule 7 "I18n mandatory - no user-facing text hardcoded. All through I18nService"; STATUS.md "Internationalization: Translation Keys only"). The first version of the register-close PDF template had its Arabic/English labels hardcoded in src/modules/shifts/report/shift-report.html.ts. Fixed: labels now live in src/core/i18n/locales/{ar,en}/shift_report.json, I18nService got the namespace and a bundle() method (English fills missing keys), the template receives the labels as a parameter, and a test asserts both files have exactly the same keys. The web side already used messages/{en,ar}/shifts.json. tsc clean; shifts + engines + i18n = 24 tests passed.
+
+
+<!-- PHASE-3A-IMPLEMENTED-2026-11-09 -->
+## Phase 3a implemented in code (2026-11-09): order cancellation fields + cancelled figure in reports
+Owner order "start phase 3". Phase 3 is split in two because the partial-return document (3b) posts to the accounting ledger and moves stock; its accounting/stock design is presented to the owner before any code. Local only: NOT committed/pushed/deployed. **Migration 252 is written but NOT applied** (auto-mode classifier denied `npm run migrate` again, even with the allow rule the owner created in api/.claude/settings.local.json). The new code reads/writes the new columns, so the Orders list and cancel fail until 252 is applied.
+- 252_order_cancellation_fields.sql: orders + cancelled_at, cancelled_by (users), cancel_reason; backfill of the 5 existing cancelled orders from their latest 'invoice.cancel' audit row; partial index on (tenant_id, cancelled_at) WHERE cancelled. Additive only.
+- invoices.repository.ts: cancel() and cancelPooled() now persist cancelled_at / cancelled_by / cancel_reason (the reason is trimmed, empty = NULL); ORDER_SELECT returns cancelled_at, cancel_reason. invoices.service.ts passes dto.reason through. Accounting reversal and stock restock behaviour untouched.
+- reports.service.ts getRevenueReport: summary now also carries cancelled_orders and cancelled_total (same period and branch scope; never part of revenue). The shift close report already carried cancelled count/amount (phase 2).
+- Web: Order type gets the three fields; OrderDetailsModal shows a Cancellation block (time, reason or "no reason recorded") for cancelled orders; messages/{en,ar}/orders.json keys added (no hardcoded text).
+- Tests: tsc clean (api + web), eslint clean on web orders; jest invoices + reports = 126+ passed (2 existing cancel-call expectations updated for the new reason argument; 1 new cancelled-figure test).
+- Not verified at runtime: owner reviews.
+
+
+<!-- PHASE-3B-IMPLEMENTED-2026-11-09 -->
+## Phase 3b implemented in code (2026-11-09): partial sales returns
+Owner approved the design ("اعتمد التصميم وابدأ 3ب"): return = document on a COMPLETED order, partial by line and quantity, several returns per order until everything is returned; only the returned quantities go back to stock; one journal entry per return reverses revenue + tax proportionally (+ COGS/inventory when stock was deducted) ONLY when the order itself was posted to Accounting; refund: cash is paid from the CURRENT open register (blocked when none), non-cash goes back to the original method and never touches the drawer, a split order's refund is split in the sale's own cash/card proportion; reports show returns apart from sales. Local only: NOT committed/pushed/deployed. **Migration 253 is written, NOT applied** (the owner must run `npm run migrate` from C:\Fp\api; it must be applied before the new API is started, because the shift summary and return routes read sales_returns).
+- 253_sales_returns.sql: tables sales_returns + sales_return_items (tenant_id, deleted_at, RLS policy, service_role GRANT, indexes), registers ('sales','sales_return') in financial_event_source_types (REQUIRED by the journal FK fk_journal_entries_source - found by the local test), and fn_create_sales_return(tenant, order, actor, shift, reason, items jsonb, dry_run) - one atomic function: validation, rows, stock restock via fn_apply_stock_movement 'sale_return' + fn_add_cost_layer at the original sale cost, journal entry via fn_post_journal_entry. Refund = returned share of (subtotal - discount) and of tax; the return that completes the order takes the exact remainder so refunds can never exceed the order total. p_dry_run returns the amounts without writing (UI preview).
+- Verified on a LOCAL scratch Postgres (all migrations 001-253 applied; the throwaway DB is dropped): partial return 9.00 + 1.35 = 10.35 with stock +1 and a balanced 5-line entry (Dr revenue/tax/inventory, Cr cash/COGS); completing return = exact remainder (cumulative 51.75); split refund 12.00 cash / 19.05 card to cash and bank accounts; over-return, cancelled order, foreign item, cash refund without open register all rejected; order not posted to Accounting = return recorded with no journal entry and no restock when the sale deducted no stock.
+- API: new module src/modules/sales-returns (routes GET/POST invoices/:id/returns and POST invoices/:id/returns/preview; permission invoice.cancel / invoice.view, no new permission; calls the function through Supabase RPC so it needs no DATABASE_URL pool; P0001 database rejections become 400 with their message; audit action invoice.return; invoice list cache invalidated). InvoicesService.cancel now refuses an order that has returns (the cancel path reverses the WHOLE sale and would double-reverse).
+- Register effects: ShiftsRepository.getShiftReturns; ShiftEngine.buildShiftSummary takes returns: cash refunds reduce expected cash, non-cash refunds are tracked per method (split card share = split_card); close report rows gain a returns column (expected = sales - returns), totals gain returned_count / returned_amount; revenue report summary gains returned_orders / returned_total. PDF template + core/i18n shift_report.json (ar/en) updated; visually checked.
+- Web: Orders table gets a "Return items" action for completed orders (ReturnOrderModal: lines with returnable quantities, stepper, reason, live server-side preview of the refund and where it is paid from); shift report modal shows the returns column and total; messages/{en,ar}/orders.json (returns.*) and shifts.json keys added.
+- Tests: tsc clean (api + web), eslint clean (web orders + shifts); focused jest (reports, sales-returns, invoices, shifts, engines, i18n, time) = 171 passed. The full api suite shows 4 failures in live-DB regression specs under database/migrations/__tests__ (MRP, pick lists, waves, amendments) that vary run to run and touch nothing changed here.
+- Not done / known limits: serial-number return transitions and loyalty/coupon reversal on partial returns (the existing cancel path does not reverse loyalty either); no printed return slip yet; the Nest return routes were not run end-to-end against the live database (they need migration 253 first).
+
+
+<!-- TASKS-T10-T11-2026-11-09 -->
+## Owner orders 2026-11-09 recorded in the repair plan (see TASKS.md T10, T11) - nothing started
+- T10: reports page shows wrong / disorganised figures -> needs an audit first (which figures, expected values), then design review, then fixes; part of it is already covered by T9 phases 1, 3a, 3b.
+- T11: payment methods become per-tenant settings that can only be switched on/off (cash always on); POS, API validation and the register-close counts follow the enabled list; design review first (schema change).
+
+
+<!-- T10-REPORTS-AUDIT-2026-11-09 -->
+## T10 reports audit done (2026-11-09), results in TASKS.md "T10 - Reports audit results"
+Real ReportsService run read-only on the live demo tenant and compared with independent SQL. Wrong or misleading: expenses read from the old `expenses` table instead of `expenses_v2` (R1); COGS counts every 'sale' stock movement incl. automated test rows (R2); split orders hide cash/card in the payment breakdown (R3); dashboard "Net Profit" and Orders-page "Today's Revenue" are not what they say (R4, R5); employee and branch sections omit orders without a cashier / of a deleted branch (R6); tax section hides the discount (R7); "discrepancy" means absolute in one place and signed in another (R8). Nothing was changed. Disclosure: the full jest run executed this session wrote regression-spec test rows into the live demo tenant (not deleted; owner approval needed to clean).
+
+
+<!-- T10-FIXES-IMPLEMENTED-2026-11-09 -->
+## T10 reports fixes implemented in code (2026-11-09, after "Approved - Proceed with Implementation" and the decision "expenses before VAT")
+Local only: NOT committed/pushed/deployed. No migration (reports only). Audit: TASKS.md "T10 - Reports audit results".
+- R1 expenses: getExpensesReport, daily reconciliation and the 7-day sparklines read expenses_v2 (amount BEFORE VAT, expense_date, approval_status approved|accepted counted as approved, pending_action pending, cancelled_at IS NULL). Result on the demo tenant: 0 expenses (all 35 expenses_v2 rows are cancelled; the old table's 139,110 is no longer used). The register's own expected-cash expenses (shifts.repository.getShiftExpenses) still read the old table: that is T8/S3.
+- R2 COGS: only 'sale' movements tied to an order minus 'sale_return' (order or sales_return), so test rows and stray movements are excluded; margin computed on NET revenue (after discounts, without VAT, minus returns' net_amount). Demo tenant: cost 1,106 on net revenue 52,661.10 (97.9%); 9 Nov cost 38 on 107 (64.5%) instead of 7.55M / 200,624.
+- R3 split: new reports/payment-parts.ts decomposes a split order into its cash and card shares; used by revenue, payments and daily reconciliation; legacy split orders without shares are 'split_unallocated' (demo: 35,688.38 on 8 orders). 9 Nov: cash 67.42 (= the register's expected cash), card 38.38, mada 11.50, wallet 5.75.
+- R4 dashboard: revenue summary gains net_revenue (without VAT) and net_revenue_after_returns; Net Profit = net revenue - COGS - expenses (dashboard now also loads the COGS report). R5: Orders page "Today's Revenue" uses the revenue report for today.
+- R6: employee report adds an unassigned row (cashier_id null) and the branch comparison adds an unassigned/deleted-branch row, so both add up to total revenue (demo: 370.00 and 200.00 were missing). R7: tax report gains total_discount and net_subtotal; the page shows subtotal / discounts / tax / total that add up. R8: shifts report and daily reconciliation expose shortage_total, overage_total (net signed kept); R9: daily reconciliation shows cancelled and returned counts/amounts. R12: a missing sales_returns table no longer breaks the revenue report / dashboard.
+- R11 page: ReportsPage regrouped (Sales, Cash and registers, Costs, People, Branches) by moving the existing blocks; new labels (net revenue, before VAT, unassigned, shortage/overage, cancelled/returns); messages/{en,ar}/reports.json and orders.json (payment_method.split_unallocated).
+- Verified: tsc clean (api + web), eslint clean (web reports/orders/dashboard pages), jest reports + sales-returns + invoices + shifts + engines + i18n + time all passing (reports 122 + new payment-parts spec); the real service re-run on the live database confirmed the figures above. Not verified in the browser (owner reviews).
+- Not changed: R10 (order 8a61d19f data oddity), the legacy test rows in stock_movements (deletion needs the owner's approval), COGS is still not filtered by branch (pre-existing, documented in code).
+
+
+<!-- PHASE-4-IMPLEMENTED-2026-11-09 -->
+## Phase 4 implemented in code (2026-11-09): register integrity (S1, S2, S6)
+Owner order "start phase 4" (design review DESIGN-REVIEW-REGISTER-CLOSE-2026-11-09, rollout item 4). Local only: NOT committed/pushed/deployed. **Migration 254 is written, NOT applied** (the owner runs `cd C:\Fp\api; npm run migrate`; that applies 253 and 254 together, 253 first). The new code calls fn_close_shift, so closing a register fails until 254 is applied.
+- 254_register_integrity.sql: (S1) UNIQUE partial index uq_shifts_one_open_per_cashier (tenant_id, cashier_id) WHERE status='open' AND deleted_at IS NULL (live check: 6 open registers, no duplicates, so creation is safe); (S2) trigger fn_orders_require_open_shift: an order becoming 'completed' with a shift_id must reference an OPEN register of the SAME tenant, cashier and branch (FOR SHARE lock on the register; orders without shift_id, held/pending orders and other status changes are untouched; the existing 130 shift-less completed orders are unaffected); (S6) fn_close_shift: locks the register (FOR UPDATE), rejects an already closed one, compares the activity fingerprint (completed orders count/total + returns count/total) with what the caller computed its figures from (SHIFT_ACTIVITY_CHANGED otherwise) and writes the closing + per-method shift_counts in ONE transaction; tolerates a missing sales_returns table.
+- Verified on a LOCAL scratch Postgres (all migrations 001-254; dropped afterwards): second open register for the same cashier rejected (unique_violation), another cashier can open one; sale on another cashier's register and on another branch rejected; valid sale, shift-less order and held order accepted; stale fingerprint rejected with nothing written; correct close writes shift + counts + snapshot; double close rejected; sale on the closed register rejected; new register can be opened after close; REAL concurrency test with two sessions: the close waited 2.8 s for a sale transaction to commit, then refused with SHIFT_ACTIVITY_CHANGED and left the register open with the sale counted.
+- Service: openShift maps the unique violation to a clean 400; assertOpenSession(tenant, shift, cashier, branch) now also requires the register to belong to the cashier and branch (invoices.service.create passes them); closeShift retries up to 3 times when the activity changed, then a clear 400, and uses repo.closeAtomic (fn_close_shift via RPC) instead of the old update + counts steps (repo.close/addCounts removed); getCurrentShift returns the register OPENED BY THE USER (it used to return the branch's latest open register whoever opened it, which would have shown "register open" to a manager and then rejected his sales).
+- Tests: new shifts.service.spec.ts (assertOpenSession, open, close incl. retry/give-up/already-closed/not-owner, getCurrentShift); tsc clean; jest shifts + invoices + engines + sales-returns + reports + i18n all passing. Lint of the api shifts module reports many pre-existing style errors (not part of CI, which runs install + build only).
+- Known limit: a sale rejected by the database trigger surfaces as the raw NO_ACTIVE_CASH_SESSION error (backstop only; the service check normally answers first). Not run in the browser (owner reviews).
+
+
+<!-- APP-SALE-FLOW-2026-11-09 -->
+## Owner spec of the cashier app sale flow recorded (see TASKS.md APP-SALE-FLOW-2026-11-09); gaps vs web POS: auto print not wired, no post-sale invoice comment, payment methods not configurable (T11), plate not stored on the invoice, no ZATCA QR. ChatGPT UI prompt saved in api/docs/APP_UI_PROMPT.md.
+
+
+<!-- APP-DECISIONS-LOCKED-2026-11-09 -->
+## App: identity locked + Kotlin/Compose confirmed (2026-11-09). Architecture review: api/docs/APP_ARCHITECTURE_REVIEW.md (gaps G1-G9; the old pos_m React Native plan is superseded for the app). Pilot order stays: phase 5 (T8), T12, T13/printing, backend gaps for the app, then the app.
+
+
+<!-- APP-DESIGN-REFERENCE-FOLDER-2026-11-09 -->
+## App design reference saved: C:\Fp\sefay-app-design\ (final/ 10 locked boards + earlier-iterations/ 4 + README.md). Details in TASKS.md APP-DESIGN-REFERENCE-FOLDER-2026-11-09.
+
+<!-- WASH-QUEUE-2026-11-09 -->
+## Car-wash queue (G5) + car-ready hook (G9) - 2026-11-09 (owner approval received)
+
+**Done**
+- Migration `256_wash_queue.sql`: tables `wash_jobs`, `wash_job_events` (tenant_id, deleted_at, RLS `tenant_session_isolation`, service_role GRANT, added to the `supabase_realtime` publication when it exists). Functions `fn_create_wash_job` (validates branch/order/customer/worker belong to the tenant; queue number per branch per UTC day under an advisory lock), `fn_wash_job_transition` (row lock + state machine: waiting>washing>ready>delivered, waiting|washing>cancelled, ready>washing only with `p_allow_rewash`), `fn_wash_job_assign`. Every change writes a `wash_job_events` row.
+- Module `src/modules/wash-queue`: `POST /wash-queue`, `GET /wash-queue/board?branch_id&date`, `GET /wash-queue/:id` (with history), `PATCH /wash-queue/:id/status`, `PATCH /wash-queue/:id/worker`. Registered in `app.module.ts`.
+- Permissions: no `queue.*` permission invented; reads use `invoice.view`, writes use `invoice.create`. Re-wash additionally needs role superadmin/owner/manager (checked in the service and again in the DB function flag).
+- G9: `CarReadyNotifier` interface (`car-ready-notifier.ts`, token `CAR_READY_NOTIFIER`), default `LogCarReadyNotifier` (log only). When a job becomes `ready` the service calls `notify()`; if it returns true `ready_notified_at` is stamped; a throwing/false notifier never blocks the status change. To plug SMS/WhatsApp/push later: implement the interface and change `useClass` in `wash-queue.module.ts`. NO provider integrated (provider + consent undecided).
+- Web: `/dashboard/queue` page (waiting / washing / ready columns, plate, worker select, elapsed time, advance / cancel / re-wash buttons, add-car form), feature `src/features/queue`, messages `messages/{en,ar}/queue.json` registered in `src/i18n/request.ts`, sidebar entry `washQueue` (sidebar label in root `en.json`/`ar.json`), entry in `nav.config.ts`, shown for the `carWash` activity and the all-activities demo sidebar. Live updates: `RealtimeProvider` subscribes to `wash_jobs` and invalidates `['queue']`.
+
+**Verified**
+- Migration 256 applied (after all earlier ones) on a scratch Postgres DB `sefay_queue_test` (since dropped): numbering per branch (1,2 / 1 on another branch), cross-tenant branch and empty plate rejected, invalid/terminal transitions rejected, re-wash blocked without the flag and allowed with it, wrong-tenant job not found, assign/unassign, full event history.
+- `npx jest src/modules/wash-queue` 13 tests pass; `tsc --noEmit` clean in api and web; eslint clean on the new/edited web files.
+
+**Not verified**
+- No run against the live Supabase DB or a running API/web (no end-to-end HTTP or browser test); realtime publication behaviour only exists on Supabase (guarded in SQL, not exercised locally).
+- Orders are not auto-linked: a job can be created with an `order_id`, but the POS does not create jobs automatically.
+
+**Owner action:** apply migration 256: `cd C:\Fp\api; npm run migrate`.
+
+**Choices:** queue day = UTC calendar day; worker picker lists active users the viewer can read (needs users view permission, otherwise shows only existing assignments); sidebar label key lives in root messages because that is where the sidebar namespace is.
+
+
+<!-- PRINT-TEMPLATES-2026-11-09 -->
+## Print templates + invoice/kitchen designers (T13, printing tasks T1-T3) - 2026-11-09
+
+Provenance: implemented 2026-11-09 after the exact approval message; verified as listed below. Append-only.
+
+### Done
+- Migration `257_print_templates.sql`: `tenants.invoice_template` / `kitchen_template` (jsonb NOT NULL default `{}` = today's look) and nullable `branches.invoice_template` / `kitchen_template` (override; NULL or `{}` = none); CHECK constraints force a JSON object. Additive and idempotent. Table `orders` was NOT touched.
+- API module `src/modules/print` (registered in `app.module.ts`): `GET /print/invoice/:orderId[?tendered=]` (ONE payload: resolved template, business, items, totals, payments incl. split lines, cash tendered/change, cashier, customer, vehicle plate, note, `auto_print`, `qr_base64`), `GET /print/kitchen/:orderId[?all=true]` (items + quantities, NO prices; skips lines whose `kitchen_status` is preparing/ready/served, keeps null/pending; printing does not mark anything as sent), `GET|PATCH /print/templates/:kind[?branch_id=]` (strict validation on save, lenient repair on read), `DELETE /print/templates/:kind/branch/:branchId` (remove override), `POST /print/logo` (PNG/JPEG/WebP by magic bytes, max 1 MB, stored through `StorageService` under `{tenant}/print-logo/...`; the template keeps the storage path, the payload returns a fresh signed URL). Permissions: payloads `invoice.view`; template read `settings.view`; template write and logo `settings.manage`. Template changes are audited.
+- Template resolution: branch override (non-empty) REPLACES the tenant template as a whole; empty business fields fall back to the tenant columns (name, address (branch address before tenant address), phone, tax_number, logo_url, invoice_footer). Until a template is saved, `tenants.printer_settings.paper_width` still decides the paper width. `printer_settings.auto_print` is returned as `auto_print` in the payload.
+- ZATCA simplified-invoice QR (TLV, base64: seller name, VAT number, UTC timestamp without ms, total with VAT, VAT amount) generated ONLY when `qr_enabled` AND a tax number exists. Unit-tested against the published sample vector.
+- Web: `web/src/lib/print/*` = ONE renderer (`renderReceipt.ts`, print HTML with 58/80 mm and A4 CSS, English digits, RTL, bdi-wrapped numbers), `printReceipt()` (hidden iframe, waits for images, copies via page breaks), optional Sunmi driver (`sunmi.ts`), API client, `usePrinting` hooks, sample data for the previews. Settings: new pages `/dashboard/settings/invoice-designer` and `/dashboard/settings/kitchen-designer` (logo upload, business details, optional tax number, commercial register, footer, paper width, copies, blocks show/hide + order, QR toggle, per-branch selector, LIVE PREVIEW rendered by the same renderer, test print); links added in SettingsPage and the plain logo-URL box removed. ReceiptModal / OrderDetailsModal / OrdersPage now print through `printReceipt()`; auto-print (`printer_settings.auto_print`, decided from the payload) prints after a successful sale and returns to the product list; a "Kitchen" button prints the kitchen ticket from the receipt and from order details. New i18n namespace `print` (en + ar), registered in `web/src/i18n/request.ts`. New web dependency: `qrcode-generator` (QR drawing).
+- Not changed on purpose: `src/modules/shifts/**` (register-close PDF keeps the Sefay logo), shifts, expenses, auth, invoices, customers, wash-queue code.
+
+### Verified
+- `npx tsc --noEmit` in api and web: clean. Focused jest `src/modules/print` (TLV vector + Arabic, template defaults/validation/branch-vs-tenant resolution, payload shape, split payments, change, QR gating, kitchen filter without prices, logo guards): 21 tests passing. `eslint` on the new/changed web files: clean (the api module still has `no-unsafe-*` lint noise from `any` rows, same style as existing services).
+- Migration 257 on a LOCAL scratch database (`sefay_print_test`, container `supabase_db_api`, all migrations applied, only 073/074 failed as expected): defaults `{}` / NULL verified, non-object values rejected by the CHECKs, re-apply is idempotent; the scratch database was dropped. Nothing was written to the live database; `npm run migrate` and the full jest suite were NOT run.
+- Renderer smoke test (tsx): invoice with 2 copies + QR + tax number, kitchen ticket without prices.
+
+### NOT verified / open
+- Printing on a real Sunmi device (the Sunmi driver is UNVERIFIED and OFF by default: enabled per device with localStorage `sefay.print.driver=sunmi` and needs `window.SUNMI` from the JS USDK bundle; any failure falls back to browser print). Arabic shaping/RTL on thermal paper, 58 mm layout on a real printer, silent auto-print (browser print may still show a dialog; kiosk mode `--kiosk-printing` is the usual way).
+- No browser/UI run of the designer pages or the POS flow in this session (type-checked and renderer-tested only).
+- ZATCA: the owner/accountant must confirm that the QR is legally required for the tenant (phase 1 vs phase 2); only the phase-1 five tags are produced (no hash/signature).
+- The storage bucket named by `SUPABASE_STORAGE_BUCKET` must exist (STORAGE service note: none was provisioned) or logo upload fails. Signed logo URLs expire after 1 hour (a fresh one is signed on every payload).
+- Worker name on the receipt is `null` until the wash-queue migration stores a worker on the order; the vehicle plate is the customer's plate (no per-order vehicle yet, T12).
+- The cart (before payment) has no Kitchen button: a kitchen ticket needs a saved order id; dine-in orders are printed from order details, retail from the receipt.
+- Migration 257 must be applied by the owner: `cd C:\Fp\api; npm run migrate`.
+
+
+<!-- INVOICE-CUSTOMERS-2026-11-09 -->
+## Invoice / customers batch (2026-11-09) - T12 customer auto-recognition, G4 worker commission, G6 invoice note, T11/G8 payment methods per tenant
+
+Owner approval "Approved - Proceed with Implementation" (2026-11-09). NOT committed. **BLOCKER for use: migration 255 must be applied by the owner with `cd C:\Fp\api; npm run migrate`** (the code reads/writes the new columns; without it sales fail). Nothing was written to the live database.
+
+### What was built
+- Migration `255_customer_vehicles_worker_commission_payment_methods.sql`: `fn_normalize_phone` (digits only, last 9, Arabic-Indic and Persian digits mapped) and `fn_normalize_plate` (no spaces/dashes/underscores/dots, upper-case); `customers.phone_normalized` (trigger-maintained, UNIQUE per tenant where not null and not deleted); table `customer_vehicles` (tenant_id, customer_id, plate, plate_normalized UNIQUE per tenant where not deleted, size, model, colour, deleted_at, RLS policy, service_role GRANT); `customers.plate_number` migrated into it; `orders.vehicle_id / plate_snapshot / vehicle_size`; `order_items.worker_id / commission_rate / commission_amount`; `tenants.enabled_payment_methods` jsonb (default = all 10 current methods, CHECK: must be an array containing 'cash').
+- T12 API: `GET /customers/lookup?plate=&phone=` (permission customers.view; NOT limited by Customer Scope so a plate/phone is recognised at every branch), `GET/POST /customers/:id/vehicles`; invoice DTO accepts `customer_capture {phone, plate, size, name, custom_fields}` resolved server-side BEFORE loyalty/rewards (`CustomersService.resolveCapture`); idempotent (same phone/plate always resolves to the same rows, plus the existing sale_attempt_id check); phone of A + plate of B = 409 `customer_capture_conflict` (names of both customers in the body), no merge; a plate owned by another customer = 409 `plate_already_registered`; `orders.vehicle_id/plate_snapshot/vehicle_size` stored in both write paths (pooled and PostgREST) and returned by GET /invoices. The existing customer create form now also rejects a duplicate plate (409) and registers the plate as the first car; the old phone duplicate check now matches on the normalised phone.
+- G4: `worker_id` per invoice line; rate read server-side from `users.commission_rate` (active user of the tenant, otherwise 400 `invalid_worker`); `commission_amount = unit_price x quantity x rate` at the final server price, before invoice discount/tax; client-sent rates are ignored; fields exposed on GET /invoices/:id items. No report was changed.
+- G6: `PATCH /invoices/:id/note {note}` (permission `invoice.create`), edits only `orders.notes`, completed invoices allowed, empty text clears it, audited as `invoice.note` with before/after.
+- T11/G8: `GET /tenant/pos-config` returns `enabled_payment_methods`; `PATCH /tenant/profile` accepts it (400 if 'cash' missing); invoice create rejects a disabled method with 400 `payment_method_disabled` before any side effect ('cash' is never checked). 'split' is treated as its own method (owner can switch it off).
+- Web: `CustomerPickerModal` = ONE smart box (digits-only 7+ => phone, otherwise plate; 350 ms debounce; found => match card with visits / last visit / total spent and a car picker when there are several; not found => name search fallback + create form with phone, plate, size chips and the remaining custom fields; conflict => only "use the registered customer" (the plate owner) or "back to correct"); POSPage sends `customer_capture` and `worker_id`; CartPanel has a worker select per line (active users from `GET /users`; a role without access simply gets no picker); `PaymentModal` shows only enabled methods; Settings has on/off switches (cash locked on); `InvoiceNoteEditor` ("Add invoice note") on the receipt modal and on the order details modal (completed orders). All new text in `web/messages/{en,ar}/pos.json` and `settings.json`; numbers English digits.
+
+### Verified
+- SQL on a LOCAL scratch Postgres `sefay_inv_test` (all migrations 001-255 applied; 073/074 fail on the missing `auth` schema as expected): normalisation (+966 / 05 / Arabic-Indic / Persian digits => same 9 digits; plate `abc - 1234` => `ABC1234`), one customer with 2 cars, duplicate phone (different format) rejected, duplicate plate (other customer) rejected, soft-deleted plate reusable, 'cash' cannot be removed from enabled_payment_methods, orders + order_items with the new columns insert correctly. Database dropped afterwards.
+- Jest (focused only): `customer-recognition.spec.ts` (normalisation, lookup, resolveCapture idempotency / conflict / add car / race), `invoices-customers-workers.spec.ts` (disabled method 400, cash always allowed, capture => vehicle on the order in both write paths, 409 creates no order, commission snapshot both paths, invalid worker 400, note audited / cleared / 404). `npx jest src/modules/invoices src/modules/customers src/modules/tenants` = 6 suites, 102 tests pass. `npx tsc --noEmit` clean in api and web.
+
+### NOT verified / open
+- No end-to-end run against the live database or a browser (migration 255 not applied there; the new web screens were type-checked only, not clicked).
+- Vehicle size options (small / medium / large / extra large) are an assumption, stored as free text; the owner can change the list.
+- On a conflict the web offers the plate owner as "the registered customer" (the car being washed decides); the typed phone is dropped.
+- `GET /users` requires users access: a cashier role without it sees no worker picker (backend accepts worker_id regardless). Decide if a dedicated "workers" list endpoint is wanted.
+- The ReceiptModal / print layouts do not yet print the plate or the worker (print templates belong to the print-templates session).
+- TODO (T11, not touched: `src/modules/shifts/**` and `src/engines/shift-engine/**` belong to another session): register-close counted methods must follow `tenants.enabled_payment_methods` (cash + enabled of mada/visa/mastercard, others fold into "other"), and reports keep showing historical methods.
+- TODO (T12): customers module "edit customer" screen does not yet list/add cars (API exists: `GET/POST /customers/:id/vehicles`); a person with a second car is added through the smart box with the same phone + the new plate.
+
+
+<!-- PHASE-5-G1-INTEGRATION-2026-11-10 -->
+## Phase 5 (T8/S3) + G1 native auth done in code; parallel sessions integrated (2026-11-09/10)
+Owner sent the exact approval message again on 2026-11-09 for the remaining agreed items. Four parallel sessions ran (customers/vehicles/worker/note/payment methods = migration 255; wash queue = 256; print templates = 257; Android UI project C:\Fp\sefay-android) and the main session did phase 5 and G1. NOTHING is committed/pushed; migrations 255, 256, 257 are NOT applied to the live database (the owner runs `cd C:\Fp\api; npm run migrate`, which applies all three; the new api code needs them).
+- Phase 5 / T8 (S3): expenses_v2.create accepts optional shift_id (cash + paid only; the register must exist, be OPEN and in the expense's branch); the register's expected cash now reads expenses_v2 (shifts.repository.getShiftExpenses: register-linked, paid, approved, non-cancelled CASH expenses, amount = total_amount i.e. the cash that left the drawer, VAT included; reports stay before VAT); website expense form gets "Paid from register" (open registers, or "not from a register" for a safe/petty cash); messages en/ar; specs expenses-v2.register-link.spec.ts. No migration (expenses_v2.shift_id already existed).
+- G1: login/refresh accept "X-Sefay-Client: android": the refresh token is returned in the body and read from the refresh body (no cookie); web behaviour unchanged (cookie only, never a token in the body); auth.controller.native.spec.ts.
+- Integration check: tsc clean in api and web with all sessions' work; ALL migrations 001-257 applied cleanly in order on a local scratch Postgres (only the two expected local failures 073/074: missing auth schema); customer_vehicles, wash_jobs, sales_returns, tenants.invoice_template / kitchen_template / enabled_payment_methods, fn_close_shift and fn_create_sales_return exist. Scratch DB dropped.
+- Session reports (their own sections are in this file and TASKS.md): wash queue (13 tests; endpoints /wash-queue, board page /dashboard/queue; notifier is log-only, no SMS/WhatsApp provider; reads need invoice.view, writes invoice.create); print templates (21 tests; /print/invoice/:orderId, /print/kitchen/:orderId, templates + logo upload, invoice and kitchen designer pages, auto-print wired, qrcode-generator dependency added; NOT verified: Sunmi device, ZATCA legal need, storage bucket SUPABASE_STORAGE_BUCKET must exist); customers/vehicles etc. (T12, worker per line, invoice note, payment methods on/off; web screens type-checked only); Android UI (assembleDebug + 13 unit tests pass; screens with FAKE data; emulator was offline so nothing was seen on a device).
+- Environment note: Docker Desktop failed to start once ("Inference manager ... dockerInference") and was restarted by the owner; the Redis containers are stopped (start redis-local before running the api locally).
+
+
+<!-- MIGRATIONS-255-257-APPLIED-2026-11-10 -->
+## Correction (2026-11-10): migrations 255, 256 and 257 ARE applied on the live database (verified read-only: schema_migrations lists them and the new tables/columns exist). The "NOT applied" wording in the PHASE-5-G1-INTEGRATION section and in the parallel sessions' own sections was true when written; the owner ran `npm run migrate` afterwards. Only the api restart and browser tests remain (TASKS.md "Remaining after this round").

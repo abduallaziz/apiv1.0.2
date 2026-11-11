@@ -49,6 +49,7 @@ export class LocationsRepository extends ScopedRepository {
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       isActive?: boolean;
+      locationType?: string;
     } = {},
   ) {
     const page = options.page && options.page > 0 ? options.page : 1;
@@ -75,6 +76,15 @@ export class LocationsRepository extends ScopedRepository {
 
     if (options.isActive !== undefined) {
       query = query.eq('is_active', options.isActive);
+    }
+
+    // F10 zone-criteria gap closure (Owner-approved) — reuses this same
+    // repository/endpoint rather than a parallel WMS-specific zones query;
+    // `location_type='zone'` (migration 097) is the real, sole hierarchy
+    // root type (a location with no parent must be 'zone'), so this is the
+    // authoritative zone list, not an invented concept.
+    if (options.locationType) {
+      query = query.eq('location_type', options.locationType);
     }
 
     const { data, error, count } = await query

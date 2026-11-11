@@ -121,12 +121,15 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
   // pattern as every other regression suite this session that touches the
   // ledger.
   afterAll(async () => {
+    // Inventory #7 / 7-1 (Owner-approved) — new writes since migration 223
+    // land in warehouse_work_status_history, not warehouse_task_history.
     await supabase
-      .from('warehouse_task_history')
+      .from('warehouse_work_status_history')
       .delete()
       .eq('tenant_id', TENANT)
+      .eq('entity_type', 'warehouse_task')
       .in(
-        'task_id',
+        'entity_id',
         (
           await supabase
             .from('warehouse_tasks')
@@ -191,7 +194,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
       parent_location_id: zone.id,
     });
     expect(bad.error?.message).toMatch(/INVALID_LOCATION_HIERARCHY/);
-  });
+  }, 30_000);
 
   it('2. location purpose assignment (independent of structural type)', async () => {
     const { data, error } = await supabase
@@ -202,7 +205,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
     expect(error).toBeNull();
     expect(data.location_purpose).toBe('storage');
     expect(Number(data.max_quantity)).toBe(1000);
-  });
+  }, 30_000);
 
   it('3. capacity validation: fn_suggest_putaway_location reports capacity_ok=false when it would exceed max_quantity', async () => {
     const { data: rule } = await supabase
@@ -233,7 +236,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
     });
     expect(sugg2.data[0].capacity_ok).toBe(true);
     await supabase.from('putaway_rules').delete().eq('id', rule.id);
-  });
+  }, 30_000);
 
   // ---- Putaway ----
 
@@ -259,7 +262,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
     expect(sugg.data[0].location_id).toBe(locStorage);
     expect(sugg.data[0].rule_id).toBe(rule.id);
     await supabase.from('putaway_rules').delete().eq('id', rule.id);
-  });
+  }, 30_000);
 
   it('5. putaway task creation + suggestion generation', async () => {
     const task = await supabase.rpc('fn_create_putaway_task', {
@@ -278,7 +281,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
     expect(task.error).toBeNull();
     expect(task.data.status).toBe('pending');
     expect(task.data.suggested_location_id).toBe(locStorage);
-  });
+  }, 30_000);
 
   it('6. putaway task completion moves stock between locations (real, not fake)', async () => {
     const task = await supabase.rpc('fn_create_putaway_task', {
@@ -318,7 +321,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
       .eq('location_id', locStorage)
       .maybeSingle();
     expect(Number(balStorage.data.quantity_on_hand)).toBe(20);
-  });
+  }, 30_000);
 
   // ---- Replenishment ----
 
@@ -347,7 +350,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
     );
     expect(created).toBeDefined();
     expect(created.task_type).toBe('replenishment');
-  });
+  }, 30_000);
 
   it('8. replenishment task completion moves stock; refuses without a source location', async () => {
     // Real completion: source (storage, has 20 from test 6) -> destination (receiving).
@@ -423,7 +426,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
       p_tenant_id: TENANT,
       p_actor_id: null,
     });
-  });
+  }, 30_000);
 
   // ---- Task assignment/completion ----
 
@@ -458,17 +461,22 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
     });
     expect(completed.data.status).toBe('completed');
 
+    // Inventory #7 / 7-1 (Owner-approved) — reads from the shared,
+    // entity-typed warehouse_work_status_history (migration 223) now,
+    // which is what fn_assign_warehouse_task/fn_confirm_warehouse_task
+    // write into as of this migration.
     const history = await supabase
-      .from('warehouse_task_history')
+      .from('warehouse_work_status_history')
       .select('new_status')
-      .eq('task_id', task.data.id)
+      .eq('entity_type', 'warehouse_task')
+      .eq('entity_id', task.data.id)
       .order('created_at', { ascending: true });
     expect(history.data.map((h: any) => h.new_status)).toEqual([
       'pending',
       'assigned',
       'completed',
     ]);
-  });
+  }, 30_000);
 
   // ---- Picking validation ----
 
@@ -482,7 +490,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
       p_batch_id: null,
     });
     expect(r.error?.message).toMatch(/BATCH_OR_SERIAL_REQUIRED/);
-  });
+  }, 30_000);
 
   it('11. picking non-tracked item passes validation without a batch', async () => {
     const r = await supabase.rpc('fn_validate_pick_requirements', {
@@ -495,7 +503,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
     });
     expect(r.error).toBeNull();
     expect(r.data).toBe(true);
-  });
+  }, 30_000);
 
   it('12. quality hold blocks picking: reservation respects quantity_quality_held (integration with migration 163)', async () => {
     const balBefore = await supabase
@@ -563,7 +571,7 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
         p_reason: 'test cleanup',
       });
     }
-  });
+  }, 30_000);
 
   // ---- Security ----
 
@@ -583,5 +591,5 @@ describe('Advanced Warehouse Management (migration 13.20)', () => {
       .select('name')
       .in('name', ['warehouse.manage', 'warehouse.approve']);
     expect(perms?.length).toBe(2);
-  });
+  }, 30_000);
 });

@@ -17,22 +17,28 @@ import { RequirePermission } from '../../core/permissions/require-permission.dec
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { Audit } from '../../core/audit/audit.decorator';
+import { BranchScoped } from '../../core/security/branch-scoped.decorator';
+import { EffectiveBranchId } from '../../core/security/effective-branch-id.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('attendance')
 export class AttendanceController {
   constructor(private readonly service: AttendanceService) {}
 
+  // Branch Domain Batch 1, B2 (Owner-approved) — a restricted user's
+  // check-in branch is now validated against their own branch (or, for
+  // Central, any explicit same-tenant branch) rather than trusted as-is.
   @Post('check-in')
   @Audit('attendance.checkin')
   @RequirePermission('attendance.checkin')
+  @BranchScoped({ source: 'body', mode: 'write' })
   checkIn(
     @GetTenant() tenant: TenantContext,
     @Req() req: Request,
-    @Body('branch_id') branchId?: string,
+    @EffectiveBranchId() effectiveBranchId: string | null | undefined,
   ) {
     const user = req.user as { sub: string };
-    return this.service.checkIn(tenant, user.sub, branchId ?? null);
+    return this.service.checkIn(tenant, user.sub, effectiveBranchId ?? null);
   }
 
   @Post('check-out')
@@ -55,16 +61,26 @@ export class AttendanceController {
     return this.service.findAll(tenant, { userId: user.sub, from, to });
   }
 
+  // Branch Domain Batch 1, B2 (Owner-approved) — defense in depth: a
+  // restricted actor incorrectly granted attendance.view.all is now still
+  // forced to their own branch scope, same as every other migrated
+  // endpoint.
   @Get()
   @RequirePermission('attendance.view.all')
+  @BranchScoped()
   findAll(
     @GetTenant() tenant: TenantContext,
+    @EffectiveBranchId() effectiveBranchId: string | null | undefined,
     @Query('user_id') userId?: string,
-    @Query('branch_id') branchId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.service.findAll(tenant, { userId, branchId, from, to });
+    return this.service.findAll(tenant, {
+      userId,
+      branchId: effectiveBranchId ?? undefined,
+      from,
+      to,
+    });
   }
 
   @Post('exceptions')

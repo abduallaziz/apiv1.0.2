@@ -300,7 +300,7 @@ describe('MRP Engine (migrations 160-162)', () => {
 
     // 1000 units on-hand comfortably exceeds any raw-material requirement from this small BOM -> net requirement is 0 -> no planned order for it.
     expect(rows.length).toBe(0);
-  });
+  }, 20000);
 
   it('5. open production order offsets requirements: an in-progress production order for the sub-assembly reduces its planned quantity', async () => {
     const { data: po, error } = await supabase

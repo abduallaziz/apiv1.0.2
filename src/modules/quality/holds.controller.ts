@@ -19,7 +19,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('quality/holds')
@@ -46,7 +45,6 @@ export class HoldsController {
 
   @Post()
   @RequirePermission('quality.execute')
-  @Audit('quality_hold.created')
   create(
     @Body() dto: CreateHoldDto,
     @GetTenant() tenant: TenantContext,

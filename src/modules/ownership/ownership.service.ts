@@ -6,6 +6,7 @@ import {
 import { OwnershipRepository } from './repositories/ownership.repository';
 import { WarehousesService } from '../inventory/warehouses.service';
 import { ItemsService } from '../items/items.service';
+import { AuditService } from '../../core/audit/audit.service';
 import { CreateOwnershipLayerDto } from './dto/create-ownership-layer.dto';
 import { TransferOwnershipDto } from './dto/transfer-ownership.dto';
 import { ReleaseOwnershipDto } from './dto/release-ownership.dto';
@@ -16,7 +17,25 @@ export class OwnershipService {
     private readonly ownershipRepo: OwnershipRepository,
     private readonly warehousesService: WarehousesService,
     private readonly itemsService: ItemsService,
+    private readonly auditService: AuditService,
   ) {}
+
+  // Branch System Step 5 (Owner-approved) — see identical helper in
+  // ProductionOrdersService for the full rationale.
+  private async resolveBranchForWarehouse(
+    warehouseId: string,
+    tenantId: string,
+  ): Promise<string | null> {
+    try {
+      const warehouse = await this.warehousesService.findById(
+        warehouseId,
+        tenantId,
+      );
+      return warehouse?.branch_id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   findAll(
     tenantId: string,
@@ -55,7 +74,7 @@ export class OwnershipService {
       );
     }
 
-    return this.ownershipRepo.create(tenantId, {
+    const layer = await this.ownershipRepo.create(tenantId, {
       warehouse_id: dto.warehouse_id,
       item_id: dto.item_id,
       variant_id: dto.variant_id ?? null,
@@ -66,10 +85,31 @@ export class OwnershipService {
       reason: dto.reason ?? null,
       created_by: createdBy,
     });
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: createdBy,
+        action: 'ownership_layer.created',
+        resource_type: 'ownership_layer',
+        resource_id: (layer as { id: string }).id,
+        branch_id: await this.resolveBranchForWarehouse(
+          dto.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
+    return layer;
   }
 
-  async transfer(id: string, tenantId: string, dto: TransferOwnershipDto) {
-    await this.findById(id, tenantId); // 404 if missing
+  async transfer(
+    id: string,
+    tenantId: string,
+    dto: TransferOwnershipDto,
+    actorId: string,
+  ) {
+    const existing = await this.findById(id, tenantId); // 404 if missing
     const transferred = await this.ownershipRepo.transfer(id, tenantId, {
       ownership_type: dto.ownership_type,
       owner_customer_id: dto.owner_customer_id ?? null,
@@ -80,15 +120,50 @@ export class OwnershipService {
     if (!transferred) {
       throw new BadRequestException(`Ownership layer ${id} is not active`);
     }
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'ownership_layer.transferred',
+        resource_type: 'ownership_layer',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          (existing as { warehouse_id: string }).warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
     return transferred;
   }
 
-  async release(id: string, tenantId: string, dto: ReleaseOwnershipDto) {
-    await this.findById(id, tenantId); // 404 if missing
+  async release(
+    id: string,
+    tenantId: string,
+    dto: ReleaseOwnershipDto,
+    actorId: string,
+  ) {
+    const existing = await this.findById(id, tenantId); // 404 if missing
     const released = await this.ownershipRepo.release(id, tenantId, dto.reason);
     if (!released) {
       throw new BadRequestException(`Ownership layer ${id} is not active`);
     }
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'ownership_layer.released',
+        resource_type: 'ownership_layer',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          (existing as { warehouse_id: string }).warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
     return released;
   }
 }

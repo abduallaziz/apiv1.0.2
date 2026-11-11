@@ -38,7 +38,7 @@ export class ItemsRepository extends ScopedRepository {
     let q = this.supabase
       .from('items')
       .select(
-        `id, name, type, operation_type, price, has_inventory, has_variants, is_active, created_at, sku,
+        `id, name, type, operation_type, price, has_inventory, has_variants, is_active, created_at, sku, image_url,
          categories(id, name, type),
          item_variants(id)`,
         { count: 'exact' },
@@ -65,8 +65,16 @@ export class ItemsRepository extends ScopedRepository {
     const sort = ITEM_SORT_COLUMNS.includes(query.sort) ? query.sort : 'name';
     const ascending = query.dir !== 'desc';
 
+    // `sort` alone is not a unique key (e.g. multiple items can share the
+    // same `name`), so Postgres does not guarantee a stable order for tied
+    // rows across separate queries — with OFFSET-based .range() pagination
+    // that lets the same row appear on two different pages (or a row be
+    // skipped entirely) whenever the tie order shifts between page fetches.
+    // `id` is the primary key, always unique, so it's a safe deterministic
+    // tiebreaker that doesn't change the caller's requested sort otherwise.
     const { data, error, count } = await q
       .order(sort, { ascending })
+      .order('id', { ascending: true })
       .range(from, to);
     if (error) throw error;
     return {
@@ -140,6 +148,30 @@ export class ItemsRepository extends ScopedRepository {
       (sum, row) => sum + Number(row.quantity_on_hand),
       0,
     );
+  }
+
+  // Live on-hand totals for many items in ONE query (list endpoints) — same
+  // definition as sumStockAcrossWarehouses: parent-level rows only
+  // (variant_id IS NULL), summed across warehouses. Items with no stock_levels
+  // row are simply absent from the map (caller treats that as 0).
+  async sumStockForItems(
+    tenantId: string,
+    itemIds: string[],
+  ): Promise<Map<string, number>> {
+    const totals = new Map<string, number>();
+    if (itemIds.length === 0) return totals;
+    const { data, error } = await this.supabase
+      .from('stock_levels')
+      .select('item_id, quantity_on_hand')
+      .eq('tenant_id', tenantId)
+      .in('item_id', itemIds)
+      .is('variant_id', null);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const id = row.item_id as string;
+      totals.set(id, (totals.get(id) ?? 0) + Number(row.quantity_on_hand));
+    }
+    return totals;
   }
 
   // Atomic per-tenant sequence backing auto-generated product SKUs — see

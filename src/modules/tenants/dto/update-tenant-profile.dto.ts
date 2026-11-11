@@ -5,6 +5,8 @@ import {
   MaxLength,
   IsEnum,
   IsIn,
+  IsArray,
+  ArrayUnique,
   IsBoolean,
   IsNumber,
   Min,
@@ -14,6 +16,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { BusinessType } from '../../../shared/types/enums';
+import { ALL_PAYMENT_METHODS } from '../payment-methods';
 
 export class PrinterSettingsDto {
   @IsOptional()
@@ -82,6 +85,15 @@ export class UpdateTenantProfileDto {
   @Max(1)
   tax_rate?: number;
 
+  // Tax Pricing Phase 1 (Owner-approved) — determines whether items.price
+  // is interpreted as the net/exclusive amount (false, default, matches
+  // every existing tenant's current unchanged behavior) or the gross/
+  // inclusive displayed amount (true). tenants.tax_rate remains the sole
+  // rate Source of Truth either way.
+  @IsOptional()
+  @IsBoolean()
+  tax_inclusive_pricing?: boolean;
+
   @IsOptional()
   @IsUrl()
   logo_url?: string;
@@ -123,4 +135,12 @@ export class UpdateTenantProfileDto {
   @IsOptional()
   @IsBoolean()
   loyalty_enabled?: boolean;
+
+  // T11 - payment methods the tenant accepts at the POS. 'cash' must be in
+  // the list (enforced in the service and by a DB CHECK).
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn([...ALL_PAYMENT_METHODS], { each: true })
+  enabled_payment_methods?: string[];
 }

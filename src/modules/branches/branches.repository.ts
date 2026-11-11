@@ -11,15 +11,22 @@ export class BranchesRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  async findAll(tenant: TenantContext) {
-    const { data, error } = await this.supabase
+  async findAll(tenant: TenantContext, activeOnly = false) {
+    let query = this.supabase
       .from('branches')
       .select(
         'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
       )
       .eq('tenant_id', tenant.tenantId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false });
+      .is('deleted_at', null);
+
+    if (activeOnly) {
+      query = query.eq('is_active', true);
+    }
+
+    const { data, error } = await query.order('created_at', {
+      ascending: false,
+    });
 
     if (error) throw error;
     return data;

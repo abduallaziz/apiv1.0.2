@@ -13,6 +13,9 @@ import { PurchaseOrdersService } from './purchase-orders.service';
 import { QualityConfigService } from '../quality/quality-config.service';
 import { InspectionsService } from '../quality/inspections.service';
 import { PutawayService } from '../inventory/putaway.service';
+import { WarehousesService } from '../inventory/warehouses.service';
+import { AuditService } from '../../core/audit/audit.service';
+import { ItemPackagingLevelsRepository } from '../items/repositories/item-packaging-levels.repository';
 
 // A receipt can only be created against a PO that's actually been approved
 // — 'partially_received' is included because a PO naturally sits there
@@ -29,7 +32,30 @@ export class GoodsReceiptsService {
     private readonly qualityConfigService: QualityConfigService,
     private readonly inspectionsService: InspectionsService,
     private readonly putawayService: PutawayService,
+    private readonly warehousesService: WarehousesService,
+    private readonly auditService: AuditService,
+    private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
   ) {}
+
+  // Branch System Step 5 (Owner-approved) — see identical helper in
+  // ProductionOrdersService/WorkCentersService. Goods receipts always have a
+  // warehouse_id, but this stays null-safe like every other instance of
+  // this pattern.
+  private async resolveBranchForWarehouse(
+    warehouseId: string | null | undefined,
+    tenantId: string,
+  ): Promise<string | null> {
+    if (!warehouseId) return null;
+    try {
+      const warehouse = await this.warehousesService.findById(
+        warehouseId,
+        tenantId,
+      );
+      return warehouse?.branch_id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   async findAll(
     tenantId: string,
@@ -62,7 +88,7 @@ export class GoodsReceiptsService {
     };
   }
 
-  async create(tenantId: string, dto: CreateGoodsReceiptDto) {
+  async create(tenantId: string, dto: CreateGoodsReceiptDto, actorId: string) {
     const { items, ...header } = dto;
 
     if (header.purchase_order_id) {
@@ -106,6 +132,21 @@ export class GoodsReceiptsService {
         );
         quantityReceived = line.quantity_received * factor;
         unitCost = factor > 0 ? line.unit_cost / factor : line.unit_cost;
+      } else if (line.packaging_level_id) {
+        // A carton/box/pallet barcode scan: quantity_received is the count
+        // of that packaging level (e.g. "2 Cartons"), resolved to
+        // storage-unit terms via the same fn_convert_packaging_to_storage_qty
+        // (migration 221) used everywhere else — never a second math path.
+        // unit_cost was entered per storage unit already (the cost of one
+        // Piece), so it's left unconverted, unlike the per-unit_id branch
+        // above which divides because unit_id's cost is entered per
+        // purchase/sale unit, not per storage unit.
+        const storageQty = await this.packagingLevelsRepo.resolveToStorageQty(
+          line.item_id,
+          line.packaging_level_id,
+          line.quantity_received,
+        );
+        quantityReceived = storageQty;
       }
 
       convertedLines.push({
@@ -127,7 +168,7 @@ export class GoodsReceiptsService {
       });
     }
 
-    return this.goodsReceiptsRepo.create(
+    const created = await this.goodsReceiptsRepo.create(
       tenantId,
       {
         purchase_order_id: header.purchase_order_id ?? null,
@@ -137,6 +178,22 @@ export class GoodsReceiptsService {
       },
       convertedLines,
     );
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'goods_receipt.created',
+        resource_type: 'goods_receipt',
+        resource_id: (created as { id?: string })?.id,
+        branch_id: await this.resolveBranchForWarehouse(
+          header.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
+    return created;
   }
 
   async post(id: string, tenantId: string, actorId: string) {
@@ -149,6 +206,21 @@ export class GoodsReceiptsService {
     }
     await this.autoCreateInspections(tenantId, receipt, actorId);
     await this.autoCreatePutawayTasks(tenantId, receipt, actorId);
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'goods_receipt.posted',
+        resource_type: 'goods_receipt',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          receipt.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
     return posted;
   }
 
@@ -227,8 +299,52 @@ export class GoodsReceiptsService {
     }
   }
 
-  async cancel(id: string, tenantId: string) {
-    await this.findById(id, tenantId);
-    return this.goodsReceiptsRepo.cancel(id, tenantId);
+  // Inventory Stage 1 / I4 (Owner-approved) — reverses a posted receipt.
+  // Distinct from cancel() (draft-only, no side effects to undo yet).
+  async reverse(id: string, tenantId: string, actorId: string) {
+    const receipt = await this.findById(id, tenantId);
+    let reversed;
+    try {
+      reversed = await this.goodsReceiptsRepo.reverse(id, actorId);
+    } catch (error) {
+      throwFromRpcError(error as { message: string; code?: string });
+    }
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'goods_receipt.reversed',
+        resource_type: 'goods_receipt',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          receipt.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
+    return reversed;
+  }
+
+  async cancel(id: string, tenantId: string, actorId: string) {
+    const receipt = await this.findById(id, tenantId);
+    const result = await this.goodsReceiptsRepo.cancel(id, tenantId);
+
+    await this.auditService
+      .log({
+        tenant_id: tenantId,
+        actor_id: actorId,
+        action: 'goods_receipt.cancelled',
+        resource_type: 'goods_receipt',
+        resource_id: id,
+        branch_id: await this.resolveBranchForWarehouse(
+          receipt.warehouse_id,
+          tenantId,
+        ),
+      })
+      .catch(() => {});
+
+    return result;
   }
 }

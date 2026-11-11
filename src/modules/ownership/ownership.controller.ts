@@ -21,7 +21,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('ownership')
@@ -53,7 +52,6 @@ export class OwnershipController {
 
   @Post()
   @RequirePermission('ownership.manage')
-  @Audit('ownership_layer.created')
   create(
     @Body() dto: CreateOwnershipLayerDto,
     @GetTenant() tenant: TenantContext,
@@ -65,24 +63,24 @@ export class OwnershipController {
   @Post(':id/transfer')
   @RequirePermission('ownership.manage')
   @HttpCode(HttpStatus.OK)
-  @Audit('ownership_layer.transferred')
   transfer(
     @Param('id') id: string,
     @Body() dto: TransferOwnershipDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.ownershipService.transfer(id, tenant.tenantId, dto);
+    return this.ownershipService.transfer(id, tenant.tenantId, dto, user.sub);
   }
 
   @Post(':id/release')
   @RequirePermission('ownership.manage')
   @HttpCode(HttpStatus.OK)
-  @Audit('ownership_layer.released')
   release(
     @Param('id') id: string,
     @Body() dto: ReleaseOwnershipDto,
     @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.ownershipService.release(id, tenant.tenantId, dto);
+    return this.ownershipService.release(id, tenant.tenantId, dto, user.sub);
   }
 }

@@ -9,7 +9,6 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
-import { Audit } from '../../core/audit/audit.decorator';
 
 // Migration 13.16A (#16, Manufacturing — Scrap Tracking). Recording scrap
 // is an execution-time action (same category as start/complete/cancel),
@@ -34,7 +33,6 @@ export class ScrapController {
 
   @Post()
   @RequirePermission('manufacturing.execute')
-  @Audit('production_order.scrap_recorded')
   record(
     @Param('id') productionOrderId: string,
     @Body() dto: CreateScrapDto,

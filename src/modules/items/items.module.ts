@@ -17,6 +17,12 @@ import { ItemBarcodesRepository } from './repositories/item-barcodes.repository'
 import { SupplierCatalogController } from './supplier-catalog.controller';
 import { SupplierCatalogService } from './supplier-catalog.service';
 import { SupplierCatalogRepository } from './repositories/supplier-catalog.repository';
+import { ItemAttributesController } from './item-attributes.controller';
+import { ItemAttributesService } from './item-attributes.service';
+import { ItemAttributesRepository } from './repositories/item-attributes.repository';
+import { ItemPackagingLevelsController } from './item-packaging-levels.controller';
+import { ItemPackagingLevelsService } from './item-packaging-levels.service';
+import { ItemPackagingLevelsRepository } from './repositories/item-packaging-levels.repository';
 import {
   SupabaseModule,
   SUPABASE_CLIENT,
@@ -33,6 +39,8 @@ import { SupabaseClient } from '@supabase/supabase-js';
     BrandsController,
     ItemBarcodesController,
     SupplierCatalogController,
+    ItemAttributesController,
+    ItemPackagingLevelsController,
   ],
   providers: [
     ItemsService,
@@ -41,6 +49,8 @@ import { SupabaseClient } from '@supabase/supabase-js';
     BrandsService,
     ItemBarcodesService,
     SupplierCatalogService,
+    ItemAttributesService,
+    ItemPackagingLevelsService,
     {
       provide: ItemsRepository,
       useFactory: (supabase: SupabaseClient) => new ItemsRepository(supabase),
@@ -74,7 +84,23 @@ import { SupabaseClient } from '@supabase/supabase-js';
         new SupplierCatalogRepository(supabase),
       inject: [SUPABASE_CLIENT],
     },
+    {
+      provide: ItemAttributesRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new ItemAttributesRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
+    {
+      provide: ItemPackagingLevelsRepository,
+      useFactory: (supabase: SupabaseClient) =>
+        new ItemPackagingLevelsRepository(supabase),
+      inject: [SUPABASE_CLIENT],
+    },
   ],
-  exports: [ItemsService, ItemBarcodesRepository],
+  exports: [
+    ItemsService,
+    ItemBarcodesRepository,
+    ItemPackagingLevelsRepository,
+  ],
 })
 export class ItemsModule {}

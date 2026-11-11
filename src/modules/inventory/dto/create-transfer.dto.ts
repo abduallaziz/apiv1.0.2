@@ -34,6 +34,16 @@ export class TransferLineDto {
   @IsUUID()
   @IsOptional()
   to_location_id?: string;
+
+  // Set when this line was entered by scanning a packaging-level barcode
+  // (Box/Carton/Pallet). `quantity` is still interpreted in the item's
+  // storage unit for backward compatibility — when this is set, `quantity`
+  // is instead the count of that packaging level (e.g. "2 Cartons"), and
+  // TransfersService resolves it into the storage-unit-equivalent before
+  // ever reaching the transfer RPC chain.
+  @IsUUID()
+  @IsOptional()
+  packaging_level_id?: string;
 }
 
 export class CreateTransferDto {

@@ -31,9 +31,10 @@ export class UpdateUserDto {
   @IsOptional()
   is_active?: boolean;
 
+  // null clears the assignment back to Central (no branch restriction).
   @IsString()
   @IsOptional()
-  branch_id?: string;
+  branch_id?: string | null;
 
   @IsString()
   @IsOptional()

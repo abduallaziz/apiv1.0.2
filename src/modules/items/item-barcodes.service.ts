@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ItemBarcodesRepository } from './repositories/item-barcodes.repository';
 import { ItemsRepository } from './repositories/items.repository';
+import { ItemPackagingLevelsRepository } from './repositories/item-packaging-levels.repository';
 import { CreateItemBarcodeDto } from './dto/create-item-barcode.dto';
 import { UpdateItemBarcodeDto } from './dto/update-item-barcode.dto';
 import { generateEan13ForTenant } from './utils/ean13.util';
@@ -43,7 +44,26 @@ export class ItemBarcodesService {
   constructor(
     private readonly barcodesRepo: ItemBarcodesRepository,
     private readonly itemsRepo: ItemsRepository,
+    private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
   ) {}
+
+  // Shared by create()/update() — a packaging_level_id must belong to the
+  // exact item this barcode is for, same "no silent guessing" rule already
+  // applied to variant_id above.
+  private async validatePackagingLevel(
+    packagingLevelId: string | undefined,
+    itemId: string,
+    tenantId: string,
+  ) {
+    if (!packagingLevelId) return;
+    const level = await this.packagingLevelsRepo.findById(
+      packagingLevelId,
+      tenantId,
+    );
+    if (!level || level.item_id !== itemId) {
+      throw new NotFoundException('Packaging level not found for this item');
+    }
+  }
 
   async findAll(tenantId: string, itemId?: string, variantId?: string) {
     return this.barcodesRepo.findAll(tenantId, itemId, variantId);
@@ -104,6 +124,12 @@ export class ItemBarcodesService {
         throw new NotFoundException('Variant not found for this item');
     }
 
+    await this.validatePackagingLevel(
+      dto.packaging_level_id,
+      dto.item_id,
+      tenantId,
+    );
+
     // Existing rows for the same item/variant are cleared BEFORE the insert
     // (not after) — insert can fail on its own (e.g. duplicate barcode) and
     // must not have already flipped an unrelated row's primary flag.
@@ -141,6 +167,12 @@ export class ItemBarcodesService {
       if (!variantExists)
         throw new NotFoundException('Variant not found for this item');
     }
+
+    await this.validatePackagingLevel(
+      dto.packaging_level_id,
+      existing.item_id,
+      tenantId,
+    );
 
     if (dto.is_primary) {
       const variantId =

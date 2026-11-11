@@ -1,5 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { WarehousesRepository } from './repositories/warehouses.repository';
+import {
+  WarehousesRepository,
+  Warehouse,
+} from './repositories/warehouses.repository';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 
@@ -11,7 +14,7 @@ export class WarehousesService {
     return this.warehousesRepo.findAll(tenantId);
   }
 
-  async findById(id: string, tenantId: string) {
+  async findById(id: string, tenantId: string): Promise<Warehouse> {
     const warehouse = await this.warehousesRepo.findById(id, tenantId);
     if (!warehouse) throw new NotFoundException('Warehouse not found');
     return warehouse;

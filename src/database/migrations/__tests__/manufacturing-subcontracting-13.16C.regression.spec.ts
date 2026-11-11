@@ -117,6 +117,7 @@ describe('manufacturing subcontracting regression (Migration 13.16C)', () => {
       suppliersService,
       warehousesService,
       itemsService,
+      { log: () => Promise.resolve() } as any,
     );
   }, 30_000);
 

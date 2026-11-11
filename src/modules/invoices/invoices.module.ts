@@ -10,12 +10,14 @@ import { CoreAuthModule } from '../../core/auth/auth.module';
 import { NotificationModule } from '../../core/notification/notification.module';
 import { LoyaltyModule } from '../../core/loyalty/loyalty.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { RewardsModule } from '../rewards/rewards.module';
 import { CustomersModule } from '../customers/customers.module';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { ShiftsModule } from '../shifts/shifts.module';
 import { QualityModule } from '../quality/quality.module';
 import { OwnershipModule } from '../ownership/ownership.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { ItemsModule } from '../items/items.module';
 
 @Module({
   imports: [
@@ -26,11 +28,13 @@ import { InventoryModule } from '../inventory/inventory.module';
     NotificationModule,
     LoyaltyModule,
     CouponsModule,
+    RewardsModule,
     CustomersModule,
     ShiftsModule,
     QualityModule,
     OwnershipModule,
     InventoryModule,
+    ItemsModule,
   ],
   controllers: [InvoicesController],
   providers: [

@@ -1,0 +1,4 @@
+{
+  "_comment": "Supabase project refs that are DEDICATED to automated tests (never production/staging). Empty by default: no database-backed test can run until the owner creates an isolated test project and lists its ref here.",
+  "allowedProjectRefs": []
+}

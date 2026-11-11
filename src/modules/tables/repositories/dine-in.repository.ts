@@ -48,6 +48,22 @@ export class DineInRepository {
   }
 
   /** Atomic via fn_checkout_dine_in_table — finalizes the order and frees the table in one transaction. */
+  /** True only if the customer exists in this tenant (not soft-deleted). */
+  async customerBelongsToTenant(
+    tenantId: string,
+    customerId: string,
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('customers')
+      .select('id')
+      .eq('id', customerId)
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    return !!data;
+  }
+
   async checkoutAtomic(
     tenantId: string,
     orderId: string,

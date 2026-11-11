@@ -16,7 +16,7 @@ export class ItemBarcodesRepository extends ScopedRepository {
   async findAll(tenantId: string, itemId?: string, variantId?: string) {
     let query = this.scopedQuery('item_barcodes', this.ctx(tenantId))
       .select(
-        'id, item_id, variant_id, barcode, barcode_type, is_primary, created_at, updated_at',
+        'id, item_id, variant_id, barcode, barcode_type, is_primary, packaging_level_id, created_at, updated_at',
       )
       .order('created_at');
 
@@ -34,7 +34,7 @@ export class ItemBarcodesRepository extends ScopedRepository {
       this.ctx(tenantId),
     )
       .select(
-        'id, item_id, variant_id, barcode, barcode_type, is_primary, created_at, updated_at',
+        'id, item_id, variant_id, barcode, barcode_type, is_primary, packaging_level_id, created_at, updated_at',
       )
       .eq('id', id)
       .maybeSingle();
@@ -64,7 +64,7 @@ export class ItemBarcodesRepository extends ScopedRepository {
       this.ctx(tenantId),
     )
       .select(
-        `id, barcode, barcode_type, is_primary, item_id, variant_id,
+        `id, barcode, barcode_type, is_primary, item_id, variant_id, packaging_level_id,
          items(id, name, type, price, has_inventory, has_variants, is_active),
          item_variants(id, name, price_adjustment, sku, is_active)`,
       )
