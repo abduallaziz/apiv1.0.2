@@ -43,6 +43,7 @@ export const envValidationSchema = Joi.object({
   // production it is refused unless explicitly opted into (and logged) —
   // otherwise a misconfigured deploy would hand out paid plans for free.
   PAYMENT_PROVIDER: Joi.string().valid('stripe', 'mock').default('mock'),
+  ALLOW_QA_EXEMPTION_IN_PRODUCTION: Joi.string().valid('true', 'false').optional(),
   ALLOW_MOCK_PAYMENT_IN_PRODUCTION: Joi.string().valid('true', 'false').optional(),
   STRIPE_SECRET_KEY: Joi.when('PAYMENT_PROVIDER', {
     is: 'stripe',

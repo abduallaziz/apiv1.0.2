@@ -56,6 +56,15 @@ describe('QA exemption is non-production only (T4)', () => {
     process.env.NODE_ENV = 'production';
     expect(isQaTenant(QA)).toBe(false);
   });
+  it('applies in production only with the explicit opt-in', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.ALLOW_QA_EXEMPTION_IN_PRODUCTION = 'true';
+    expect(isQaTenant(QA)).toBe(true);
+    expect(isQaTenant('someone-else')).toBe(false);
+    process.env.ALLOW_QA_EXEMPTION_IN_PRODUCTION = 'false';
+    expect(isQaTenant(QA)).toBe(false);
+    delete process.env.ALLOW_QA_EXEMPTION_IN_PRODUCTION;
+  });
   it('never applies to other tenants', () => {
     expect(isQaTenant('someone-else')).toBe(false);
     expect(isQaTenant(null)).toBe(false);
