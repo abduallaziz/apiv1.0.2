@@ -160,6 +160,56 @@ export class RewardInstancesRepository extends ScopedRepository {
     return data ?? [];
   }
 
+  /** Consumes part (or all) of a fixed-amount reward balance — see migration 267. */
+  async consumeBalance(
+    tenantId: string,
+    customerId: string,
+    branchId: string,
+    instanceId: string,
+    amount: number,
+    saleAttemptId?: string,
+  ): Promise<{
+    redemption_id: string;
+    remaining_amount: number;
+    fully_redeemed: boolean;
+  }> {
+    const { data, error } = await this.supabase.rpc(
+      'fn_consume_reward_balance',
+      {
+        p_tenant_id: tenantId,
+        p_customer_id: customerId,
+        p_branch_id: branchId,
+        p_instance_id: instanceId,
+        p_amount: amount,
+        p_sale_attempt_id: saleAttemptId ?? null,
+      },
+    );
+    if (error) throw error;
+    return (data as any[])[0];
+  }
+
+  /** Undo of one balance consumption (sale failed afterwards). Idempotent. */
+  async restoreBalance(tenantId: string, redemptionId: string): Promise<boolean> {
+    const { data, error } = await this.supabase.rpc(
+      'fn_restore_reward_balance',
+      { p_tenant_id: tenantId, p_redemption_id: redemptionId },
+    );
+    if (error) throw error;
+    return !!data;
+  }
+
+  /** Best-effort linkage of balance consumptions to the created order. */
+  async attachConsumptionOrder(
+    redemptionIds: string[],
+    orderId: string,
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc(
+      'fn_attach_reward_consumption_order',
+      { p_redemption_ids: redemptionIds, p_order_id: orderId },
+    );
+    if (error) throw error;
+  }
+
   /**
    * Compensation for a sale that failed AFTER fn_redeem_reward_instances ran:
    * puts the instances back to 'unlocked'. Only touches instances still marked

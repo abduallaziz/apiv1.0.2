@@ -45,6 +45,7 @@ import { ItemPackagingLevelsRepository } from '../items/repositories/item-packag
 import {
   RewardRedemptionService,
   FreeItemGrant,
+  RewardPricingPreview,
 } from '../rewards/reward-redemption.service';
 
 const INVOICES_LIST_TTL = 240; // 4 minutes
@@ -93,14 +94,21 @@ export class InvoicesService {
     dto: CreateInvoiceDto,
     branchId: string,
     cashierId: string,
+    redeemed: { singleUseIds: string[]; redemptionIds: string[] },
   ): Promise<void> {
     if (!dto.customer_id) return;
     try {
-      if (dto.redeem_reward_instance_ids?.length) {
+      if (redeemed.singleUseIds.length) {
         await this.rewardRedemptionService.releaseSelected(
           tenantId,
           dto.customer_id,
-          dto.redeem_reward_instance_ids,
+          redeemed.singleUseIds,
+        );
+      }
+      if (redeemed.redemptionIds.length) {
+        await this.rewardRedemptionService.restoreConsumptions(
+          tenantId,
+          redeemed.redemptionIds,
         );
       }
       if (dto.redeem_points && dto.redeem_points > 0) {
@@ -418,6 +426,7 @@ export class InvoicesService {
     // rejected reward selection must block checkout, not silently apply
     // nothing, since the customer/cashier explicitly opted to redeem it.
     let rewardDiscountAmount = 0;
+    let rewardPreview: RewardPricingPreview | undefined;
     let freeItemGrants: FreeItemGrant[] = [];
     if (dto.redeem_reward_instance_ids?.length) {
       if (!dto.customer_id) {
@@ -431,7 +440,18 @@ export class InvoicesService {
         branchId,
         dto.redeem_reward_instance_ids,
         manualBuilt.subtotal,
+        {
+          netBase: Math.max(
+            manualBuilt.subtotal -
+              (manualBuilt.discount_amount +
+                loyaltyDiscountAmount +
+                couponDiscountAmount),
+            0,
+          ),
+          taxFactor: taxInclusive ? 1 : 1 + taxRate,
+        },
       );
+      rewardPreview = preview;
       rewardDiscountAmount = preview.discountAmount;
       freeItemGrants = preview.freeItemGrants;
     }
@@ -480,20 +500,13 @@ export class InvoicesService {
       total: totalAmount,
     };
 
-    // A zero total cannot be posted to accounting (journal lines must be > 0),
-    // and it would fail AFTER rewards/points were consumed. Reject it up front,
-    // before anything is redeemed, with a clear reason the cashier can act on.
-    if (built.total <= 0) {
-      throw new BadRequestException({
-        message:
-          'The applied discounts cover the entire amount — the sale total must be greater than zero',
-        reasonCode: 'zero_total_not_supported',
-      });
-    }
-
     const storedPaymentMethod = dto.payment_method;
 
-    if (dto.payment_method === 'cash') {
+    if (built.total <= 0) {
+      // Free sale (discounts/rewards cover everything): nothing to collect, so no
+      // tendered amount or split breakdown is required. Accounting handles it
+      // (migration 266).
+    } else if (dto.payment_method === 'cash') {
       if (!dto.cash_tendered) {
         throw new BadRequestException(
           'cash_tendered required for cash payment',
@@ -586,13 +599,42 @@ export class InvoicesService {
     // (payment validation already passed above) could still roll the sale
     // back. fn_redeem_reward_instances is all-or-nothing — either every
     // selected instance transitions or the whole call throws and none do.
+    let singleUseRedeemedIds: string[] = [];
+    let consumedRedemptionIds: string[] = [];
     if (dto.redeem_reward_instance_ids?.length && dto.customer_id) {
-      await this.rewardRedemptionService.redeemSelected(
-        tenant.tenantId,
-        dto.customer_id,
-        branchId,
-        dto.redeem_reward_instance_ids,
-      );
+      singleUseRedeemedIds =
+        rewardPreview?.singleUseIds ?? dto.redeem_reward_instance_ids;
+      if (singleUseRedeemedIds.length) {
+        await this.rewardRedemptionService.redeemSelected(
+          tenant.tenantId,
+          dto.customer_id,
+          branchId,
+          singleUseRedeemedIds,
+        );
+      }
+      const consumptions = rewardPreview?.fixedConsumptions ?? [];
+      if (consumptions.length) {
+        try {
+          consumedRedemptionIds =
+            await this.rewardRedemptionService.consumeFixed(
+              tenant.tenantId,
+              dto.customer_id,
+              branchId,
+              consumptions,
+              dto.sale_attempt_id,
+            );
+        } catch (e) {
+          // the single-use ones were already redeemed: give them back too
+          await this.rollbackRedemptions(
+            tenant.tenantId,
+            dto,
+            branchId,
+            cashierId,
+            { singleUseIds: singleUseRedeemedIds, redemptionIds: [] },
+          );
+          throw e;
+        }
+      }
     }
 
     let invoice: { id: string };
@@ -700,7 +742,16 @@ export class InvoicesService {
     } catch (err: any) {
       // Anything consumed before the order existed (reward instances, loyalty
       // points) must be given back, or the customer loses it with no sale.
-      await this.rollbackRedemptions(tenant.tenantId, dto, branchId, cashierId);
+      await this.rollbackRedemptions(
+        tenant.tenantId,
+        dto,
+        branchId,
+        cashierId,
+        {
+          singleUseIds: singleUseRedeemedIds,
+          redemptionIds: consumedRedemptionIds,
+        },
+      );
       // Race backstop for M187: two concurrent requests with the same
       // sale_attempt_id can both pass the early check above before either
       // commits. uq_orders_tenant_sale_attempt (migration 187) is the real
@@ -800,6 +851,15 @@ export class InvoicesService {
     // redeemed atomically above. Purely enrichment (the real state
     // transition already happened and is final); a failure here must not
     // affect the already-completed sale.
+    if (consumedRedemptionIds.length) {
+      await this.rewardRedemptionService
+        .attachConsumptions(consumedRedemptionIds, invoice.id)
+        .catch((err: unknown) => {
+          this.logger.warn(
+            `Reward balance linkage failed for invoice ${invoice.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    }
     if (dto.redeem_reward_instance_ids?.length) {
       await this.rewardRedemptionService
         .attachOrder(dto.redeem_reward_instance_ids, invoice.id)

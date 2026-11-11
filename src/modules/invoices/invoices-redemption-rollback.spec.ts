@@ -78,11 +78,14 @@ const call = (s: InvoicesService) =>
   s.create(new TenantContext('t1', 'b1'), dto(), 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
 
 describe('InvoicesService.create — reward redemption safety', () => {
-  it('rejects a zero total BEFORE redeeming anything', async () => {
+  it('allows a free sale (total 0) and needs no tendered cash', async () => {
     const { service, rewards, repo } = build({ previewDiscount: 5 }); // covers the whole 5.00
-    await expect(call(service)).rejects.toThrow(BadRequestException);
-    expect(rewards.redeemSelected).not.toHaveBeenCalled();
-    expect(repo.create).not.toHaveBeenCalled();
+    const free = { ...dto(), cash_tendered: undefined };
+    await expect(
+      service.create(new TenantContext('t1', 'b1'), free, 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev'),
+    ).resolves.toBeDefined();
+    expect(rewards.redeemSelected).toHaveBeenCalledTimes(1);
+    expect(repo.create).toHaveBeenCalledTimes(1);
   });
 
   it('gives the reward back when order creation fails after redemption', async () => {
