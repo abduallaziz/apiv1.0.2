@@ -202,6 +202,54 @@ requests, p95, error rate, breached thresholds, CPU/RAM, slowest endpoints), and
 a `k6-smoke-results-<run>` artifact containing `summary.json`, `console.log` and
 `server-metrics.json`.
 
+## Running Phase 2 from GitHub Actions
+
+`.github/workflows/k6-load-test.yml` runs the normal-load phase — **50 VUs for
+10 minutes**, exactly the shape defined in `load.js`. It uses the same three
+secrets as Phase 1 and the same sanitization.
+
+**Actions → k6 Load Test (Phase 2) → Run workflow**, then set `confirm` to
+`yes`. The confirmation is required rather than cosmetic: this phase differs
+from Phase 1 in two ways that deserve a deliberate click.
+
+### `LOAD_TEST_MODE=true` is required for this phase
+
+Not optional, unlike Phase 1. One journey through `load.js` issues roughly 15
+requests. At 50 VUs a single tenant's 600 req/min budget is gone within
+seconds, and everything after that is a 429 — the run would measure the
+throttler instead of the application.
+
+Set `LOAD_TEST_MODE=true` on the API service and confirm this banner appears in
+its logs before starting:
+
+```
+LOAD_TEST_MODE IS ENABLED — RATE LIMITING IS BYPASSED
+```
+
+Unset it again when the run finishes.
+
+### This phase writes data
+
+Phase 1 is read-only. Phase 2 creates real sales (`orders`, `order_items`) and
+inventory adjustments, and posts those adjustments through the inventory engine.
+
+Every write is tagged `[LOADTEST:<RUN_ID>]` via fields that already exist on the
+DTOs — `notes` on invoices, `reason` on adjustments. The workflow pins
+`RUN_ID` to `gh<run_number>-<run_attempt>` rather than letting `config.js` fall
+back to a timestamp, so the tag traces back to one specific Actions run.
+
+The job summary prints ready-to-run identification SQL with the actual run's tag
+substituted in, covering orders, order items, adjustments, and the ledger rows
+produced by posting them.
+
+**On removal:** `orders`, `order_items` and `stock_adjustments` rows can be
+deleted directly. The `stock_movements` rows cannot — that table is an immutable
+ledger and `stock_levels` is its projection, so deleting movements without also
+correcting `stock_levels` and `cost_layers` leaves quantities that no longer
+match their history. Sales additionally consume FIFO cost layers. Reverse those
+through normal inventory operations, or restore from a snapshot taken before the
+run.
+
 ### Artifacts are sanitized before upload
 
 `k6 run --summary-export` embeds whatever `setup()` returned under a
@@ -316,7 +364,13 @@ tests/k6/
   stress.js                  Phase 3
   inventory.js               Phase 4 — contended vs spread comparison
   tools/collect-metrics.js   server-side CPU / RAM / lag / per-endpoint sampler
+  tools/sanitize-results.js  strips credentials out of k6 output before upload
+  tools/render-summary.js    renders a sanitized run into a CI job summary
 ```
+
+`render-summary.js` is used by the Phase 2 workflow. The Phase 1 workflow still
+inlines an equivalent renderer; it can adopt this one in a separate change,
+since the Phase 2 brief was to leave that workflow untouched.
 
 `config.js` discovers branch, warehouse, items, customers and the open shift
 from the live API at setup time rather than carrying fixtures, so the suite

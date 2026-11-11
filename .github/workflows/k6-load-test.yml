@@ -1,0 +1,174 @@
+name: k6 Load Test (Phase 2)
+
+# Manual only, and deliberately separate from the Phase 1 smoke workflow.
+#
+# Unlike Phase 1, this phase WRITES to the target environment: it creates real
+# sales (orders / order_items) and inventory adjustments for ten minutes at 50
+# virtual users. It also requires LOAD_TEST_MODE=true on the API, because at 50
+# VUs a single tenant's 600 req/min budget is exhausted within seconds and the
+# run would otherwise measure the throttler rather than the application.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: >-
+          This run WRITES data (sales + inventory adjustments) to the target
+          environment and requires LOAD_TEST_MODE=true on the API. Type "yes" to
+          confirm both.
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    name: Phase 2 — Normal Load (50 VUs / 10 min)
+    runs-on: ubuntu-latest
+    # 10 min of stages + setup, k6 install and collector shutdown.
+    timeout-minutes: 25
+
+    env:
+      # Pinned: the version these scripts were validated against. A silent k6
+      # upgrade changing summary output or threshold semantics would be
+      # indistinguishable from a real regression.
+      K6_VERSION: v0.54.0
+      API_URL: ${{ secrets.API_URL }}
+      K6_EMAIL: ${{ secrets.K6_EMAIL }}
+      K6_PASSWORD: ${{ secrets.K6_PASSWORD }}
+      # Pinned to the Actions run instead of config.js's Date.now() fallback, so
+      # every row this run writes is tagged with an identifier that traces back
+      # to a specific workflow run and can be reproduced later for cleanup.
+      RUN_ID: gh${{ github.run_number }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm intent
+        run: |
+          if [ "${{ inputs.confirm }}" != "yes" ]; then
+            echo "::error::Not confirmed. This phase writes data to a live environment and needs LOAD_TEST_MODE=true; re-run with confirm=yes."
+            exit 1
+          fi
+          echo "Confirmed. Writes will be tagged [LOADTEST:$RUN_ID]."
+
+      - name: Verify required secrets are set
+        # A missing secret arrives as an empty string, which would otherwise
+        # surface much later as a confusing k6 error.
+        run: |
+          missing=""
+          [ -z "$API_URL" ]     && missing="$missing API_URL"
+          [ -z "$K6_EMAIL" ]    && missing="$missing K6_EMAIL"
+          [ -z "$K6_PASSWORD" ] && missing="$missing K6_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required repository secret(s):$missing"
+            echo "Set them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          case "$API_URL" in
+            */api/v1) : ;;
+            *) echo "::warning::API_URL does not end with /api/v1 — every request will 404 unless the prefix is included." ;;
+          esac
+          echo "All required secrets are present."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install k6 ${{ env.K6_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            -o /tmp/k6.tar.gz
+          tar -xzf /tmp/k6.tar.gz -C /tmp
+          sudo install "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /usr/local/bin/k6
+          k6 version
+
+      - name: Start server-side metrics collector
+        # Samples the API's public Prometheus endpoint for CPU, RSS and
+        # event-loop lag during the run — the evidence that separates a backend
+        # bottleneck from a database one. Best-effort: the load test must still
+        # run if /metrics is unreachable.
+        continue-on-error: true
+        run: |
+          node tests/k6/tools/collect-metrics.js watch \
+            --out "$RUNNER_TEMP/server-metrics.json" --interval 10 &
+          echo $! > "$RUNNER_TEMP/collector.pid"
+          echo "Collector started (pid $(cat "$RUNNER_TEMP/collector.pid"))."
+
+      - name: Run load test
+        run: |
+          set -o pipefail
+          # Raw output goes to RUNNER_TEMP, never into the uploaded directory.
+          # k6 embeds setup() output — which holds live session tokens — under
+          # `setup_data`, so the unsanitised files must be structurally
+          # incapable of reaching the artifact even if a later step is skipped
+          # or fails. Same approach as the Phase 1 workflow.
+          k6 run \
+            --summary-export="$RUNNER_TEMP/raw-summary.json" \
+            tests/k6/load.js 2>&1 | tee "$RUNNER_TEMP/raw-console.log"
+
+      - name: Stop server-side metrics collector
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f "$RUNNER_TEMP/collector.pid" ]; then
+            kill -INT "$(cat "$RUNNER_TEMP/collector.pid")" 2>/dev/null || true
+            sleep 5   # let it write its report before the job moves on
+          fi
+
+      - name: Sanitize results
+        if: always()
+        env:
+          # Scrubbed as literals. Both are configured secrets, and GitHub's
+          # masking only covers the live log view — files written by `tee` never
+          # pass through the masker.
+          REDACT_VALUES: |
+            ${{ secrets.API_URL }}
+            ${{ secrets.K6_EMAIL }}
+        run: |
+          set -euo pipefail
+          mkdir -p k6-results
+
+          if [ -f "$RUNNER_TEMP/raw-summary.json" ]; then
+            node tests/k6/tools/sanitize-results.js \
+              "$RUNNER_TEMP/raw-summary.json" k6-results/summary.json
+          else
+            echo "::warning::No summary produced — k6 likely failed during setup()."
+          fi
+
+          if [ -f "$RUNNER_TEMP/raw-console.log" ]; then
+            node tests/k6/tools/sanitize-results.js \
+              "$RUNNER_TEMP/raw-console.log" k6-results/console.log
+          fi
+
+          if [ -f "$RUNNER_TEMP/server-metrics.json" ]; then
+            node tests/k6/tools/sanitize-results.js \
+              "$RUNNER_TEMP/server-metrics.json" k6-results/server-metrics.json
+          fi
+
+          ls -la k6-results/
+
+      - name: Write job summary
+        if: always()
+        continue-on-error: true
+        run: |
+          node tests/k6/tools/render-summary.js k6-results \
+            --title "Phase 2 — Normal Load (50 VUs / 10 min)" \
+            --run-id "$RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-load-results-${{ github.run_number }}
+          path: k6-results/
+          retention-days: 30
+          if-no-files-found: warn
