@@ -24,6 +24,7 @@ import { CoreAuthModule } from './core/auth/auth.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { BranchesModule } from './modules/branches/branches.module';
+import { ActivityProfilesModule } from './modules/activity-profiles/activity-profiles.module';
 import { ItemsModule } from './modules/items/items.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { ManufacturingModule } from './modules/manufacturing/manufacturing.module';
@@ -108,6 +109,7 @@ import { RootController } from './root.controller';
     AuthModule,
     UsersModule,
     BranchesModule,
+    ActivityProfilesModule,
     ItemsModule,
     InventoryModule,
     ManufacturingModule,
