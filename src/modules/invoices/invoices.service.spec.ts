@@ -80,6 +80,7 @@ function buildService(overrides: {
       attachOrder: jest.fn().mockResolvedValue(undefined),
     } as any, // rewardRedemptionService
     {} as any, // packagingLevelsRepo (unused — no packaging_level_id in these tests)
+    { enabled: false } as any, // zatca
   );
 
   return { service, repo, priceResolutionService };

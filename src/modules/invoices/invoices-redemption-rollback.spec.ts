@@ -99,6 +99,7 @@ function build(opts: {
     { onOrderCompleted: jest.fn().mockResolvedValue(undefined) } as any,
     rewards as any,
     {} as any,
+    { enabled: false } as any, // zatca
   );
   return { service, repo, rewards };
 }

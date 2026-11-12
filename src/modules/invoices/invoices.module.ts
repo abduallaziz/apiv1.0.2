@@ -18,6 +18,7 @@ import { QualityModule } from '../quality/quality.module';
 import { OwnershipModule } from '../ownership/ownership.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ItemsModule } from '../items/items.module';
+import { ZatcaModule } from '../zatca/zatca.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ItemsModule } from '../items/items.module';
     OwnershipModule,
     InventoryModule,
     ItemsModule,
+    ZatcaModule,
   ],
   controllers: [InvoicesController],
   providers: [

@@ -78,6 +78,7 @@ function build(opts: {
     { onOrderCompleted: jest.fn().mockResolvedValue(undefined) } as any,
     { previewSelection: jest.fn(), redeemSelected: jest.fn() } as any,
     {} as any,
+    { enabled: false } as any, // zatca
   );
   return { service, repo, audit, customers, tenantsRepo };
 }

@@ -6,6 +6,7 @@ import { TenantContext } from '../../../core/tenant/tenant-context';
 import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 import { isForeignKeyViolation } from '../../../shared/supabase/postgrest-error.util';
+import type { PoolClient } from 'pg';
 import { resolveTemplate } from '../../print/print-template.util';
 import type { InvoiceTemplate } from '../../print/print.types';
 
@@ -82,6 +83,9 @@ export class InvoicesRepository extends ScopedRepository {
     // Sequential legal number (fn_next_invoice_no), taken INSIDE this transaction:
     // a failed sale rolls the counter back too, so there are no gaps or duplicates.
     invoiceNumber?: { prefix: string; padding: number },
+    // Runs INSIDE the same transaction, right after the sales entry is posted (ZATCA issuing).
+    // If it throws, the whole sale rolls back.
+    afterPost?: (client: PoolClient, orderId: string, invoiceNo: string | null) => Promise<void>,
   ): Promise<{
     id: string;
     invoice_no: string | null;
@@ -244,6 +248,8 @@ export class InvoicesRepository extends ScopedRepository {
         orderPayload.cashier_id,
         null, // p_posting_date — function defaults to orders.created_at::date
       ]);
+
+      if (afterPost) await afterPost(client, orderId, invoiceNo);
 
       return { id: orderId, invoice_no: invoiceNo, stockDeducted, stockError };
     });

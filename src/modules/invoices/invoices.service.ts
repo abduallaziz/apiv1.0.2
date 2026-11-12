@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
+import { ZatcaService } from '../zatca/zatca.service';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
 import { InvoicesRepository } from './repositories/invoices.repository';
@@ -86,6 +87,7 @@ export class InvoicesService {
     private readonly rewardEligibilityService: RewardEligibilityService,
     private readonly rewardRedemptionService: RewardRedemptionService,
     private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
+    private readonly zatca: ZatcaService,
   ) {}
 
   /** Best-effort compensation when order creation fails after redemptions. */
@@ -766,6 +768,31 @@ export class InvoicesService {
           pooledItems,
           stockInTxWarehouse ? { warehouseId: stockInTxWarehouse } : undefined,
           await this.repo.getInvoiceNumberFormat(tenant.tenantId, branchId),
+          // ZATCA: issue the signed legal document inside the sale (off unless ZATCA_ENABLED).
+          this.zatca.enabled
+            ? async (client, orderId, invoiceNo) => {
+                await this.zatca.issueInTransaction(client, {
+                  tenantId: tenant.tenantId,
+                  branchId,
+                  orderId,
+                  invoiceNo: invoiceNo ?? orderId,
+                  issuedAt: new Date(),
+                  currency: 'SAR',
+                  taxRate,
+                  taxInclusive,
+                  lines: built.items.map((item) => ({
+                    name: item.item_name,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    total: parseFloat((item.unit_price * item.quantity).toFixed(2)),
+                  })),
+                  discount: built.discount_amount,
+                  total: built.total,
+                  tax: built.tax_amount,
+                  paymentMethod: storedPaymentMethod,
+                });
+              }
+            : undefined,
         );
       } else {
         invoice = await this.repo.create(tenant, {

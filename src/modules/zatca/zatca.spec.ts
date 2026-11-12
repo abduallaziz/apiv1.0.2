@@ -237,3 +237,43 @@ describe('signed document', () => {
     expect(body).not.toMatch(/UBLExtensions|<cac:Signature>|<cbc:ID>QR</);
   });
 });
+
+import { createPublicKey, createVerify } from 'crypto';
+import { buildCsr } from './zatca-csr.util';
+
+describe('CSR for the EGS unit', () => {
+  const { privateKeyPem, publicKeyPem } = generateDeviceKeyPair();
+  const csr = buildCsr(privateKeyPem, {
+    env: 'sandbox',
+    organizationUnit: 'Main Branch',
+    organization: 'Sefay Demo',
+    commonName: 'EGS-1',
+    egsSerial: '1-Sefay|2-EGS-1|3-ed22f1d8-e6a2-1118-9b58-d9a8f11e445f',
+    vatNumber: '300000000000003',
+    invoiceTypes: '0100',
+    address: '1234 King Fahd Road, Olaya, Riyadh 12345',
+    businessCategory: 'Retail',
+  });
+
+  it('is a PEM certificate request signed by the device key', () => {
+    expect(csr.pem.startsWith('-----BEGIN CERTIFICATE REQUEST-----')).toBe(true);
+    const ok = createVerify('sha256').update(csr.info).verify(createPublicKey(publicKeyPem), csr.signature);
+    expect(ok).toBe(true);
+  });
+
+  it('carries the ZATCA subject, serial, VAT number, template name and business category', () => {
+    const text = csr.info.toString('latin1');
+    for (const needle of ['SA', 'Main Branch', 'Sefay Demo', 'EGS-1', '1-Sefay|2-EGS-1|3-ed22f1d8', '300000000000003', '0100', 'TSTZATCA-Code-Signing', 'Retail', '1234 King Fahd Road']) {
+      expect(text).toContain(needle);
+    }
+  });
+
+  it('uses the pre-production / production template names for other environments, and rejects bad flags', () => {
+    const base = { organizationUnit: 'B', organization: 'O', commonName: 'C', egsSerial: '1-a|2-b|3-c', vatNumber: '300000000000003', invoiceTypes: '0100', address: 'a', businessCategory: 'x' };
+    expect(buildCsr(privateKeyPem, { ...base, env: 'simulation' }).info.toString('latin1')).toContain('PREZATCA-Code-Signing');
+    const prod = buildCsr(privateKeyPem, { ...base, env: 'production' }).info.toString('latin1');
+    expect(prod).toContain('ZATCA-Code-Signing');
+    expect(prod).not.toContain('PREZATCA');
+    expect(() => buildCsr(privateKeyPem, { ...base, env: 'sandbox', invoiceTypes: '12' })).toThrow();
+  });
+});
