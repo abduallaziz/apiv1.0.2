@@ -190,16 +190,27 @@ export class RewardRedemptionService {
           break;
         }
         case 'free_item': {
-          const itemId = definition.reward_config.item_id as string | undefined;
-          if (!itemId) {
+          // one product (item_id) or several (item_ids): every one is granted
+          const cfg = definition.reward_config as {
+            item_id?: string;
+            item_ids?: string[];
+          };
+          const itemIds = Array.isArray(cfg.item_ids) && cfg.item_ids.length
+            ? cfg.item_ids
+            : cfg.item_id
+              ? [cfg.item_id]
+              : [];
+          if (!itemIds.length) {
             throw new BadRequestException(
               `Reward instance ${instance.id as string} has no item configured`,
             );
           }
-          freeItemGrants.push({
-            reward_instance_id: instance.id as string,
-            item_id: itemId,
-          });
+          for (const itemId of itemIds) {
+            freeItemGrants.push({
+              reward_instance_id: instance.id as string,
+              item_id: itemId,
+            });
+          }
           singleUseIds.push(instance.id as string);
           break;
         }

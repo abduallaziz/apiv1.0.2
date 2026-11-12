@@ -154,3 +154,40 @@ describe('fixed-amount reward balance (consume / undo)', () => {
     expect(repo.attachConsumptionOrder).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('free_item reward with one or several products', () => {
+  const freeItem = (cfg: Record<string, unknown>) => ({
+    id: 'fi-1',
+    customer_id: 'cust-1',
+    status: 'unlocked',
+    expires_at: null,
+    reward_definitions: {
+      id: 'def-f',
+      branch_scope: 'all',
+      branch_id: null,
+      reward_type: 'free_item',
+      reward_config: cfg,
+      usage_conditions: {},
+    },
+  });
+  const grants = async (cfg: Record<string, unknown>) => {
+    const { service } = build([freeItem(cfg)]);
+    return service.previewSelection(TENANT, 'cust-1', 'b1', ['fi-1'], 10);
+  };
+
+  it('a single item_id (older rewards) is granted', async () => {
+    const p = await grants({ item_id: 'coffee' });
+    expect(p.freeItemGrants).toEqual([{ reward_instance_id: 'fi-1', item_id: 'coffee' }]);
+    expect(p.singleUseIds).toEqual(['fi-1']);
+  });
+
+  it('several item_ids are all granted by the one reward instance', async () => {
+    const p = await grants({ item_id: 'coffee', item_ids: ['coffee', 'cake'] });
+    expect(p.freeItemGrants.map((g) => g.item_id)).toEqual(['coffee', 'cake']);
+    expect(p.discountAmount).toBe(0);
+  });
+
+  it('rejects a free-item reward with no product configured', async () => {
+    await expect(grants({ item_id: '', item_ids: [] })).rejects.toThrow(/no item configured/);
+  });
+});
