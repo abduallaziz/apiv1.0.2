@@ -8,6 +8,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { ZatcaService } from '../zatca/zatca.service';
+import type { ZatcaBuyer } from '../zatca/zatca.types';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
 import { InvoicesRepository } from './repositories/invoices.repository';
@@ -48,6 +49,36 @@ import {
   FreeItemGrant,
   RewardPricingPreview,
 } from '../rewards/reward-redemption.service';
+
+/**
+ * Builds the ZATCA buyer from a customer row. A VAT number makes the sale a standard (B2B) invoice,
+ * so the national address is sent too; without one the name alone rides on a simplified invoice.
+ */
+function buildZatcaBuyer(
+  c: {
+    full_name?: string | null;
+    vat_number?: string | null;
+    commercial_reg?: string | null;
+    address_street?: string | null;
+    address_building?: string | null;
+    address_district?: string | null;
+    address_city?: string | null;
+    address_postal?: string | null;
+  } | null,
+): ZatcaBuyer | null {
+  if (!c) return null;
+  if (!c.vat_number) return c.full_name ? { name: c.full_name } : null;
+  return {
+    name: c.full_name ?? undefined,
+    vat_number: c.vat_number,
+    crn: c.commercial_reg ?? undefined,
+    street: c.address_street ?? undefined,
+    building_no: c.address_building ?? undefined,
+    district: c.address_district ?? undefined,
+    city: c.address_city ?? undefined,
+    postal_zone: c.address_postal ?? undefined,
+  };
+}
 
 const INVOICES_LIST_TTL = 240; // 4 minutes
 const invoicesListCacheKey = (
@@ -208,7 +239,7 @@ export class InvoicesService {
     // ثلاثة استعلامات مستقلة تمامًا عن بعضها (فحص ملكية العميل، نسبة الضريبة، إعدادات
     // الولاء) — كانت تُنفَّذ بالتسلسل رغم عدم اعتماد أي منها على نتيجة الآخر، فتضيف
     // زمن استجابة (round-trip) إضافيًا لكل عملية بيع واحدة. تُنفَّذ الآن بالتوازي.
-    const [, taxConfig, loyaltySettings] = await Promise.all([
+    const [buyerCustomer, taxConfig, loyaltySettings] = await Promise.all([
       dto.customer_id
         ? this.customersService.findByIdUnrestricted(tenant, dto.customer_id)
         : Promise.resolve(null),
@@ -790,6 +821,7 @@ export class InvoicesService {
                   total: built.total,
                   tax: built.tax_amount,
                   paymentMethod: storedPaymentMethod,
+                  buyer: buildZatcaBuyer(buyerCustomer),
                 });
               }
             : undefined,

@@ -1,4 +1,4 @@
-import { ZatcaAmounts, ZatcaDocInput } from './zatca.types';
+import { ZatcaAmounts, ZatcaBuyer, ZatcaDocInput, isStandardInvoice } from './zatca.types';
 
 // UBL 2.1 invoice for ZATCA (simplified tax invoice, credit note, debit note), written DIRECTLY in
 // canonical XML form: namespace declarations in canonical order, attributes sorted, no XML
@@ -58,6 +58,40 @@ function party(inner: string) {
   return el('cac:Party', inner);
 }
 
+/**
+ * AccountingCustomerParty. Standard (B2B) invoices carry the full buyer identity (tax scheme +
+ * national address, both mandatory). Simplified invoices carry only a legal-entity name when one is
+ * given; the standard forbids empty elements, so a nameless walk-in buyer is left out entirely.
+ */
+function buildCustomerParty(buyer: ZatcaBuyer | null | undefined, standard: boolean): string | null {
+  if (standard) {
+    if (!buyer?.vat_number) return null;
+    const missing = (['street', 'building_no', 'district', 'city', 'postal_zone'] as const).filter((k) => !buyer[k]);
+    if (missing.length) {
+      throw new Error(`ZATCA_BUYER_INCOMPLETE: a standard (B2B) invoice needs the buyer's ${missing.join(', ')}`);
+    }
+    const inner =
+      (buyer.crn ? el('cac:PartyIdentification', cbc('ID', buyer.crn, ` schemeID="${escAttr(buyer.id_scheme ?? 'CRN')}"`)) : '') +
+      el(
+        'cac:PostalAddress',
+        cbc('StreetName', buyer.street!) +
+          cbc('BuildingNumber', buyer.building_no!) +
+          (buyer.plot_id ? cbc('PlotIdentification', buyer.plot_id) : '') +
+          cbc('CitySubdivisionName', buyer.district!) +
+          cbc('CityName', buyer.city!) +
+          cbc('PostalZone', buyer.postal_zone!) +
+          el('cac:Country', cbc('IdentificationCode', 'SA')),
+      ) +
+      el('cac:PartyTaxScheme', cbc('CompanyID', buyer.vat_number) + el('cac:TaxScheme', cbc('ID', 'VAT'))) +
+      el('cac:PartyLegalEntity', cbc('RegistrationName', buyer.name ?? buyer.vat_number));
+    return el('cac:AccountingCustomerParty', party(inner));
+  }
+  if (buyer?.name) {
+    return el('cac:AccountingCustomerParty', party(el('cac:PartyLegalEntity', cbc('RegistrationName', buyer.name))));
+  }
+  return null;
+}
+
 function taxCategory(percent: number) {
   return el(
     'cac:TaxCategory',
@@ -106,8 +140,9 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
   x.push(cbc('UUID', input.uuid));
   x.push(cbc('IssueDate', date));
   x.push(cbc('IssueTime', time));
-  // 0200000 = simplified (02), no third-party/nominal/export/summary/self-billing flags
-  x.push(cbc('InvoiceTypeCode', TYPE_CODE[input.kind], ' name="0200000"'));
+  // name: 0100000 = standard (B2B), 0200000 = simplified (B2C); remaining flags (third-party,
+  // nominal, export, summary, self-billing) are all 0 for Sefay's POS/B2B sales.
+  x.push(cbc('InvoiceTypeCode', TYPE_CODE[input.kind], ` name="${isStandardInvoice(input) ? '0100000' : '0200000'}"`));
   x.push(cbc('DocumentCurrencyCode', c));
   x.push(cbc('TaxCurrencyCode', c));
   if (isNote && input.reference_invoice_no) {
@@ -142,16 +177,8 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
     el('cac:PartyTaxScheme', cbc('CompanyID', s.vat_number) + el('cac:TaxScheme', cbc('ID', 'VAT'))) +
     el('cac:PartyLegalEntity', cbc('RegistrationName', s.legal_name));
   x.push(el('cac:AccountingSupplierParty', party(sellerInner)));
-  // The standard forbids empty elements: with no named buyer (walk-in simplified invoice) the
-  // customer party is left out entirely.
-  if (input.buyer_name) {
-    x.push(
-      el(
-        'cac:AccountingCustomerParty',
-        party(el('cac:PartyLegalEntity', cbc('RegistrationName', input.buyer_name))),
-      ),
-    );
-  }
+  const customerParty = buildCustomerParty(input.buyer, isStandardInvoice(input));
+  if (customerParty) x.push(customerParty);
 
   // ---- payment, allowance, taxes
   x.push(

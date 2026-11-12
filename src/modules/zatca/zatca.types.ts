@@ -33,6 +33,26 @@ export interface ZatcaLine {
   total: number;
 }
 
+/**
+ * The buyer. A `vat_number` makes the document a STANDARD tax invoice (B2B, 0100000) — then the
+ * national address is mandatory. With no `vat_number` the document is SIMPLIFIED (B2C, 0200000) and
+ * only an optional display name is used.
+ */
+export interface ZatcaBuyer {
+  name?: string | null;
+  /** 15 digits, starts and ends with 3. Presence switches the document to standard. */
+  vat_number?: string;
+  /** Buyer identification (CRN by default); optional on standard invoices. */
+  crn?: string;
+  id_scheme?: 'CRN' | 'MOM' | 'MLS' | '700' | 'SAG' | 'OTH' | 'NAT' | 'TIN' | 'IQA' | 'PAS' | 'GCC';
+  street?: string;
+  building_no?: string;
+  plot_id?: string;
+  district?: string;
+  city?: string;
+  postal_zone?: string;
+}
+
 export interface ZatcaDocInput {
   kind: ZatcaDocKind;
   /** The sequential legal number (INV-000123). */
@@ -51,11 +71,16 @@ export interface ZatcaDocInput {
   discount: number;
   /** UN/CEFACT payment means: 10 cash, 30 credit, 42 bank account, 48 card. */
   payment_code: '10' | '30' | '42' | '48';
-  buyer_name?: string | null;
+  buyer?: ZatcaBuyer | null;
   /** Credit/debit notes: the invoice they correct and why. */
   reference_invoice_no?: string;
   reason?: string;
   seller: ZatcaSeller;
+}
+
+/** True when the buyer carries a VAT number: the document must be a standard (B2B) tax invoice. */
+export function isStandardInvoice(input: Pick<ZatcaDocInput, 'buyer'>): boolean {
+  return !!input.buyer?.vat_number;
 }
 
 /** Amounts exactly as they go into the XML (2 decimals, all derived from the lines). */

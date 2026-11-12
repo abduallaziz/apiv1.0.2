@@ -10,7 +10,7 @@ import { generateSignedDocument } from './zatca-document.service';
 import { ZATCA_GATEWAY, type ZatcaGateway } from './zatca.gateway';
 import { FatooraGateway } from './fatoora.gateway';
 import type { AttachCertificateDto, CreateZatcaDeviceDto } from './dto/zatca.dto';
-import type { ZatcaDocInput, ZatcaLine, ZatcaSeller } from './zatca.types';
+import type { ZatcaBuyer, ZatcaDocInput, ZatcaLine, ZatcaSeller } from './zatca.types';
 
 export interface IssueContext {
   tenantId: string;
@@ -27,7 +27,8 @@ export interface IssueContext {
   total: number;
   tax: number;
   paymentMethod: string;
-  buyerName?: string | null;
+  /** Buyer: a VAT number makes it a standard (B2B) invoice; otherwise a simplified one. */
+  buyer?: ZatcaBuyer | null;
 }
 
 /** UN/CEFACT payment means for the document. */
@@ -99,7 +100,7 @@ export class ZatcaService {
       lines: ctx.lines,
       discount: ctx.discount,
       payment_code: paymentCode(ctx.paymentMethod),
-      buyer_name: ctx.buyerName ?? null,
+      buyer: ctx.buyer ?? null,
       seller: d.seller as ZatcaSeller,
     };
     await this.storeDocument(client, d, ctx.tenantId, ctx.orderId, input, { orderTotal: ctx.total, orderTax: ctx.tax });
@@ -114,6 +115,7 @@ export class ZatcaService {
     orderId: string,
     input: ZatcaDocInput,
     check?: { orderTotal: number; orderTax: number },
+    returnId: string | null = null,
   ) {
     const doc = generateSignedDocument(
       input,
@@ -125,9 +127,9 @@ export class ZatcaService {
     );
     await client.query(
       `INSERT INTO zatca_invoices
-         (tenant_id, device_id, order_id, kind, uuid, icv, pih, invoice_no, invoice_hash, issue_at, xml, qr, signature, doc_input)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)`,
-      [tenantId, d.id, orderId, input.kind, doc.uuid, input.icv, doc.pih, input.invoice_no, doc.invoice_hash, input.issue_at, doc.xml, doc.qr, doc.signature, JSON.stringify(input)],
+         (tenant_id, device_id, order_id, kind, uuid, icv, pih, invoice_no, invoice_hash, issue_at, xml, qr, signature, doc_input, return_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15)`,
+      [tenantId, d.id, orderId, input.kind, doc.uuid, input.icv, doc.pih, input.invoice_no, doc.invoice_hash, input.issue_at, doc.xml, doc.qr, doc.signature, JSON.stringify(input), returnId],
     );
     await client.query(
       `UPDATE zatca_devices SET icv_last = $2, pih_last = $3, updated_at = now() WHERE id = $1`,
@@ -136,11 +138,26 @@ export class ZatcaService {
   }
 
   /**
-   * Credit note (381) cancelling a fully-cancelled sale: same lines and amounts as the original
-   * document, referencing it, chained on the same device. No-op when the sale never produced a
-   * document (ZATCA off / no device then) or already has its credit note.
+   * Credit note (381) against a sale's document, chained on the same device and referencing the
+   * original. Two cases:
+   *  - full cancellation (no `partial`): reproduces the whole original document negatively, once.
+   *  - partial return (`partial` given): only the returned lines, idempotent per `partial.returnId`,
+   *    so a sale can have several credit notes — one per return.
+   * No-op when the sale never produced a document (ZATCA off / no device then).
    */
-  async issueCreditNote(tenant: TenantContext, orderId: string, reason: string): Promise<{ issued: boolean; reason?: string }> {
+  async issueCreditNote(
+    tenant: TenantContext,
+    orderId: string,
+    reason: string,
+    partial?: {
+      returnId: string;
+      lines: { item_name: string; quantity: number }[];
+      lineValueTotal: number;
+      netAmount: number;
+      taxAmount: number;
+      refundTotal: number;
+    },
+  ): Promise<{ issued: boolean; reason?: string }> {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
       const orig = await client.query(
         `SELECT device_id, invoice_no, doc_input FROM zatca_invoices
@@ -150,8 +167,10 @@ export class ZatcaService {
       if (orig.rows.length === 0) return { issued: false, reason: 'no_document' };
       if (!orig.rows[0].doc_input) return { issued: false, reason: 'no_snapshot' };
       const existing = await client.query(
-        `SELECT 1 FROM zatca_invoices WHERE tenant_id = $1 AND order_id = $2 AND kind = 'credit_note' AND deleted_at IS NULL`,
-        [tenant.tenantId, orderId],
+        partial
+          ? `SELECT 1 FROM zatca_invoices WHERE tenant_id = $1 AND order_id = $2 AND kind = 'credit_note' AND return_id = $3 AND deleted_at IS NULL`
+          : `SELECT 1 FROM zatca_invoices WHERE tenant_id = $1 AND order_id = $2 AND kind = 'credit_note' AND return_id IS NULL AND deleted_at IS NULL`,
+        partial ? [tenant.tenantId, orderId, partial.returnId] : [tenant.tenantId, orderId],
       );
       if (existing.rows.length > 0) return { issued: false, reason: 'already_issued' };
       const dev = await client.query(
@@ -162,18 +181,49 @@ export class ZatcaService {
       if (dev.rows.length === 0) return { issued: false, reason: 'no_device' };
       const d = dev.rows[0];
       const base = orig.rows[0].doc_input as ZatcaDocInput;
-      const input: ZatcaDocInput = {
-        ...base,
-        kind: 'credit_note',
-        invoice_no: `CN-${orig.rows[0].invoice_no}`,
-        uuid: randomUUID(),
-        icv: Number(d.icv_last) + 1,
-        pih: d.pih_last as string,
-        issue_at: new Date(),
-        reference_invoice_no: orig.rows[0].invoice_no as string,
-        reason,
-      };
-      await this.storeDocument(client, d, tenant.tenantId, orderId, input);
+      const refInvoiceNo = orig.rows[0].invoice_no as string;
+
+      let input: ZatcaDocInput;
+      let check: { orderTotal: number; orderTax: number } | undefined;
+      if (partial) {
+        // Build the returned lines on the original's own tax basis, and carry the prorated order
+        // discount as a document allowance so the note's total equals the refund exactly.
+        const unitByName = new Map(base.lines.map((l) => [l.name, l.unit_price]));
+        const lines: ZatcaLine[] = partial.lines.map((rl) => {
+          const unit = unitByName.get(rl.item_name);
+          const total = unit !== undefined ? parseFloat((unit * rl.quantity).toFixed(2)) : parseFloat((partial.lineValueTotal / partial.lines.length).toFixed(2));
+          return { name: rl.item_name, quantity: rl.quantity, unit_price: unit ?? total / rl.quantity, total };
+        });
+        const basis = base.tax_inclusive ? partial.refundTotal : partial.netAmount;
+        const discount = parseFloat((partial.lineValueTotal - basis).toFixed(2));
+        input = {
+          ...base,
+          kind: 'credit_note',
+          invoice_no: `CN-${refInvoiceNo}-${partial.returnId.slice(0, 8)}`,
+          uuid: randomUUID(),
+          icv: Number(d.icv_last) + 1,
+          pih: d.pih_last as string,
+          issue_at: new Date(),
+          lines,
+          discount: discount > 0 ? discount : 0,
+          reference_invoice_no: refInvoiceNo,
+          reason,
+        };
+        check = { orderTotal: partial.refundTotal, orderTax: partial.taxAmount };
+      } else {
+        input = {
+          ...base,
+          kind: 'credit_note',
+          invoice_no: `CN-${refInvoiceNo}`,
+          uuid: randomUUID(),
+          icv: Number(d.icv_last) + 1,
+          pih: d.pih_last as string,
+          issue_at: new Date(),
+          reference_invoice_no: refInvoiceNo,
+          reason,
+        };
+      }
+      await this.storeDocument(client, d, tenant.tenantId, orderId, input, check, partial?.returnId ?? null);
       return { issued: true };
     });
   }
@@ -239,7 +289,7 @@ export class ZatcaService {
         commonName: seller.egs_name,
         egsSerial: d.egs_serial,
         vatNumber: seller.vat_number,
-        invoiceTypes: '0100', // simplified invoices (POS)
+        invoiceTypes: '1100', // both standard (B2B) and simplified (POS) invoices
         address: `${seller.building_no} ${seller.street}, ${seller.district}, ${seller.city} ${seller.postal_zone}`,
         businessCategory: seller.business_category,
       });
@@ -352,7 +402,7 @@ export class ZatcaService {
             lines: [{ name: 'Compliance check item', quantity: 1, unit_price: 100, total: 100 }],
             discount: 0,
             payment_code: '10',
-            buyer_name: null,
+            buyer: null,
             seller: d.seller as ZatcaSeller,
             ...(kind === 'invoice' ? {} : { reference_invoice_no: 'SME1', reason: 'compliance check' }),
           },

@@ -45,7 +45,7 @@ const baseInput = (over: Partial<ZatcaDocInput> = {}): ZatcaDocInput => ({
   ],
   discount: 0,
   payment_code: '10',
-  buyer_name: null,
+  buyer: null,
   seller,
   ...over,
 });
@@ -317,5 +317,86 @@ describe('credit note for a cancelled sale', () => {
     expect(row[10]).toContain('<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>INV-000001</cbc:ID>');
     expect(updates[0][1]).toBe(2);
     expect(await svc.issueCreditNote(t, 'o1', 'cancelled')).toEqual({ issued: false, reason: 'already_issued' });
+  });
+});
+
+describe('standard (B2B) vs simplified invoice', () => {
+  const buyer = {
+    name: 'Acme Trading Co',
+    vat_number: '399999999999993',
+    crn: '4030000000',
+    street: 'Prince Sultan Rd',
+    building_no: '7788',
+    district: 'Al Hamra',
+    city: 'Jeddah',
+    postal_zone: '23324',
+  };
+
+  it('a buyer with a VAT number produces a standard invoice with the full customer party', () => {
+    const xml = buildInvoiceXml(baseInput({ buyer }) as any, computeZatcaAmounts(baseInput({ buyer })), NO_PARTS);
+    expect(xml).toContain('name="0100000"');
+    expect(xml).toContain('<cac:AccountingCustomerParty>');
+    expect(xml).toContain('<cbc:CompanyID>399999999999993</cbc:CompanyID>');
+    expect(xml).toContain('<cbc:RegistrationName>Acme Trading Co</cbc:RegistrationName>');
+    expect(xml).toContain('<cbc:BuildingNumber>7788</cbc:BuildingNumber>');
+  });
+
+  it('a standard invoice missing part of the address is rejected', () => {
+    const bad = { ...buyer, postal_zone: '' };
+    expect(() => buildInvoiceXml(baseInput({ buyer: bad }) as any, computeZatcaAmounts(baseInput({ buyer: bad })), NO_PARTS)).toThrow(/ZATCA_BUYER_INCOMPLETE/);
+  });
+
+  it('a named buyer without a VAT number stays a simplified invoice with a name-only party', () => {
+    const xml = buildInvoiceXml(baseInput({ buyer: { name: 'Walk-in VIP' } }), computeZatcaAmounts(baseInput({ buyer: { name: 'Walk-in VIP' } })), NO_PARTS);
+    expect(xml).toContain('name="0200000"');
+    expect(xml).toContain('<cbc:RegistrationName>Walk-in VIP</cbc:RegistrationName>');
+    // only the seller carries a tax scheme; the simplified buyer party has none
+    expect((xml.match(/<cbc:CompanyID>/g) ?? []).length).toBe(1);
+  });
+
+  it('no buyer at all leaves out the customer party entirely', () => {
+    const xml = buildInvoiceXml(baseInput(), computeZatcaAmounts(baseInput()), NO_PARTS);
+    expect(xml).toContain('name="0200000"');
+    expect(xml).not.toContain('<cac:AccountingCustomerParty>');
+  });
+});
+
+describe('partial return credit note', () => {
+  it('a partial return produces a credit note for only the returned lines, matching the refund', async () => {
+    const { ZatcaService } = await import('./zatca.service');
+    const key = Buffer.alloc(32, 3).toString('base64');
+    const { privateKeyPem } = generateDeviceKeyPair();
+    const cert = makeTestCertificate(privateKeyPem);
+    // original sale: Wash 1x25 + Clean 2x10 = 45 net, +15% = 51.75 gross
+    const orig = baseInput();
+    const inserts: any[][] = [];
+    let issued = false;
+    const client = {
+      query: jest.fn(async (_sql: string, params: any[]) => {
+        if (_sql.includes("kind = 'invoice'")) return { rows: [{ device_id: 'dev1', invoice_no: 'INV-000001', doc_input: JSON.parse(JSON.stringify(orig)) }] };
+        if (_sql.includes("kind = 'credit_note'")) return { rows: issued ? [{}] : [] };
+        if (_sql.includes('FROM zatca_devices')) return { rows: [{ id: 'dev1', private_key_enc: encryptSecret(privateKeyPem, key), certificate_pem: cert.certificatePem, icv_last: 5, pih_last: 'PREV' }] };
+        if (_sql.startsWith('INSERT')) { inserts.push(params); issued = true; return { rows: [] }; }
+        return { rows: [] };
+      }),
+    };
+    const svc = new ZatcaService({ get: () => key } as any, { runInTenantContext: (_t: any, fn: any) => fn(client) } as any, {} as any);
+    // return just the "Clean" line, 1 of 2: net 10, tax 1.5, refund 11.5
+    const res = await svc.issueCreditNote({ tenantId: 't1' } as any, 'o1', 'damaged', {
+      returnId: '11111111-2222-3333-4444-555555555555',
+      lines: [{ item_name: 'Clean "inside" & <more>', quantity: 1 }],
+      lineValueTotal: 10, // tax-exclusive: line value is the net amount
+      netAmount: 10,
+      taxAmount: 1.5,
+      refundTotal: 11.5,
+    });
+    expect(res).toEqual({ issued: true });
+    const row = inserts[0];
+    expect(row[3]).toBe('credit_note');
+    expect(row[6]).toBe('PREV'); // pih chained
+    expect(row[14]).toBe('11111111-2222-3333-4444-555555555555'); // return_id
+    expect(row[10]).toContain('name="0200000"'); // simplified credit note
+    expect(row[10]).toContain('<cbc:PayableAmount currencyID="SAR">11.50</cbc:PayableAmount>');
+    expect(row[10]).toContain('<cac:BillingReference>');
   });
 });
