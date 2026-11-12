@@ -5,6 +5,7 @@ import {
   ConflictException,
   ServiceUnavailableException,
   Inject,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +14,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { AccountingBootstrapService } from './accounting-bootstrap.service';
+import { ensureBranchWarehouse } from '../branches/branch-warehouse.util';
 import { AuditService } from '../../core/audit/audit.service';
 import { BranchValidatorService } from '../../core/security/branch-validator.service';
 import { LoginDto } from './dto/login.dto';
@@ -166,6 +168,7 @@ export class AuthService {
   // supabase-js version, which otherwise flags every assignment below as
   // unsafe even though both sides are the same real client type.
   private readonly realtimeAnonClient: ReturnType<typeof createClient>;
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
@@ -595,6 +598,16 @@ export class AuthService {
       if (branchError || !branch) {
         throw new ServiceUnavailableException('Failed to create branch');
       }
+
+      // Every branch needs a usable default warehouse, or sales skip stock
+      // deduction and COGS. Best-effort: never blocks registration.
+      await ensureBranchWarehouse(
+        this.supabase,
+        tenant.id,
+        branch.id,
+        branchName,
+        this.logger,
+      );
 
       // Accounting Bootstrap: every new tenant gets a fully operational
       // accounting configuration (owner, branch assignment, fiscal

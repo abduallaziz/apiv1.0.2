@@ -1109,6 +1109,44 @@ export class InvoicesService {
           })
           .catch(() => {}); // الإشعار نفسه لا يجب أن يوقف الاستجابة لو فشل إرساله
       }
+    } else {
+      // No usable default warehouse (none set, or it was deleted/deactivated):
+      // a sale of stock-tracked items then deducts NOTHING and posts no COGS.
+      // That must never be silent — surface it to the cashier (stock_warning →
+      // the POS toast), log it and notify. Never blocks the sale (product rule).
+      try {
+        const tracked = await this.repo.hasTrackedItems(
+          tenant.tenantId,
+          built.items.map((item) => item.item_id),
+        );
+        if (tracked) {
+          const message =
+            'No default warehouse configured for this branch: stock was NOT deducted for this sale';
+          this.logger.warn(
+            `${message} (invoice ${invoice.id}, branch ${branchId})`,
+          );
+          stockWarning = [stockWarning, message].filter(Boolean).join(' | ');
+          this.notificationService
+            .notify({
+              userId: cashierId,
+              tenantId: tenant.tenantId,
+              type: NOTIFICATION_TYPES.INVENTORY_STOCK_DEDUCTION_FAILED,
+              channels: [NOTIFICATION_CHANNELS.IN_APP],
+              data: {
+                invoice_id: invoice.id,
+                branch_id: branchId,
+                error: 'no_default_warehouse',
+              },
+            })
+            .catch(() => {});
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Could not check tracked items for the no-warehouse warning (invoice ${invoice.id}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
 
     // Serial sale transition (Migration 13.14 Phase 3, #14) — only for
