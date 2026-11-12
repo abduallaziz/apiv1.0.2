@@ -6,6 +6,9 @@ import { TenantContext } from '../../../core/tenant/tenant-context';
 import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 import { isForeignKeyViolation } from '../../../shared/supabase/postgrest-error.util';
+import type { PoolClient } from 'pg';
+import { resolveTemplate } from '../../print/print-template.util';
+import type { InvoiceTemplate } from '../../print/print.types';
 
 export interface PooledInvoiceItem {
   item_id: string;
@@ -77,16 +80,35 @@ export class InvoicesRepository extends ScopedRepository {
     // When set, the sale's stock is deducted in THIS transaction, before the
     // journal entry is posted, so fn_post_sales_order sees the inventory cost.
     stockInTx?: { warehouseId: string },
-  ): Promise<{ id: string; stockDeducted: boolean; stockError?: string }> {
+    // Sequential legal number (fn_next_invoice_no), taken INSIDE this transaction:
+    // a failed sale rolls the counter back too, so there are no gaps or duplicates.
+    invoiceNumber?: { prefix: string; padding: number },
+    // Runs INSIDE the same transaction, right after the sales entry is posted (ZATCA issuing).
+    // If it throws, the whole sale rolls back.
+    afterPost?: (client: PoolClient, orderId: string, invoiceNo: string | null) => Promise<void>,
+  ): Promise<{
+    id: string;
+    invoice_no: string | null;
+    stockDeducted: boolean;
+    stockError?: string;
+  }> {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      let invoiceNo: string | null = null;
+      if (invoiceNumber) {
+        const n = await client.query<{ no: string }>(
+          'SELECT fn_next_invoice_no($1, $2, $3) AS no',
+          [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding],
+        );
+        invoiceNo = n.rows[0].no;
+      }
       const orderResult = await client.query<{ id: string }>(
         `INSERT INTO orders (
            tenant_id, branch_id, shift_id, cashier_id, customer_id, status,
            subtotal, discount, tax, total, payment_method, notes,
            coupon_code, sale_attempt_id, cash_amount, card_amount,
-           vehicle_id, plate_snapshot, vehicle_size
+           vehicle_id, plate_snapshot, vehicle_size, invoice_no
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
          RETURNING id`,
         [
           tenant.tenantId,
@@ -108,6 +130,7 @@ export class InvoicesRepository extends ScopedRepository {
           orderPayload.vehicle_id ?? null,
           orderPayload.plate_snapshot ?? null,
           orderPayload.vehicle_size ?? null,
+          invoiceNo,
         ],
       );
       const orderId = orderResult.rows[0].id;
@@ -226,7 +249,9 @@ export class InvoicesRepository extends ScopedRepository {
         null, // p_posting_date — function defaults to orders.created_at::date
       ]);
 
-      return { id: orderId, stockDeducted, stockError };
+      if (afterPost) await afterPost(client, orderId, invoiceNo);
+
+      return { id: orderId, invoice_no: invoiceNo, stockDeducted, stockError };
     });
   }
 
@@ -291,7 +316,7 @@ export class InvoicesRepository extends ScopedRepository {
   }
 
   private readonly ORDER_SELECT = `
-    id, status, subtotal,
+    id, invoice_no, status, subtotal,
     discount_amount:discount,
     tax, total,
     payment_method, notes, created_at,
@@ -417,6 +442,28 @@ export class InvoicesRepository extends ScopedRepository {
     return new Map(
       (data ?? []).map((u) => [u.id as string, Number(u.commission_rate ?? 0)]),
     );
+  }
+
+  /** The invoice number format chosen in the designer (branch template wins, else tenant). */
+  async getInvoiceNumberFormat(
+    tenantId: string,
+    branchId: string,
+  ): Promise<{ prefix: string; padding: number }> {
+    const [{ data: tenantRow }, { data: branchRow }] = await Promise.all([
+      this.supabase.from('tenants').select('invoice_template').eq('id', tenantId).maybeSingle(),
+      this.supabase
+        .from('branches')
+        .select('invoice_template')
+        .eq('id', branchId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle(),
+    ]);
+    const { template } = resolveTemplate(
+      'invoice',
+      tenantRow?.invoice_template,
+      branchRow?.invoice_template,
+    );
+    return (template as InvoiceTemplate).invoice_number;
   }
 
   // Name + official price of items (tenant-scoped, not deleted). Used to turn

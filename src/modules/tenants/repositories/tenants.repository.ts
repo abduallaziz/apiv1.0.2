@@ -40,20 +40,34 @@ export class TenantsRepository {
   // from getTaxRate() above rather than changing its return shape, since
   // getTaxRate() has other real callers (dine-in.service.ts) not in this
   // phase's approved scope and must keep their exact current behavior.
-  async getTaxConfig(
-    tenantId: string,
-  ): Promise<{ tax_rate: number; tax_inclusive_pricing: boolean }> {
+  async getTaxConfig(tenantId: string): Promise<{
+    tax_rate: number;
+    tax_inclusive_pricing: boolean;
+    tax_category: 'S' | 'Z' | 'E' | 'O';
+    tax_exemption_reason_code: string | null;
+    tax_exemption_reason: string | null;
+  }> {
+    const empty = {
+      tax_rate: 0,
+      tax_inclusive_pricing: false,
+      tax_category: 'S' as const,
+      tax_exemption_reason_code: null,
+      tax_exemption_reason: null,
+    };
     const { data, error } = await this.supabase
       .from('tenants')
-      .select('tax_rate, tax_inclusive_pricing')
+      .select('tax_rate, tax_inclusive_pricing, tax_category, tax_exemption_reason_code, tax_exemption_reason')
       .eq('id', tenantId)
       .is('deleted_at', null)
       .single();
 
-    if (error || !data) return { tax_rate: 0, tax_inclusive_pricing: false };
+    if (error || !data) return empty;
     return {
       tax_rate: data.tax_rate ?? 0,
       tax_inclusive_pricing: data.tax_inclusive_pricing ?? false,
+      tax_category: (data.tax_category ?? 'S') as 'S' | 'Z' | 'E' | 'O',
+      tax_exemption_reason_code: data.tax_exemption_reason_code ?? null,
+      tax_exemption_reason: data.tax_exemption_reason ?? null,
     };
   }
 

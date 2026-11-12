@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
+import { ZatcaService } from '../zatca/zatca.service';
+import type { ZatcaBuyer } from '../zatca/zatca.types';
 import { PaginationDto } from '../../shared/dto/pagination.dto';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
 import { InvoicesRepository } from './repositories/invoices.repository';
@@ -48,6 +50,36 @@ import {
   RewardPricingPreview,
 } from '../rewards/reward-redemption.service';
 
+/**
+ * Builds the ZATCA buyer from a customer row. A VAT number makes the sale a standard (B2B) invoice,
+ * so the national address is sent too; without one the name alone rides on a simplified invoice.
+ */
+function buildZatcaBuyer(
+  c: {
+    full_name?: string | null;
+    vat_number?: string | null;
+    commercial_reg?: string | null;
+    address_street?: string | null;
+    address_building?: string | null;
+    address_district?: string | null;
+    address_city?: string | null;
+    address_postal?: string | null;
+  } | null,
+): ZatcaBuyer | null {
+  if (!c) return null;
+  if (!c.vat_number) return c.full_name ? { name: c.full_name } : null;
+  return {
+    name: c.full_name ?? undefined,
+    vat_number: c.vat_number,
+    crn: c.commercial_reg ?? undefined,
+    street: c.address_street ?? undefined,
+    building_no: c.address_building ?? undefined,
+    district: c.address_district ?? undefined,
+    city: c.address_city ?? undefined,
+    postal_zone: c.address_postal ?? undefined,
+  };
+}
+
 const INVOICES_LIST_TTL = 240; // 4 minutes
 const invoicesListCacheKey = (
   tenantId: string,
@@ -86,6 +118,7 @@ export class InvoicesService {
     private readonly rewardEligibilityService: RewardEligibilityService,
     private readonly rewardRedemptionService: RewardRedemptionService,
     private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
+    private readonly zatca: ZatcaService,
   ) {}
 
   /** Best-effort compensation when order creation fails after redemptions. */
@@ -206,13 +239,13 @@ export class InvoicesService {
     // ثلاثة استعلامات مستقلة تمامًا عن بعضها (فحص ملكية العميل، نسبة الضريبة، إعدادات
     // الولاء) — كانت تُنفَّذ بالتسلسل رغم عدم اعتماد أي منها على نتيجة الآخر، فتضيف
     // زمن استجابة (round-trip) إضافيًا لكل عملية بيع واحدة. تُنفَّذ الآن بالتوازي.
-    const [, taxConfig, loyaltySettings] = await Promise.all([
+    const [buyerCustomer, taxConfig, loyaltySettings] = await Promise.all([
       dto.customer_id
         ? this.customersService.findByIdUnrestricted(tenant, dto.customer_id)
         : Promise.resolve(null),
       tenant.tenantId
         ? this.tenantsRepo.getTaxConfig(tenant.tenantId)
-        : Promise.resolve({ tax_rate: 0, tax_inclusive_pricing: false }),
+        : Promise.resolve({ tax_rate: 0, tax_inclusive_pricing: false, tax_category: 'S' as const, tax_exemption_reason_code: null, tax_exemption_reason: null }),
       this.loyaltyService.getSettings(tenant.tenantId),
     ]);
     const taxRate = taxConfig.tax_rate;
@@ -694,7 +727,12 @@ export class InvoicesService {
       }
     }
 
-    let invoice: { id: string; stockDeducted?: boolean; stockError?: string };
+    let invoice: {
+      id: string;
+      invoice_no?: string | null;
+      stockDeducted?: boolean;
+      stockError?: string;
+    };
     try {
       if (usePooledWrite) {
         // POOLED_STOCK_IN_TX_ENABLED — deduct stock inside the sale
@@ -760,6 +798,36 @@ export class InvoicesService {
           },
           pooledItems,
           stockInTxWarehouse ? { warehouseId: stockInTxWarehouse } : undefined,
+          await this.repo.getInvoiceNumberFormat(tenant.tenantId, branchId),
+          // ZATCA: issue the signed legal document inside the sale (off unless ZATCA_ENABLED).
+          this.zatca.enabled
+            ? async (client, orderId, invoiceNo) => {
+                await this.zatca.issueInTransaction(client, {
+                  tenantId: tenant.tenantId,
+                  branchId,
+                  orderId,
+                  invoiceNo: invoiceNo ?? orderId,
+                  issuedAt: new Date(),
+                  currency: 'SAR',
+                  taxRate,
+                  taxInclusive,
+                  lines: built.items.map((item) => ({
+                    name: item.item_name,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    total: parseFloat((item.unit_price * item.quantity).toFixed(2)),
+                  })),
+                  discount: built.discount_amount,
+                  total: built.total,
+                  tax: built.tax_amount,
+                  paymentMethod: storedPaymentMethod,
+                  buyer: buildZatcaBuyer(buyerCustomer),
+                  taxCategory: taxConfig.tax_category,
+                  exemptionReasonCode: taxConfig.tax_exemption_reason_code,
+                  exemptionReason: taxConfig.tax_exemption_reason,
+                });
+              }
+            : undefined,
         );
       } else {
         invoice = await this.repo.create(tenant, {
@@ -1266,6 +1334,8 @@ export class InvoicesService {
 
     return {
       id: invoice.id,
+      // Sequential legal number (null only on the non-pooled dev path).
+      invoice_no: invoice.invoice_no ?? null,
       total: built.total,
       // Additive, read-only fields (Owner-approved residual-gap fix) —
       // the receipt previously fell back to the client-side `cart` preview
@@ -1427,6 +1497,13 @@ export class InvoicesService {
     });
 
     this.metricsService.recordInvoice(tenant.tenantId, 'cancelled');
+
+    // ZATCA: a cancelled sale that has a signed document gets its credit note (off unless ZATCA_ENABLED).
+    if (this.zatca.enabled) {
+      await this.zatca.issueCreditNote(tenant, id, dto.reason ?? 'cancelled').catch((err) => {
+        this.logger.error(`ZATCA credit note failed for cancelled invoice ${id}: ${err?.message ?? err}`);
+      });
+    }
 
     // يعكس أي خصم مخزون تم فعليًا عند البيع (لا شيء إن لم يُخصَم أصلًا) — best-effort أيضًا
     this.repo

@@ -26,12 +26,14 @@ function build() {
   };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
   const cache = { delByPrefix: jest.fn().mockResolvedValue(undefined) };
+  const zatca = { enabled: false, issueCreditNote: jest.fn().mockResolvedValue({ issued: false }) };
   const service = new SalesReturnsService(
     repo as never,
     audit as never,
     cache as never,
+    zatca as never,
   );
-  return { service, repo, audit, cache };
+  return { service, repo, audit, cache, zatca };
 }
 
 describe('SalesReturnsService', () => {

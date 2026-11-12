@@ -3,9 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { AuditService } from '../../core/audit/audit.service';
 import { RedisCacheService } from '../../core/cache/redis-cache.service';
+import { ZatcaService } from '../zatca/zatca.service';
 import {
   SalesReturnResult,
   SalesReturnsRepository,
@@ -26,10 +28,13 @@ function toBadRequest(err: unknown): never {
 
 @Injectable()
 export class SalesReturnsService {
+  private readonly logger = new Logger(SalesReturnsService.name);
+
   constructor(
     private readonly repo: SalesReturnsRepository,
     private readonly audit: AuditService,
     private readonly cache: RedisCacheService,
+    private readonly zatca: ZatcaService,
   ) {}
 
   async getForOrder(tenant: TenantContext, orderId: string) {
@@ -105,6 +110,22 @@ export class SalesReturnsService {
       ip_address: ip,
       device,
     });
+
+    // ZATCA: a return against a sale that produced a document gets its own credit note (381), for
+    // exactly the returned lines and refund amount (off unless ZATCA_ENABLED). Best-effort: a failure
+    // here must never roll back the refund the customer already received.
+    if (this.zatca.enabled && result.id) {
+      await this.zatca
+        .issueCreditNote(tenant, orderId, dto.reason ?? 'return', {
+          returnId: result.id,
+          lines: result.lines.map((l) => ({ item_name: l.item_name, quantity: l.quantity })),
+          lineValueTotal: parseFloat(result.lines.reduce((s, l) => s + l.line_value, 0).toFixed(2)),
+          netAmount: result.net_amount,
+          taxAmount: result.tax_amount,
+          refundTotal: result.refund_total,
+        })
+        .catch((err) => this.logger.error(`ZATCA credit note failed for return ${result.id}: ${err?.message ?? err}`));
+    }
 
     await this.cache.delByPrefix(`invoices:list:tenant:${tenant.tenantId}:`);
     return result;

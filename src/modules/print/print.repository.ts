@@ -82,7 +82,7 @@ export class PrintRepository {
     const { data, error } = await this.supabase
       .from('orders')
       .select(
-        'id, branch_id, cashier_id, customer_id, table_id, status, subtotal, discount, tax, total, payment_method, cash_amount, card_amount, notes, created_at',
+        'id, invoice_no, branch_id, cashier_id, customer_id, table_id, status, subtotal, discount, tax, total, payment_method, cash_amount, card_amount, notes, created_at',
       )
       .eq('tenant_id', tenantId)
       .eq('id', orderId)

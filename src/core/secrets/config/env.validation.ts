@@ -31,6 +31,15 @@ export const envValidationSchema = Joi.object({
   // Only meaningful with POOLED_INVOICE_WRITES_ENABLED=true. A stock failure
   // never fails the sale (SAVEPOINT), it only falls back to the old behaviour.
   POOLED_STOCK_IN_TX_ENABLED: Joi.boolean().default(false),
+  // ZATCA e-invoicing phase 2: issue a signed document inside every pooled sale of a branch that has
+  // an onboarded device (docs/DESIGN_ZATCA_PHASE2.md). Off by default; nothing is sent to ZATCA here —
+  // documents are prepared, signed, chained and stored until the connection is added.
+  ZATCA_ENABLED: Joi.boolean().default(false),
+  // 'fatoora' = really send to ZATCA (onboarding + reporting); 'null' = documents wait as pending.
+  ZATCA_GATEWAY: Joi.string().valid('null', 'fatoora').default('null'),
+  // 32-byte master key (base64 or 64 hex chars) encrypting the device private keys and CSID secrets.
+  // Required when ZATCA_ENABLED=true or device keys are generated. Never log it.
+  ZATCA_KEY_ENC_KEY: Joi.string().min(32).optional().allow(''),
   // Same pattern, for LoyaltyService's *Pooled methods — requires DATABASE_URL
   // live AND a dedicated non-BYPASSRLS Postgres role backing it (see the
   // caveat in loyalty.service.ts) before this actually enforces anything.
