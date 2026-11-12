@@ -74,7 +74,10 @@ export class InvoicesRepository extends ScopedRepository {
     tenant: TenantContext,
     orderPayload: Record<string, unknown>,
     items: PooledInvoiceItem[],
-  ): Promise<{ id: string }> {
+    // When set, the sale's stock is deducted in THIS transaction, before the
+    // journal entry is posted, so fn_post_sales_order sees the inventory cost.
+    stockInTx?: { warehouseId: string },
+  ): Promise<{ id: string; stockDeducted: boolean; stockError?: string }> {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
       const orderResult = await client.query<{ id: string }>(
         `INSERT INTO orders (
@@ -172,6 +175,42 @@ export class InvoicesRepository extends ScopedRepository {
         }
       }
 
+      // Stock deduction BEFORE posting (POOLED_STOCK_IN_TX_ENABLED): the
+      // sales entry reads the inventory cost from stock_movements, so the
+      // movements must already exist or COGS is never posted. Wrapped in a
+      // SAVEPOINT so a stock problem never fails the sale (long-standing
+      // product rule): on failure we roll back to the savepoint, the sale and
+      // its entry proceed exactly as before, and the caller retries the
+      // deduction after commit.
+      let stockDeducted = false;
+      let stockError: string | undefined;
+      if (stockInTx) {
+        await client.query('SAVEPOINT sale_stock');
+        try {
+          await client.query(
+            'SELECT fn_process_sale_stock_deduction($1, $2, $3, $4, $5::jsonb)',
+            [
+              tenant.tenantId,
+              stockInTx.warehouseId,
+              orderId,
+              orderPayload.cashier_id,
+              JSON.stringify(
+                items.map((i) => ({
+                  item_id: i.item_id,
+                  variant_id: i.variant_id ?? null,
+                  quantity: i.quantity,
+                })),
+              ),
+            ],
+          );
+          await client.query('RELEASE SAVEPOINT sale_stock');
+          stockDeducted = true;
+        } catch (e) {
+          await client.query('ROLLBACK TO SAVEPOINT sale_stock');
+          stockError = e instanceof Error ? e.message : String(e);
+        }
+      }
+
       // M184 — Sales Posting, same transaction, after every order_item/
       // audit insert above (so it can never post before the sale itself
       // is fully written) and before the outer COMMIT. Any failure here
@@ -187,7 +226,7 @@ export class InvoicesRepository extends ScopedRepository {
         null, // p_posting_date — function defaults to orders.created_at::date
       ]);
 
-      return { id: orderId };
+      return { id: orderId, stockDeducted, stockError };
     });
   }
 

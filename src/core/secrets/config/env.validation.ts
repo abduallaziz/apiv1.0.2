@@ -25,6 +25,12 @@ export const envValidationSchema = Joi.object({
   // Same pattern, for StockRepository.callApplyStockMovementPooled — requires
   // DATABASE_URL live and migration 076 applied before enabling.
   POOLED_STOCK_WRITES_ENABLED: Joi.boolean().default(false),
+  // Deduct sale stock INSIDE the pooled invoice transaction, before the
+  // sales journal entry is posted, so the entry sees the inventory cost and
+  // posts Dr COGS / Cr Inventory (see docs/DESIGN_COGS_POSTING_AFTER_STOCK_DEDUCTION.md).
+  // Only meaningful with POOLED_INVOICE_WRITES_ENABLED=true. A stock failure
+  // never fails the sale (SAVEPOINT), it only falls back to the old behaviour.
+  POOLED_STOCK_IN_TX_ENABLED: Joi.boolean().default(false),
   // Same pattern, for LoyaltyService's *Pooled methods — requires DATABASE_URL
   // live AND a dedicated non-BYPASSRLS Postgres role backing it (see the
   // caveat in loyalty.service.ts) before this actually enforces anything.

@@ -12,6 +12,8 @@ function build(opts: {
   createFails?: boolean;
   grants?: Array<{ reward_instance_id: string; item_id: string }>;
   warehouse?: string | null;
+  flags?: string[];
+  stockDeducted?: boolean;
 }) {
   const repo = {
     findBySaleAttemptId: jest.fn().mockResolvedValue(null),
@@ -21,7 +23,9 @@ function build(opts: {
     insertItems: jest.fn().mockResolvedValue([]),
     createWithItemsPooled: opts.createFails
       ? jest.fn().mockRejectedValue(new Error('db exploded'))
-      : jest.fn().mockResolvedValue({ id: 'order-1' }),
+      : jest
+          .fn()
+          .mockResolvedValue({ id: 'order-1', stockDeducted: !!opts.stockDeducted }),
     getBranchDefaultWarehouse: jest.fn().mockResolvedValue(opts.warehouse ?? null),
     deductStockForSale: jest.fn().mockResolvedValue(undefined),
     getItemBasics: jest
@@ -74,7 +78,7 @@ function build(opts: {
     } as any,
     { notify: jest.fn().mockResolvedValue(undefined) } as any,
     { delByPrefix: jest.fn().mockResolvedValue(undefined) } as any,
-    { get: jest.fn(() => false) } as any,
+    { get: jest.fn((k: string) => !!opts.flags?.includes(k)) } as any,
     { assertOpenSession: jest.fn().mockResolvedValue(undefined) } as any,
     {} as any,
     {} as any,
@@ -200,6 +204,38 @@ describe('InvoicesService.create — free-item reward becomes a $0 stock line', 
     repo.getItemBasics.mockResolvedValue(new Map());
     await expect(call(service)).rejects.toThrow(/no longer exists/);
     expect(rewards.redeemSelected).not.toHaveBeenCalled();
+  });
+});
+
+describe('InvoicesService.create — stock deducted inside the sale transaction (COGS with the entry)', () => {
+  const flags = ['POOLED_INVOICE_WRITES_ENABLED', 'POOLED_STOCK_IN_TX_ENABLED'];
+  const run = (s: InvoicesService) =>
+    s.create(new TenantContext('t1', 'b1'), { ...dto(), redeem_reward_instance_ids: undefined }, 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
+
+  it('passes the warehouse to the pooled transaction and does NOT deduct again after commit', async () => {
+    const { service, repo } = build({ previewDiscount: 0, flags, warehouse: 'w1', stockDeducted: true });
+    await run(service);
+    expect(repo.createWithItemsPooled.mock.calls[0][3]).toEqual({ warehouseId: 'w1' });
+    expect(repo.deductStockForSale).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the post-commit deduction when the in-transaction one failed', async () => {
+    const { service, repo } = build({ previewDiscount: 0, flags, warehouse: 'w1', stockDeducted: false });
+    await run(service);
+    expect(repo.deductStockForSale).toHaveBeenCalledTimes(1);
+  });
+
+  it('flag off: nothing is deducted in the transaction and the old post-commit deduction runs', async () => {
+    const { service, repo } = build({ previewDiscount: 0, flags: ['POOLED_INVOICE_WRITES_ENABLED'], warehouse: 'w1' });
+    await run(service);
+    expect(repo.createWithItemsPooled.mock.calls[0][3]).toBeUndefined();
+    expect(repo.deductStockForSale).toHaveBeenCalledTimes(1);
+  });
+
+  it('no default warehouse: no in-transaction deduction is requested', async () => {
+    const { service, repo } = build({ previewDiscount: 0, flags, warehouse: null });
+    await run(service);
+    expect(repo.createWithItemsPooled.mock.calls[0][3]).toBeUndefined();
   });
 });
 
