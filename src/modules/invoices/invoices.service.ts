@@ -457,6 +457,37 @@ export class InvoicesService {
       freeItemGrants = preview.freeItemGrants;
     }
 
+    // Free-item rewards become real $0 order lines so the goods leave stock
+    // (fn_process_sale_stock_deduction) and their cost is posted to the books
+    // like any other sold item. They are appended AFTER price resolution and
+    // totals, so they never affect subtotal/discount/tax/total.
+    const freeLines: typeof manualBuilt.items = [];
+    if (freeItemGrants.length) {
+      const basics = await this.repo.getItemBasics(tenant.tenantId, [
+        ...new Set(freeItemGrants.map((g) => g.item_id)),
+      ]);
+      for (const grant of freeItemGrants) {
+        const basic = basics.get(grant.item_id);
+        if (!basic) {
+          throw new BadRequestException(
+            `Free reward item ${grant.item_id} no longer exists`,
+          );
+        }
+        freeLines.push({
+          item_id: grant.item_id,
+          item_name: basic.name,
+          quantity: 1,
+          unit_price: 0,
+        });
+        // keep the per-line arrays index-aligned with built.items
+        priceResolutions.push({
+          kind: 'no_override',
+          officialUnitPrice: basic.price,
+        });
+        lineWorkers.push(null);
+      }
+    }
+
     const combinedDiscountAmount = Math.min(
       manualBuilt.discount_amount +
         loyaltyDiscountAmount +
@@ -494,7 +525,7 @@ export class InvoicesService {
       ? parseFloat((manualBuilt.subtotal - taxAmount).toFixed(2))
       : manualBuilt.subtotal;
     const built = {
-      items: manualBuilt.items,
+      items: [...manualBuilt.items, ...freeLines],
       subtotal: finalSubtotal,
       discount_amount: combinedDiscountAmount,
       tax_amount: taxAmount,

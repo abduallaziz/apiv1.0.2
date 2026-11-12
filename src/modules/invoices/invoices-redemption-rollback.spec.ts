@@ -7,7 +7,12 @@ import { LoyaltyService } from '../../core/loyalty/loyalty.service';
 
 // A sale that fails AFTER a reward was redeemed must give the reward back, and a
 // sale whose total would be zero must be rejected BEFORE anything is redeemed.
-function build(opts: { previewDiscount: number; createFails?: boolean }) {
+function build(opts: {
+  previewDiscount: number;
+  createFails?: boolean;
+  grants?: Array<{ reward_instance_id: string; item_id: string }>;
+  warehouse?: string | null;
+}) {
   const repo = {
     findBySaleAttemptId: jest.fn().mockResolvedValue(null),
     create: opts.createFails
@@ -17,12 +22,19 @@ function build(opts: { previewDiscount: number; createFails?: boolean }) {
     createWithItemsPooled: opts.createFails
       ? jest.fn().mockRejectedValue(new Error('db exploded'))
       : jest.fn().mockResolvedValue({ id: 'order-1' }),
-    getBranchDefaultWarehouse: jest.fn().mockResolvedValue(null),
+    getBranchDefaultWarehouse: jest.fn().mockResolvedValue(opts.warehouse ?? null),
+    deductStockForSale: jest.fn().mockResolvedValue(undefined),
+    getItemBasics: jest
+      .fn()
+      .mockResolvedValue(new Map([['shirt', { name: 'Shirt', price: 60 }]])),
   };
   const rewards = {
     previewSelection: jest
       .fn()
-      .mockResolvedValue({ discountAmount: opts.previewDiscount, freeItemGrants: [] }),
+      .mockResolvedValue({
+        discountAmount: opts.previewDiscount,
+        freeItemGrants: opts.grants ?? [],
+      }),
     redeemSelected: jest.fn().mockResolvedValue([]),
     releaseSelected: jest.fn().mockResolvedValue(1),
     attachOrder: jest.fn().mockResolvedValue(undefined),
@@ -100,6 +112,42 @@ describe('InvoicesService.create — reward redemption safety', () => {
     await expect(call(service)).resolves.toBeDefined();
     expect(rewards.redeemSelected).toHaveBeenCalledTimes(1);
     expect(rewards.releaseSelected).not.toHaveBeenCalled();
+  });
+});
+
+describe('InvoicesService.create — free-item reward becomes a $0 stock line', () => {
+  const grants = [{ reward_instance_id: 'r1', item_id: 'shirt' }];
+
+  it('adds the free item as a 0-priced order line without changing the totals', async () => {
+    const { service, repo } = build({ previewDiscount: 0, grants });
+    await service.create(new TenantContext('t1', 'b1'), dto(), 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
+    const header = repo.create.mock.calls[0][1];
+    expect(header.subtotal).toBe(5);
+    expect(header.total).toBe(5);
+    const lines = repo.insertItems.mock.calls[0][0];
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toMatchObject({
+      item_id: 'shirt',
+      item_name: 'Shirt',
+      quantity: 1,
+      unit_price: 0,
+      total_price: 0,
+      official_price_snapshot: 60,
+    });
+  });
+
+  it('sends the free item to stock deduction too', async () => {
+    const { service, repo } = build({ previewDiscount: 0, grants, warehouse: 'w1' });
+    await service.create(new TenantContext('t1', 'b1'), dto(), 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
+    const sent = repo.deductStockForSale.mock.calls[0][4];
+    expect(sent.map((i: any) => i.item_id)).toEqual(['i1', 'shirt']);
+  });
+
+  it('rejects before redeeming when the free item no longer exists', async () => {
+    const { service, repo, rewards } = build({ previewDiscount: 0, grants });
+    repo.getItemBasics.mockResolvedValue(new Map());
+    await expect(call(service)).rejects.toThrow(/no longer exists/);
+    expect(rewards.redeemSelected).not.toHaveBeenCalled();
   });
 });
 

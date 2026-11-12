@@ -373,6 +373,28 @@ export class InvoicesRepository extends ScopedRepository {
     );
   }
 
+  // Name + official price of items (tenant-scoped, not deleted). Used to turn
+  // free-item reward grants into $0 order lines.
+  async getItemBasics(
+    tenantId: string,
+    ids: string[],
+  ): Promise<Map<string, { name: string; price: number }>> {
+    if (ids.length === 0) return new Map();
+    const { data, error } = await this.supabase
+      .from('items')
+      .select('id, name, price')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .in('id', ids);
+    if (error) throw error;
+    return new Map(
+      (data ?? []).map((i) => [
+        i.id as string,
+        { name: String(i.name), price: Number(i.price ?? 0) },
+      ]),
+    );
+  }
+
   // G6 — the ONLY post-sale edit of an invoice: its non-financial note.
   async updateNote(tenant: TenantContext, id: string, note: string | null) {
     const { data, error } = await this.supabase
