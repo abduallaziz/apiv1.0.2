@@ -201,6 +201,25 @@ export class CreateInvoiceDto {
   @ValidateNested({ each: true })
   @Type(() => FreeItemChoiceDto)
   free_item_choices?: FreeItemChoiceDto[];
+
+  // For free items that have variants (size/colour): the variant the customer
+  // takes, one entry per (reward instance, item).
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FreeItemVariantChoiceDto)
+  free_item_variants?: FreeItemVariantChoiceDto[];
+}
+
+export class FreeItemVariantChoiceDto {
+  @IsUUID('4')
+  reward_instance_id: string;
+
+  @IsUUID('4')
+  item_id: string;
+
+  @IsUUID('4')
+  variant_id: string;
 }
 
 export class FreeItemChoiceDto {

@@ -26,7 +26,23 @@ function build(opts: {
     deductStockForSale: jest.fn().mockResolvedValue(undefined),
     getItemBasics: jest
       .fn()
-      .mockResolvedValue(new Map([['shirt', { name: 'Shirt', price: 60 }]])),
+      .mockResolvedValue(
+        new Map([
+          ['shirt', { name: 'Shirt', price: 60, has_variants: false, variants: [] }],
+          [
+            'tee',
+            {
+              name: 'Tee',
+              price: 40,
+              has_variants: true,
+              variants: [
+                { id: 'v-m', name: 'M', price_adjustment: 0 },
+                { id: 'v-xl', name: 'XL', price_adjustment: 5 },
+              ],
+            },
+          ],
+        ]),
+      ),
   };
   const rewards = {
     previewSelection: jest
@@ -141,6 +157,42 @@ describe('InvoicesService.create — free-item reward becomes a $0 stock line', 
     await service.create(new TenantContext('t1', 'b1'), dto(), 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
     const sent = repo.deductStockForSale.mock.calls[0][4];
     expect(sent.map((i: any) => i.item_id)).toEqual(['i1', 'shirt']);
+  });
+
+  describe('free item with variants (size/colour)', () => {
+    const teeGrant = [{ reward_instance_id: 'r1', item_id: 'tee' }];
+    const withVariants = (v?: any[]) => ({ ...dto(), free_item_variants: v });
+    const run = (s: InvoicesService, d: any) =>
+      s.create(new TenantContext('t1', 'b1'), d, 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
+
+    it('adds the chosen variant to the $0 line and to stock deduction', async () => {
+      const { service, repo } = build({ previewDiscount: 0, grants: teeGrant, warehouse: 'w1' });
+      await run(service, withVariants([{ reward_instance_id: 'r1', item_id: 'tee', variant_id: 'v-xl' }]));
+      const line = repo.insertItems.mock.calls[0][0][1];
+      expect(line).toMatchObject({
+        item_id: 'tee',
+        variant_id: 'v-xl',
+        variant_name: 'XL',
+        unit_price: 0,
+        official_price_snapshot: 45,
+      });
+      const sent = repo.deductStockForSale.mock.calls[0][4];
+      expect(sent[1]).toMatchObject({ item_id: 'tee', variant_id: 'v-xl', quantity: 1 });
+    });
+
+    it('rejects before redeeming when no variant was chosen', async () => {
+      const { service, rewards } = build({ previewDiscount: 0, grants: teeGrant });
+      await expect(run(service, withVariants())).rejects.toThrow(/Choose a variant/);
+      expect(rewards.redeemSelected).not.toHaveBeenCalled();
+    });
+
+    it('rejects a variant that does not belong to the item', async () => {
+      const { service, rewards } = build({ previewDiscount: 0, grants: teeGrant });
+      await expect(
+        run(service, withVariants([{ reward_instance_id: 'r1', item_id: 'tee', variant_id: 'v-other' }])),
+      ).rejects.toThrow(/not an active variant/);
+      expect(rewards.redeemSelected).not.toHaveBeenCalled();
+    });
   });
 
   it('rejects before redeeming when the free item no longer exists', async () => {

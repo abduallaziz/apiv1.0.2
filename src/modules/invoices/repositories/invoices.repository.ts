@@ -40,6 +40,13 @@ export interface PooledOverrideAudit {
   effective_policy_snapshot: object;
 }
 
+export interface FreeItemBasics {
+  name: string;
+  price: number;
+  has_variants: boolean;
+  variants: { id: string; name: string; price_adjustment: number }[];
+}
+
 @Injectable()
 export class InvoicesRepository extends ScopedRepository {
   constructor(
@@ -378,19 +385,32 @@ export class InvoicesRepository extends ScopedRepository {
   async getItemBasics(
     tenantId: string,
     ids: string[],
-  ): Promise<Map<string, { name: string; price: number }>> {
+  ): Promise<Map<string, FreeItemBasics>> {
     if (ids.length === 0) return new Map();
     const { data, error } = await this.supabase
       .from('items')
-      .select('id, name, price')
+      .select(
+        'id, name, price, has_variants, item_variants(id, name, price_adjustment, is_active)',
+      )
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .in('id', ids);
     if (error) throw error;
     return new Map(
-      (data ?? []).map((i) => [
+      (data ?? []).map((i: any) => [
         i.id as string,
-        { name: String(i.name), price: Number(i.price ?? 0) },
+        {
+          name: String(i.name),
+          price: Number(i.price ?? 0),
+          has_variants: !!i.has_variants,
+          variants: ((i.item_variants ?? []) as any[])
+            .filter((v) => v.is_active !== false)
+            .map((v) => ({
+              id: String(v.id),
+              name: String(v.name),
+              price_adjustment: Number(v.price_adjustment ?? 0),
+            })),
+        },
       ]),
     );
   }
