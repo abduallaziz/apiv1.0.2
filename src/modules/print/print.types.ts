@@ -141,6 +141,8 @@ export interface PrintPayloadBase {
 
 export interface InvoicePrintPayload extends PrintPayloadBase {
   kind: 'invoice';
+  /** Sequential legal invoice number (null for orders created before numbering). */
+  invoice_no: string | null;
   template: InvoiceTemplate;
   business: {
     name: string;
