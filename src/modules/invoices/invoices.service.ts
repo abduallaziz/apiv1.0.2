@@ -473,16 +473,41 @@ export class InvoicesService {
             `Free reward item ${grant.item_id} no longer exists`,
           );
         }
+        // Items with variants (size/colour): the customer's variant is
+        // required so the right stock row is deducted.
+        let variant: { id: string; name: string; price_adjustment: number } | null =
+          null;
+        if (basic.has_variants || basic.variants.length > 0) {
+          const chosen = dto.free_item_variants?.find(
+            (c) =>
+              c.reward_instance_id === grant.reward_instance_id &&
+              c.item_id === grant.item_id,
+          );
+          if (!chosen) {
+            throw new BadRequestException(
+              `Choose a variant for free item ${basic.name}`,
+            );
+          }
+          variant = basic.variants.find((v) => v.id === chosen.variant_id) ?? null;
+          if (!variant) {
+            throw new BadRequestException(
+              `Variant ${chosen.variant_id} is not an active variant of ${basic.name}`,
+            );
+          }
+        }
         freeLines.push({
           item_id: grant.item_id,
           item_name: basic.name,
+          ...(variant
+            ? { variant_id: variant.id, variant_name: variant.name }
+            : {}),
           quantity: 1,
           unit_price: 0,
         });
         // keep the per-line arrays index-aligned with built.items
         priceResolutions.push({
           kind: 'no_override',
-          officialUnitPrice: basic.price,
+          officialUnitPrice: basic.price + (variant?.price_adjustment ?? 0),
         });
         lineWorkers.push(null);
       }
