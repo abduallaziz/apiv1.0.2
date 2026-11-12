@@ -694,9 +694,17 @@ export class InvoicesService {
       }
     }
 
-    let invoice: { id: string };
+    let invoice: { id: string; stockDeducted?: boolean; stockError?: string };
     try {
       if (usePooledWrite) {
+        // POOLED_STOCK_IN_TX_ENABLED — deduct stock inside the sale
+        // transaction (before the journal entry is posted) so the entry
+        // carries the COGS. Off by default; needs a default warehouse.
+        const stockInTxWarehouse = this.config.get<boolean>(
+          'POOLED_STOCK_IN_TX_ENABLED',
+        )
+          ? await this.repo.getBranchDefaultWarehouse(branchId)
+          : null;
         // D01-M7 — official_price_snapshot and, for approved-override
         // lines, the full audit payload (built entirely from M6's own
         // returned values — nothing recomputed here) are attached per line
@@ -751,6 +759,7 @@ export class InvoicesService {
             vehicle_size: capturedVehicle?.size ?? null,
           },
           pooledItems,
+          stockInTxWarehouse ? { warehouseId: stockInTxWarehouse } : undefined,
         );
       } else {
         invoice = await this.repo.create(tenant, {
@@ -1055,17 +1064,21 @@ export class InvoicesService {
       }
 
       try {
-        await this.repo.deductStockForSale(
-          tenant.tenantId,
-          warehouseId,
-          invoice.id,
-          cashierId,
-          built.items.map((item) => ({
-            item_id: item.item_id,
-            variant_id: item.variant_id ?? null,
-            quantity: item.quantity,
-          })),
-        );
+        // Already deducted inside the sale transaction (before the journal
+        // entry) — deducting again would double-count the sale.
+        if (!invoice.stockDeducted) {
+          await this.repo.deductStockForSale(
+            tenant.tenantId,
+            warehouseId,
+            invoice.id,
+            cashierId,
+            built.items.map((item) => ({
+              item_id: item.item_id,
+              variant_id: item.variant_id ?? null,
+              quantity: item.quantity,
+            })),
+          );
+        }
       } catch (err) {
         // The repo throws Supabase's raw PostgrestError ({message, details,
         // hint, code}) rather than a real Error instance for RPC failures,
