@@ -108,6 +108,18 @@ export class FatooraGateway implements ZatcaGateway {
    */
   async submit(doc: GatewayDocument, device: GatewayDevice): Promise<GatewayResult> {
     if (!device.csidSecret) return { status: 'pending', error: 'device has no CSID secret yet' };
+
+    // The developer-portal sandbox only exposes the compliance-check endpoint (no reporting /
+    // clearance). There, "sending" a document means validating it — a PASS counts as reported, so the
+    // demo queue works end-to-end and keeps proving our documents are ZATCA-valid, with no real data.
+    if (device.env === 'sandbox') {
+      const c = await this.complianceCheck(device.env, device.credentials.certificatePem, device.csidSecret, doc);
+      const status = (c.response as any)?.validationResults?.status;
+      if (c.ok && status === 'PASS') return { status: 'reported', response: c.response };
+      if (status === 'ERROR') return { status: 'rejected', response: c.response, error: 'sandbox validation failed' };
+      return { status: 'error', response: c.response, error: `sandbox HTTP ${c.status}` };
+    }
+
     const clearance = /<cbc:InvoiceTypeCode name="01/.test(doc.xml);
     let r: { status: number; json: any };
     try {

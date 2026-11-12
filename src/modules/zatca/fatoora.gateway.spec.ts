@@ -58,18 +58,28 @@ describe('FatooraGateway', () => {
     expect(calls[0].headers.Authorization).toBe(basicAuth(cert.certificatePem, 'sec'));
   });
 
-  it('reports a simplified document: right endpoint, payload and status mapping', async () => {
+  it('reports a simplified document (simulation): right endpoint, payload and status mapping', async () => {
     const ok = fake(200, { reportingStatus: 'REPORTED' });
     const g = new FatooraGateway(ok.f);
-    expect((await g.submit(doc, device('sandbox'))).status).toBe('reported');
-    expect(ok.calls[0].url).toBe('https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal/invoices/reporting/single');
+    expect((await g.submit(doc, device('simulation'))).status).toBe('reported');
+    expect(ok.calls[0].url).toBe('https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation/invoices/reporting/single');
     expect(ok.calls[0].headers['Clearance-Status']).toBe('0');
     expect(ok.calls[0].body).toEqual({ invoiceHash: 'HASH', uuid: 'u1', invoice: Buffer.from(doc.xml).toString('base64') });
 
-    expect((await new FatooraGateway(fake(202, {}).f).submit(doc, device())).status).toBe('reported'); // accepted with warnings
-    expect((await new FatooraGateway(fake(409, {}).f).submit(doc, device())).status).toBe('reported'); // already there
-    expect((await new FatooraGateway(fake(400, {}).f).submit(doc, device())).status).toBe('rejected');
-    expect((await new FatooraGateway(fake(503, {}).f).submit(doc, device())).status).toBe('error');
+    expect((await new FatooraGateway(fake(202, {}).f).submit(doc, device('simulation'))).status).toBe('reported'); // accepted with warnings
+    expect((await new FatooraGateway(fake(409, {}).f).submit(doc, device('simulation'))).status).toBe('reported'); // already there
+    expect((await new FatooraGateway(fake(400, {}).f).submit(doc, device('simulation'))).status).toBe('rejected');
+    expect((await new FatooraGateway(fake(503, {}).f).submit(doc, device('simulation'))).status).toBe('error');
+  });
+
+  it('sandbox submits route to the compliance check; PASS = reported, ERROR = rejected', async () => {
+    const pass = fake(200, { validationResults: { status: 'PASS', errorMessages: [], warningMessages: [] } });
+    const g = new FatooraGateway(pass.f);
+    expect((await g.submit(doc, device('sandbox'))).status).toBe('reported');
+    expect(pass.calls[0].url).toBe('https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal/compliance/invoices');
+
+    const err = fake(400, { validationResults: { status: 'ERROR', errorMessages: [{ code: 'X' }], warningMessages: [] } });
+    expect((await new FatooraGateway(err.f).submit(doc, device('sandbox'))).status).toBe('rejected');
   });
 
   it('standard documents go to clearance; no secret means it waits', async () => {
