@@ -450,6 +450,7 @@ export class InvoicesService {
           ),
           taxFactor: taxInclusive ? 1 : 1 + taxRate,
         },
+        dto.free_item_choices,
       );
       rewardPreview = preview;
       rewardDiscountAmount = preview.discountAmount;

@@ -191,3 +191,46 @@ describe('free_item reward with one or several products', () => {
     await expect(grants({ item_id: '', item_ids: [] })).rejects.toThrow(/no item configured/);
   });
 });
+
+describe('free_item "one of several" (grant_mode = one)', () => {
+  const item = (cfg: Record<string, unknown>) => ({
+    id: 'fi-1',
+    customer_id: 'cust-1',
+    status: 'unlocked',
+    expires_at: null,
+    reward_definitions: {
+      id: 'def-f',
+      branch_scope: 'all',
+      branch_id: null,
+      reward_type: 'free_item',
+      reward_config: cfg,
+      usage_conditions: {},
+    },
+  });
+  const run = (cfg: Record<string, unknown>, choices?: any[]) =>
+    build([item(cfg)]).service.previewSelection(
+      TENANT, 'cust-1', 'b1', ['fi-1'], 10, undefined, choices,
+    );
+  const cfg = { item_ids: ['coffee', 'cake'], grant_mode: 'one' };
+
+  it('grants only the chosen product', async () => {
+    const p = await run(cfg, [{ reward_instance_id: 'fi-1', item_id: 'cake' }]);
+    expect(p.freeItemGrants.map((g) => g.item_id)).toEqual(['cake']);
+  });
+  it('asks for a choice when none was sent', async () => {
+    await expect(run(cfg)).rejects.toThrow(/Choose which free item/);
+  });
+  it('rejects a product that is not one of the reward items', async () => {
+    await expect(
+      run(cfg, [{ reward_instance_id: 'fi-1', item_id: 'pizza' }]),
+    ).rejects.toThrow(/not one of the free items/);
+  });
+  it("grant_mode 'all' (default) still grants everything and needs no choice", async () => {
+    const p = await run({ item_ids: ['coffee', 'cake'] });
+    expect(p.freeItemGrants).toHaveLength(2);
+  });
+  it('a single configured product never needs a choice', async () => {
+    const p = await run({ item_ids: ['coffee'], grant_mode: 'one' });
+    expect(p.freeItemGrants.map((g) => g.item_id)).toEqual(['coffee']);
+  });
+});

@@ -61,6 +61,7 @@ export class RewardRedemptionService {
     instanceIds: string[],
     subtotal: number,
     fixedBase?: FixedRewardBase,
+    freeItemChoices?: Array<{ reward_instance_id: string; item_id: string }>,
   ): Promise<RewardPricingPreview> {
     const uniqueIds = [...new Set(instanceIds)];
     if (uniqueIds.length !== instanceIds.length) {
@@ -194,6 +195,7 @@ export class RewardRedemptionService {
           const cfg = definition.reward_config as {
             item_id?: string;
             item_ids?: string[];
+            grant_mode?: 'all' | 'one';
           };
           const itemIds = Array.isArray(cfg.item_ids) && cfg.item_ids.length
             ? cfg.item_ids
@@ -205,7 +207,25 @@ export class RewardRedemptionService {
               `Reward instance ${instance.id as string} has no item configured`,
             );
           }
-          for (const itemId of itemIds) {
+          let granted = itemIds;
+          if (cfg.grant_mode === 'one' && itemIds.length > 1) {
+            // "one of several": the cashier/customer must say which one
+            const choice = freeItemChoices?.find(
+              (c) => c.reward_instance_id === (instance.id as string),
+            );
+            if (!choice) {
+              throw new BadRequestException(
+                `Choose which free item to grant for reward instance ${instance.id as string}`,
+              );
+            }
+            if (!itemIds.includes(choice.item_id)) {
+              throw new BadRequestException(
+                `Item ${choice.item_id} is not one of the free items of reward instance ${instance.id as string}`,
+              );
+            }
+            granted = [choice.item_id];
+          }
+          for (const itemId of granted) {
             freeItemGrants.push({
               reward_instance_id: instance.id as string,
               item_id: itemId,

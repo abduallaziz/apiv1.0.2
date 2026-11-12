@@ -193,4 +193,20 @@ export class CreateInvoiceDto {
   @ArrayUnique()
   @IsUUID('4', { each: true })
   redeem_reward_instance_ids?: string[];
+
+  // For free-item rewards configured as "one of several": which product the
+  // customer picked at the till for each such reward instance.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FreeItemChoiceDto)
+  free_item_choices?: FreeItemChoiceDto[];
+}
+
+export class FreeItemChoiceDto {
+  @IsUUID('4')
+  reward_instance_id: string;
+
+  @IsUUID('4')
+  item_id: string;
 }
