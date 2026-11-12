@@ -137,10 +137,12 @@ export function buildPhase2Qr(i: Phase2QrInput): string {
     tlv(3, i.timestamp),
     tlv(4, i.totalWithVat),
     tlv(5, i.vatAmount),
-    // Security Features Std §4.1: tag 6 is the raw 32-byte SHA-256 (not its base64 text); the
-    // signature (tag 7) is likewise carried as raw DER bytes.
-    tlv(6, Buffer.from(i.invoiceHash, 'base64')),
-    tlv(7, Buffer.from(i.signature, 'base64')),
+    // ZATCA's validator compares tag 6 (hash) and tag 7 (signature) as TEXT against the base64
+    // values in the signed XML — so they are carried as their base64 strings, not raw bytes. (The
+    // security standard's "32 raw bytes" wording disagrees with the Authority's own validator, which
+    // is the arbiter; confirmed against the ZATCA sandbox compliance check.)
+    tlv(6, i.invoiceHash),
+    tlv(7, i.signature),
     tlv(8, i.publicKeyDer),
     tlv(9, i.certSignature),
   ]).toString('base64');

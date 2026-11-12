@@ -197,12 +197,13 @@ describe('signed document', () => {
     expect([...t.keys()]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(t.get(1)!.toString()).toBe(seller.legal_name);
     expect(t.get(2)!.toString()).toBe('300000000000003');
-    expect(t.get(3)!.toString()).toBe('2026-11-12T07:05:09Z');
+    // QR timestamp is the real UTC instant (issue_at), not the KSA-local time — matches ZATCA's KSA-25 check
+    expect(t.get(3)!.toString()).toBe('2026-11-12T04:05:09Z');
     expect(t.get(4)!.toString()).toBe('51.75');
     expect(t.get(5)!.toString()).toBe('6.75');
-    expect(t.get(6)!.length).toBe(32);
-    expect(t.get(6)!.toString('base64')).toBe(d.invoice_hash);
-    expect(t.get(7)!.toString('base64')).toBe(d.signature);
+    // tags 6 and 7 carry the base64 TEXT of the hash / signature (what ZATCA's validator compares)
+    expect(t.get(6)!.toString()).toBe(d.invoice_hash);
+    expect(t.get(7)!.toString()).toBe(d.signature);
     expect(t.get(8)!.equals(publicKeyDer(cert.certificatePem))).toBe(true);
     expect(t.get(9)!.equals(cert.certSignature)).toBe(true);
   });
@@ -336,6 +337,7 @@ describe('standard (B2B) vs simplified invoice', () => {
     const xml = buildInvoiceXml(baseInput({ buyer }) as any, computeZatcaAmounts(baseInput({ buyer })), NO_PARTS);
     expect(xml).toContain('name="0100000"');
     expect(xml).toContain('<cac:AccountingCustomerParty>');
+    expect(xml).toContain('<cac:Delivery><cbc:ActualDeliveryDate>'); // BR-KSA-15 supply date
     expect(xml).toContain('<cbc:CompanyID>399999999999993</cbc:CompanyID>');
     expect(xml).toContain('<cbc:RegistrationName>Acme Trading Co</cbc:RegistrationName>');
     expect(xml).toContain('<cbc:BuildingNumber>7788</cbc:BuildingNumber>');
@@ -354,10 +356,10 @@ describe('standard (B2B) vs simplified invoice', () => {
     expect((xml.match(/<cbc:CompanyID>/g) ?? []).length).toBe(1);
   });
 
-  it('no buyer at all leaves out the customer party entirely', () => {
+  it('no buyer still emits the mandatory (empty) customer party, as the ZATCA XSD requires', () => {
     const xml = buildInvoiceXml(baseInput(), computeZatcaAmounts(baseInput()), NO_PARTS);
     expect(xml).toContain('name="0200000"');
-    expect(xml).not.toContain('<cac:AccountingCustomerParty>');
+    expect(xml).toContain('<cac:AccountingCustomerParty><cac:Party></cac:Party></cac:AccountingCustomerParty>');
   });
 });
 

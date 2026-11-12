@@ -141,12 +141,13 @@ export function generateSignedDocument(
   );
   const signedPropertiesHash = hexDigestB64(signedProperties);
 
-  // 4) phase-2 QR (9 tags)
-  const { date, time } = ksaDateTime(input.issue_at);
+  // 4) phase-2 QR (9 tags). The QR timestamp carries the real UTC instant (…Z = UTC), while the
+  // document's IssueDate/IssueTime stay KSA-local; ZATCA's validator reconciles the two by zone, so
+  // a KSA-local "…Z" string would trip the KSA-25 timestamp check.
   const qr = buildPhase2Qr({
     sellerName: input.seller.legal_name,
     vatNumber: input.seller.vat_number,
-    timestamp: `${date}T${time}Z`,
+    timestamp: input.issue_at.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     totalWithVat: amounts.total.toFixed(2),
     vatAmount: amounts.tax.toFixed(2),
     invoiceHash,

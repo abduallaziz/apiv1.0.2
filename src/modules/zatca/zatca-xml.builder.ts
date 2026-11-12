@@ -59,13 +59,14 @@ function party(inner: string) {
 }
 
 /**
- * AccountingCustomerParty. Standard (B2B) invoices carry the full buyer identity (tax scheme +
- * national address, both mandatory). Simplified invoices carry only a legal-entity name when one is
- * given; the standard forbids empty elements, so a nameless walk-in buyer is left out entirely.
+ * AccountingCustomerParty. The UBL schema makes this element MANDATORY (ZATCA sandbox XSD rejects
+ * the document without it), so it is always emitted. Standard (B2B) invoices carry the full buyer
+ * identity (tax scheme + national address, both mandatory); simplified invoices carry a legal-entity
+ * name when one is given, and an empty Party for a nameless walk-in buyer.
  */
-function buildCustomerParty(buyer: ZatcaBuyer | null | undefined, standard: boolean): string | null {
+function buildCustomerParty(buyer: ZatcaBuyer | null | undefined, standard: boolean): string {
   if (standard) {
-    if (!buyer?.vat_number) return null;
+    if (!buyer?.vat_number) throw new Error('ZATCA_BUYER_INCOMPLETE: a standard (B2B) invoice needs the buyer VAT number');
     const missing = (['street', 'building_no', 'district', 'city', 'postal_zone'] as const).filter((k) => !buyer[k]);
     if (missing.length) {
       throw new Error(`ZATCA_BUYER_INCOMPLETE: a standard (B2B) invoice needs the buyer's ${missing.join(', ')}`);
@@ -86,10 +87,8 @@ function buildCustomerParty(buyer: ZatcaBuyer | null | undefined, standard: bool
       el('cac:PartyLegalEntity', cbc('RegistrationName', buyer.name ?? buyer.vat_number));
     return el('cac:AccountingCustomerParty', party(inner));
   }
-  if (buyer?.name) {
-    return el('cac:AccountingCustomerParty', party(el('cac:PartyLegalEntity', cbc('RegistrationName', buyer.name))));
-  }
-  return null;
+  const inner = buyer?.name ? el('cac:PartyLegalEntity', cbc('RegistrationName', buyer.name)) : '';
+  return el('cac:AccountingCustomerParty', party(inner));
 }
 
 function taxCategory(percent: number) {
@@ -177,8 +176,13 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
     el('cac:PartyTaxScheme', cbc('CompanyID', s.vat_number) + el('cac:TaxScheme', cbc('ID', 'VAT'))) +
     el('cac:PartyLegalEntity', cbc('RegistrationName', s.legal_name));
   x.push(el('cac:AccountingSupplierParty', party(sellerInner)));
-  const customerParty = buildCustomerParty(input.buyer, isStandardInvoice(input));
-  if (customerParty) x.push(customerParty);
+  x.push(buildCustomerParty(input.buyer, isStandardInvoice(input)));
+
+  // Standard (B2B) tax invoices must carry the supply date (BR-KSA-15); it defaults to the issue
+  // date. Simplified invoices do not require it.
+  if (isStandardInvoice(input)) {
+    x.push(el('cac:Delivery', cbc('ActualDeliveryDate', date)));
+  }
 
   // ---- payment, allowance, taxes
   x.push(
