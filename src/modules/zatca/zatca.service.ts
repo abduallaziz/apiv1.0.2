@@ -29,6 +29,10 @@ export interface IssueContext {
   paymentMethod: string;
   /** Buyer: a VAT number makes it a standard (B2B) invoice; otherwise a simplified one. */
   buyer?: ZatcaBuyer | null;
+  /** VAT category (default S); Z/E/O carry a VATEX exemption reason. */
+  taxCategory?: 'S' | 'Z' | 'E' | 'O';
+  exemptionReasonCode?: string | null;
+  exemptionReason?: string | null;
 }
 
 /** UN/CEFACT payment means for the document. */
@@ -101,6 +105,9 @@ export class ZatcaService {
       discount: ctx.discount,
       payment_code: paymentCode(ctx.paymentMethod),
       buyer: ctx.buyer ?? null,
+      tax_category: ctx.taxCategory ?? 'S',
+      exemption_reason_code: ctx.exemptionReasonCode ?? undefined,
+      exemption_reason: ctx.exemptionReason ?? undefined,
       seller: d.seller as ZatcaSeller,
     };
     await this.storeDocument(client, d, ctx.tenantId, ctx.orderId, input, { orderTotal: ctx.total, orderTax: ctx.tax });

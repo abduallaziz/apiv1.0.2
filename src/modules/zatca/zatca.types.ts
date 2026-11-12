@@ -3,6 +3,8 @@
 // stores the documents. Sending them is the only part that waits for the connection (ZatcaGateway).
 
 export type ZatcaDocKind = 'invoice' | 'credit_note' | 'debit_note';
+/** ZATCA VAT category: Standard-rated, Zero-rated, Exempt, Out-of-scope. */
+export type ZatcaTaxCategory = 'S' | 'Z' | 'E' | 'O';
 export type ZatcaEnv = 'sandbox' | 'simulation' | 'production';
 
 /** Seller (taxpayer) data kept on the device row; the structured national address is mandatory. */
@@ -71,6 +73,16 @@ export interface ZatcaDocInput {
   discount: number;
   /** UN/CEFACT payment means: 10 cash, 30 credit, 42 bank account, 48 card. */
   payment_code: '10' | '30' | '42' | '48';
+  /**
+   * VAT category for the whole document (Sefay prices at one rate): S standard-rated (needs a
+   * positive rate), Z zero-rated, E exempt, O out of scope. Defaults to S. Z/E/O carry a 0% rate and
+   * a VATEX exemption reason.
+   */
+  tax_category?: ZatcaTaxCategory;
+  /** VATEX reason code (e.g. VATEX-SA-32) — required for Z, E and O. */
+  exemption_reason_code?: string;
+  /** Human-readable exemption reason — required for Z, E and O. */
+  exemption_reason?: string;
   buyer?: ZatcaBuyer | null;
   /** Credit/debit notes: the invoice they correct and why. */
   reference_invoice_no?: string;
@@ -100,6 +112,9 @@ export interface ZatcaAmounts {
   tax: number;
   total: number;
   rate_percent: number;
+  category: ZatcaTaxCategory;
+  exemption_reason_code?: string;
+  exemption_reason?: string;
 }
 
 export interface ZatcaDeviceCredentials {

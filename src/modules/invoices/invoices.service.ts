@@ -245,7 +245,7 @@ export class InvoicesService {
         : Promise.resolve(null),
       tenant.tenantId
         ? this.tenantsRepo.getTaxConfig(tenant.tenantId)
-        : Promise.resolve({ tax_rate: 0, tax_inclusive_pricing: false }),
+        : Promise.resolve({ tax_rate: 0, tax_inclusive_pricing: false, tax_category: 'S' as const, tax_exemption_reason_code: null, tax_exemption_reason: null }),
       this.loyaltyService.getSettings(tenant.tenantId),
     ]);
     const taxRate = taxConfig.tax_rate;
@@ -822,6 +822,9 @@ export class InvoicesService {
                   tax: built.tax_amount,
                   paymentMethod: storedPaymentMethod,
                   buyer: buildZatcaBuyer(buyerCustomer),
+                  taxCategory: taxConfig.tax_category,
+                  exemptionReasonCode: taxConfig.tax_exemption_reason_code,
+                  exemptionReason: taxConfig.tax_exemption_reason,
                 });
               }
             : undefined,

@@ -117,11 +117,35 @@ describe('amounts', () => {
     expect(a.lines[1]).toMatchObject({ net: 0, tax: 0, gross: 0 });
   });
 
-  it('fails closed when the document disagrees with the order, and for zero-rated sales', () => {
+  it('fails closed when the document disagrees with the order, and for an unrated standard sale', () => {
     const a = computeZatcaAmounts(baseInput());
     expect(() => assertMatchesOrderTotal(a, 51.75, 6.75)).not.toThrow();
     expect(() => assertMatchesOrderTotal(a, 52.5, 6.75)).toThrow(/ZATCA_AMOUNT_MISMATCH/);
+    // a standard-rated (S) sale with no VAT is a configuration error
     expect(() => computeZatcaAmounts(baseInput({ tax_rate: 0 }))).toThrow(/ZATCA_UNSUPPORTED/);
+  });
+
+  it('zero-rated / exempt / out-of-scope: 0% VAT with a VATEX reason, total = net', () => {
+    for (const category of ['Z', 'E', 'O'] as const) {
+      const a = computeZatcaAmounts(
+        baseInput({ tax_category: category, exemption_reason_code: 'VATEX-SA-32', exemption_reason: 'Export of goods' }),
+      );
+      expect(a.category).toBe(category);
+      expect(a.tax).toBe(0);
+      expect(a.total).toBe(45); // net, no VAT added
+      expect(a.rate_percent).toBe(0);
+    }
+    // a non-standard category without a reason is rejected
+    expect(() => computeZatcaAmounts(baseInput({ tax_category: 'E' }))).toThrow(/ZATCA_EXEMPTION_REASON_REQUIRED/);
+  });
+
+  it('the exempt document carries the category and the VATEX reason in the tax subtotal and the line', () => {
+    const input = baseInput({ tax_category: 'Z', exemption_reason_code: 'VATEX-SA-32', exemption_reason: 'Export of goods' });
+    const xml = buildInvoiceXml(input, computeZatcaAmounts(input), NO_PARTS);
+    expect(xml).toContain('<cbc:TaxExemptionReasonCode>VATEX-SA-32</cbc:TaxExemptionReasonCode>');
+    expect(xml).toContain('<cbc:TaxExemptionReason>Export of goods</cbc:TaxExemptionReason>');
+    expect(xml).toContain('<cac:ClassifiedTaxCategory><cbc:ID>Z</cbc:ID><cbc:Percent>0.00</cbc:Percent>');
+    expect(xml).toContain('<cbc:TaxInclusiveAmount currencyID="SAR">45.00</cbc:TaxInclusiveAmount>');
   });
 });
 

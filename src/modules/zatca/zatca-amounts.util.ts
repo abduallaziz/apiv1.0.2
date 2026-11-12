@@ -9,10 +9,14 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * the caller compares `total` with what the customer actually paid (assertMatchesOrderTotal).
  */
 export function computeZatcaAmounts(input: ZatcaDocInput): ZatcaAmounts {
-  const rate = input.tax_rate;
-  if (!(rate > 0)) {
-    // Zero-rated / exempt need a ZATCA exemption reason code (VATEX-…); not modelled yet.
-    throw new Error('ZATCA_UNSUPPORTED: only standard-rated (VAT > 0) sales are supported');
+  const category = input.tax_category ?? 'S';
+  // Standard-rated needs a positive rate; zero-rated / exempt / out-of-scope are 0% with a reason.
+  const rate = category === 'S' ? input.tax_rate : 0;
+  if (category === 'S' && !(rate > 0)) {
+    throw new Error('ZATCA_UNSUPPORTED: a standard-rated (S) sale needs VAT > 0');
+  }
+  if (category !== 'S' && !(input.exemption_reason_code && input.exemption_reason)) {
+    throw new Error(`ZATCA_EXEMPTION_REASON_REQUIRED: category ${category} needs a VATEX reason code and text`);
   }
   const divisor = input.tax_inclusive ? 1 + rate : 1;
 
@@ -38,6 +42,9 @@ export function computeZatcaAmounts(input: ZatcaDocInput): ZatcaAmounts {
     tax,
     total,
     rate_percent: Math.round(rate * 10000) / 100,
+    category,
+    exemption_reason_code: input.exemption_reason_code,
+    exemption_reason: input.exemption_reason,
   };
 }
 

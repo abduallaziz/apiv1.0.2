@@ -91,11 +91,15 @@ function buildCustomerParty(buyer: ZatcaBuyer | null | undefined, standard: bool
   return el('cac:AccountingCustomerParty', party(inner));
 }
 
-function taxCategory(percent: number) {
+/** cac:TaxCategory for a TaxSubtotal/AllowanceCharge: ID, Percent, then a VATEX reason for Z/E/O. */
+function taxCategory(a: ZatcaAmounts) {
   return el(
     'cac:TaxCategory',
-    cbc('ID', 'S', ' schemeAgencyID="6" schemeID="UN/ECE 5305"') +
-      cbc('Percent', m2(percent), '') +
+    cbc('ID', a.category, ' schemeAgencyID="6" schemeID="UN/ECE 5305"') +
+      cbc('Percent', m2(a.rate_percent)) +
+      (a.category !== 'S'
+        ? cbc('TaxExemptionReasonCode', a.exemption_reason_code ?? '') + cbc('TaxExemptionReason', a.exemption_reason ?? '')
+        : '') +
       el('cac:TaxScheme', cbc('ID', 'VAT', ' schemeAgencyID="6" schemeID="UN/ECE 5153"')),
   );
 }
@@ -198,7 +202,7 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
         cbc('ChargeIndicator', 'false') +
           cbc('AllowanceChargeReason', 'discount') +
           cbc('Amount', m2(a.allowance), cur(c)) +
-          taxCategory(a.rate_percent),
+          taxCategory(a),
       ),
     );
   }
@@ -211,7 +215,7 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
           'cac:TaxSubtotal',
           cbc('TaxableAmount', m2(a.taxable), cur(c)) +
             cbc('TaxAmount', m2(a.tax), cur(c)) +
-            taxCategory(a.rate_percent),
+            taxCategory(a),
         ),
     ),
   );
@@ -244,7 +248,7 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
             cbc('Name', l.name) +
               el(
                 'cac:ClassifiedTaxCategory',
-                cbc('ID', 'S') + cbc('Percent', m2(a.rate_percent)) + el('cac:TaxScheme', cbc('ID', 'VAT')),
+                cbc('ID', a.category) + cbc('Percent', m2(a.rate_percent)) + el('cac:TaxScheme', cbc('ID', 'VAT')),
               ),
           ) +
           el('cac:Price', cbc('PriceAmount', price(l.price), cur(c))),
