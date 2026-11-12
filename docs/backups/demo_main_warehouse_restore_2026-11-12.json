@@ -1,0 +1,11 @@
+{
+  "restored_at": "2026-11-12T02:56:06.657Z",
+  "warehouse_before": {
+    "id": "f219ba8c-c170-45ca-aa4f-2910ad06a022",
+    "name": "Main Warehouse",
+    "code": "MAIN",
+    "is_active": false,
+    "deleted_at": "2026-06-29 01:42:53.324+00",
+    "branch_id": "f3755396-81bb-4a34-b4f6-9c1c0622b9df"
+  }
+}

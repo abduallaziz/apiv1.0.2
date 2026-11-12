@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { ensureBranchWarehouse } from './branch-warehouse.util';
 
 @Injectable()
 export class BranchesRepository {
@@ -81,7 +82,18 @@ export class BranchesRepository {
       );
       throw error;
     }
-    return branch;
+
+    // Every branch gets a usable default warehouse (best-effort, never throws).
+    const warehouseId = await ensureBranchWarehouse(
+      this.supabase,
+      tenant.tenantId,
+      branch.id as string,
+      branch.name as string,
+      this.logger,
+    );
+    return warehouseId
+      ? { ...branch, default_warehouse_id: warehouseId }
+      : branch;
   }
 
   async update(
@@ -121,6 +133,7 @@ export class BranchesRepository {
       .select('id')
       .eq('id', warehouseId)
       .eq('tenant_id', tenantId)
+      .eq('is_active', true)
       .is('deleted_at', null)
       .maybeSingle();
     if (error) throw error;

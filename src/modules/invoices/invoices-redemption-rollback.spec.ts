@@ -14,6 +14,7 @@ function build(opts: {
   warehouse?: string | null;
   flags?: string[];
   stockDeducted?: boolean;
+  tracked?: boolean;
 }) {
   const repo = {
     findBySaleAttemptId: jest.fn().mockResolvedValue(null),
@@ -28,6 +29,7 @@ function build(opts: {
           .mockResolvedValue({ id: 'order-1', stockDeducted: !!opts.stockDeducted }),
     getBranchDefaultWarehouse: jest.fn().mockResolvedValue(opts.warehouse ?? null),
     deductStockForSale: jest.fn().mockResolvedValue(undefined),
+    hasTrackedItems: jest.fn().mockResolvedValue(!!opts.tracked),
     getItemBasics: jest
       .fn()
       .mockResolvedValue(
@@ -236,6 +238,29 @@ describe('InvoicesService.create — stock deducted inside the sale transaction 
     const { service, repo } = build({ previewDiscount: 0, flags, warehouse: null });
     await run(service);
     expect(repo.createWithItemsPooled.mock.calls[0][3]).toBeUndefined();
+  });
+});
+
+describe('InvoicesService.create — no usable default warehouse is never silent', () => {
+  const run = (s: InvoicesService) =>
+    s.create(new TenantContext('t1', 'b1'), { ...dto(), redeem_reward_instance_ids: undefined }, 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
+
+  it('warns the cashier (stock_warning) when stock-tracked items are sold without a warehouse', async () => {
+    const { service } = build({ previewDiscount: 0, warehouse: null, tracked: true });
+    const res: any = await run(service);
+    expect(res.stock_warning).toMatch(/No default warehouse/);
+  });
+
+  it('stays quiet when nothing sold is stock-tracked (services, car wash)', async () => {
+    const { service } = build({ previewDiscount: 0, warehouse: null, tracked: false });
+    const res: any = await run(service);
+    expect(res.stock_warning ?? null).toBeNull();
+  });
+
+  it('never blocks the sale', async () => {
+    const { service, repo } = build({ previewDiscount: 0, warehouse: null, tracked: true });
+    await expect(run(service)).resolves.toBeDefined();
+    expect(repo.create).toHaveBeenCalledTimes(1);
   });
 });
 

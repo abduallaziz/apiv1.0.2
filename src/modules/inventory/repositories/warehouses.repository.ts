@@ -92,6 +92,18 @@ export class WarehousesRepository extends ScopedRepository {
     return data;
   }
 
+  /** True when this warehouse is the default warehouse of a live branch. */
+  async isBranchDefault(id: string, tenantId: string): Promise<boolean> {
+    const { count, error } = await this.supabase
+      .from('branches')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('default_warehouse_id', id)
+      .is('deleted_at', null);
+    if (error) throw error;
+    return (count ?? 0) > 0;
+  }
+
   async softDelete(id: string, tenantId: string) {
     const { error } = await this.supabase
       .from('warehouses')

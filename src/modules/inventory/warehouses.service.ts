@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   WarehousesRepository,
   Warehouse,
@@ -26,11 +30,25 @@ export class WarehousesService {
 
   async update(id: string, tenantId: string, dto: UpdateWarehouseDto) {
     await this.findById(id, tenantId);
+    // Deactivating the default warehouse of a branch would silently stop its
+    // sales from deducting stock / posting COGS.
+    if (dto.is_active === false) {
+      await this.assertNotBranchDefault(id, tenantId);
+    }
     return this.warehousesRepo.update(id, tenantId, { ...dto });
   }
 
   async remove(id: string, tenantId: string) {
     await this.findById(id, tenantId);
+    await this.assertNotBranchDefault(id, tenantId);
     await this.warehousesRepo.softDelete(id, tenantId);
+  }
+
+  private async assertNotBranchDefault(id: string, tenantId: string) {
+    if (await this.warehousesRepo.isBranchDefault(id, tenantId)) {
+      throw new BadRequestException(
+        'This warehouse is the default warehouse of a branch. Assign another default warehouse to that branch first.',
+      );
+    }
   }
 }

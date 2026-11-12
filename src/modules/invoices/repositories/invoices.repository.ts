@@ -525,7 +525,32 @@ export class InvoicesRepository extends ScopedRepository {
       .eq('id', branchId)
       .single();
     if (error || !data) return null;
-    return data.default_warehouse_id ?? null;
+    const warehouseId = (data.default_warehouse_id as string | null) ?? null;
+    if (!warehouseId) return null;
+
+    // A default warehouse that was deleted/deactivated is as good as none:
+    // returning it would book stock against a warehouse nobody manages.
+    const { data: warehouse } = await this.supabase
+      .from('warehouses')
+      .select('id')
+      .eq('id', warehouseId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .maybeSingle();
+    return warehouse ? warehouseId : null;
+  }
+
+  /** True if any of these items tracks inventory (items.has_inventory). */
+  async hasTrackedItems(tenantId: string, itemIds: string[]): Promise<boolean> {
+    if (itemIds.length === 0) return false;
+    const { count, error } = await this.supabase
+      .from('items')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('has_inventory', true)
+      .in('id', itemIds);
+    if (error) throw error;
+    return (count ?? 0) > 0;
   }
 
   async deductStockForSale(
