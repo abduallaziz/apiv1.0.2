@@ -68,7 +68,8 @@ export interface PrintPayloadBase {
   order_number: string;
   created_at: string;
   currency_symbol: string;
-  /** tenants.printer_settings.auto_print: print right after a sale without asking. */
+  /** Invoice: tenants.printer_settings.auto_print. Kitchen: printer_settings.kitchen_auto_print.
+   *  Print right after a sale without asking. */
   auto_print: boolean;
 }
 

@@ -27,6 +27,12 @@ export class PrinterSettingsDto {
   @IsBoolean()
   auto_print?: boolean;
 
+  // Print the kitchen ticket automatically after every sale (independent of
+  // the invoice auto-print above). Off unless the owner turns it on.
+  @IsOptional()
+  @IsBoolean()
+  kitchen_auto_print?: boolean;
+
   @IsOptional()
   @IsString()
   @MaxLength(100)
