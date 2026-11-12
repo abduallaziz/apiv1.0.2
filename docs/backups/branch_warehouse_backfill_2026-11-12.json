@@ -1,0 +1,77 @@
+{
+  "at": "2026-11-12T03:15:38.318Z",
+  "branches_before": [
+    {
+      "id": "ed8113a2-bcdc-4d1f-96e0-c2a3c09d2044",
+      "tenant_id": "68b7a54d-7a9c-4c86-ba2b-46a45b7eec5e",
+      "name": "Rest",
+      "previous_default": null
+    },
+    {
+      "id": "5657dd29-562f-4286-b32a-e45e6239db3f",
+      "tenant_id": "c5434a6c-e5b9-4b3b-a288-48965d00c0dc",
+      "name": "البيك",
+      "previous_default": null
+    },
+    {
+      "id": "3106177c-d4fb-433a-a4bc-6ac7cd33668f",
+      "tenant_id": "d450488b-63b9-4cc1-a31d-5b2284a9dcf9",
+      "name": "الرئيسي",
+      "previous_default": null
+    },
+    {
+      "id": "c1897c29-bd74-40f5-bd42-2f174ddcc8e0",
+      "tenant_id": "621544e0-1ccd-47d8-8dcc-e48134f83e39",
+      "name": "فرع واحد",
+      "previous_default": null
+    },
+    {
+      "id": "ff99ed38-cd50-47c3-b073-ebbe645d14a5",
+      "tenant_id": "e8583493-8855-4d8a-8080-bc6c16c01c4f",
+      "name": "One",
+      "previous_default": null
+    },
+    {
+      "id": "bdaed541-aab2-46d7-a7f5-22de65c9c68e",
+      "tenant_id": "c93eba51-3d2c-45c0-bd23-46653a968b65",
+      "name": "D01-M7-LIVE-VALIDATION-1786634667448-BRANCH",
+      "previous_default": null
+    },
+    {
+      "id": "bd11f86a-c53d-4be6-b2e9-39d5536e2807",
+      "tenant_id": "6cb07112-9281-485f-af23-607ff629b8f4",
+      "name": "D01-M7-FINAL-1786637528834-BRANCH",
+      "previous_default": null
+    },
+    {
+      "id": "3b3dfac7-de09-4d18-80d0-f6075214ca01",
+      "tenant_id": "21e78a61-3af5-4c74-8745-fa3c706dbe2d",
+      "name": "M184-FINAL-1786641354845-BRANCH",
+      "previous_default": null
+    },
+    {
+      "id": "14fb2057-6fb0-4b84-896d-285cb9d6fb9c",
+      "tenant_id": "0c3ee592-9fbf-4704-9bae-49225e99543f",
+      "name": "M184-FINAL-1786641436613-BRANCH",
+      "previous_default": null
+    },
+    {
+      "id": "a3aa6744-b7e9-4678-adce-b32d6ffb1167",
+      "tenant_id": "95fecbac-178b-41da-8c4d-3a7cfc0dd689",
+      "name": "M184-FINAL-1786641487644-BRANCH",
+      "previous_default": null
+    },
+    {
+      "id": "876a2419-a1db-47c3-a746-21e9b25c9d0f",
+      "tenant_id": "2b74943b-4c8b-407e-9dd9-6af5a31280a2",
+      "name": "اختبار1",
+      "previous_default": null
+    },
+    {
+      "id": "8f73b5bb-216f-40f5-a408-59d2139c7738",
+      "tenant_id": "6336277d-5109-424b-9d89-50d5126bea3f",
+      "name": "Main",
+      "previous_default": null
+    }
+  ]
+}
