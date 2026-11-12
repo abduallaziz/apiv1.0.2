@@ -10,8 +10,10 @@ export interface ZatcaSeller {
   legal_name: string;
   /** 15 digits, starts and ends with 3. */
   vat_number: string;
-  /** Commercial registration number (optional). */
-  crn?: string;
+  /** Seller identification number (mandatory): commercial registration number by default. */
+  crn: string;
+  /** Scheme of `crn`: CRN, MOM, MLS, 700, SAG or OTH. Defaults to CRN. */
+  id_scheme?: 'CRN' | 'MOM' | 'MLS' | '700' | 'SAG' | 'OTH';
   street: string;
   /** 4 digits. */
   building_no: string;

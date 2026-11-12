@@ -5,11 +5,12 @@ import type { PoolClient } from 'pg';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { TenantSessionService } from '../../core/tenant/tenant-session.service';
 import { buildCsr } from './zatca-csr.util';
-import { decryptSecret, encryptSecret, generateDeviceKeyPair } from './zatca-crypto.util';
+import { ZATCA_FIRST_PIH, decryptSecret, encryptSecret, generateDeviceKeyPair } from './zatca-crypto.util';
 import { generateSignedDocument } from './zatca-document.service';
 import { ZATCA_GATEWAY, type ZatcaGateway } from './zatca.gateway';
+import { FatooraGateway } from './fatoora.gateway';
 import type { AttachCertificateDto, CreateZatcaDeviceDto } from './dto/zatca.dto';
-import type { ZatcaLine, ZatcaSeller } from './zatca.types';
+import type { ZatcaDocInput, ZatcaLine, ZatcaSeller } from './zatca.types';
 
 export interface IssueContext {
   tenantId: string;
@@ -85,42 +86,96 @@ export class ZatcaService {
     if (dev.rows.length === 0) return { issued: false, reason: 'no_device' };
     const d = dev.rows[0];
 
-    const icv = Number(d.icv_last) + 1;
-    const doc = generateSignedDocument(
-      {
-        kind: 'invoice',
-        invoice_no: ctx.invoiceNo,
-        uuid: randomUUID(),
-        icv,
-        pih: d.pih_last as string,
-        issue_at: ctx.issuedAt,
-        currency: ctx.currency,
-        tax_rate: ctx.taxRate,
-        tax_inclusive: ctx.taxInclusive,
-        lines: ctx.lines,
-        discount: ctx.discount,
-        payment_code: paymentCode(ctx.paymentMethod),
-        buyer_name: ctx.buyerName ?? null,
-        seller: d.seller as ZatcaSeller,
-      },
-      {
-        privateKeyPem: decryptSecret(d.private_key_enc as string, this.masterKey()),
-        certificatePem: d.certificate_pem as string,
-      },
-      { orderTotal: ctx.total, orderTax: ctx.tax },
-    );
+    const input: ZatcaDocInput = {
+      kind: 'invoice',
+      invoice_no: ctx.invoiceNo,
+      uuid: randomUUID(),
+      icv: Number(d.icv_last) + 1,
+      pih: d.pih_last as string,
+      issue_at: ctx.issuedAt,
+      currency: ctx.currency,
+      tax_rate: ctx.taxRate,
+      tax_inclusive: ctx.taxInclusive,
+      lines: ctx.lines,
+      discount: ctx.discount,
+      payment_code: paymentCode(ctx.paymentMethod),
+      buyer_name: ctx.buyerName ?? null,
+      seller: d.seller as ZatcaSeller,
+    };
+    await this.storeDocument(client, d, ctx.tenantId, ctx.orderId, input, { orderTotal: ctx.total, orderTax: ctx.tax });
+    return { issued: true };
+  }
 
+  /** Signs `input`, stores it with its input snapshot and advances the device's ICV / PIH chain. */
+  private async storeDocument(
+    client: PoolClient,
+    d: { id: string; private_key_enc: string; certificate_pem: string },
+    tenantId: string,
+    orderId: string,
+    input: ZatcaDocInput,
+    check?: { orderTotal: number; orderTax: number },
+  ) {
+    const doc = generateSignedDocument(
+      input,
+      {
+        privateKeyPem: decryptSecret(d.private_key_enc, this.masterKey()),
+        certificatePem: d.certificate_pem,
+      },
+      check,
+    );
     await client.query(
       `INSERT INTO zatca_invoices
-         (tenant_id, device_id, order_id, kind, uuid, icv, pih, invoice_no, invoice_hash, issue_at, xml, qr, signature)
-       VALUES ($1, $2, $3, 'invoice', $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [ctx.tenantId, d.id, ctx.orderId, doc.uuid, icv, doc.pih, ctx.invoiceNo, doc.invoice_hash, ctx.issuedAt, doc.xml, doc.qr, doc.signature],
+         (tenant_id, device_id, order_id, kind, uuid, icv, pih, invoice_no, invoice_hash, issue_at, xml, qr, signature, doc_input)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)`,
+      [tenantId, d.id, orderId, input.kind, doc.uuid, input.icv, doc.pih, input.invoice_no, doc.invoice_hash, input.issue_at, doc.xml, doc.qr, doc.signature, JSON.stringify(input)],
     );
     await client.query(
       `UPDATE zatca_devices SET icv_last = $2, pih_last = $3, updated_at = now() WHERE id = $1`,
-      [d.id, icv, doc.invoice_hash],
+      [d.id, input.icv, doc.invoice_hash],
     );
-    return { issued: true };
+  }
+
+  /**
+   * Credit note (381) cancelling a fully-cancelled sale: same lines and amounts as the original
+   * document, referencing it, chained on the same device. No-op when the sale never produced a
+   * document (ZATCA off / no device then) or already has its credit note.
+   */
+  async issueCreditNote(tenant: TenantContext, orderId: string, reason: string): Promise<{ issued: boolean; reason?: string }> {
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const orig = await client.query(
+        `SELECT device_id, invoice_no, doc_input FROM zatca_invoices
+          WHERE tenant_id = $1 AND order_id = $2 AND kind = 'invoice' AND deleted_at IS NULL LIMIT 1`,
+        [tenant.tenantId, orderId],
+      );
+      if (orig.rows.length === 0) return { issued: false, reason: 'no_document' };
+      if (!orig.rows[0].doc_input) return { issued: false, reason: 'no_snapshot' };
+      const existing = await client.query(
+        `SELECT 1 FROM zatca_invoices WHERE tenant_id = $1 AND order_id = $2 AND kind = 'credit_note' AND deleted_at IS NULL`,
+        [tenant.tenantId, orderId],
+      );
+      if (existing.rows.length > 0) return { issued: false, reason: 'already_issued' };
+      const dev = await client.query(
+        `SELECT id, private_key_enc, certificate_pem, icv_last, pih_last FROM zatca_devices
+          WHERE id = $1 AND deleted_at IS NULL AND certificate_pem IS NOT NULL AND private_key_enc IS NOT NULL FOR UPDATE`,
+        [orig.rows[0].device_id],
+      );
+      if (dev.rows.length === 0) return { issued: false, reason: 'no_device' };
+      const d = dev.rows[0];
+      const base = orig.rows[0].doc_input as ZatcaDocInput;
+      const input: ZatcaDocInput = {
+        ...base,
+        kind: 'credit_note',
+        invoice_no: `CN-${orig.rows[0].invoice_no}`,
+        uuid: randomUUID(),
+        icv: Number(d.icv_last) + 1,
+        pih: d.pih_last as string,
+        issue_at: new Date(),
+        reference_invoice_no: orig.rows[0].invoice_no as string,
+        reason,
+      };
+      await this.storeDocument(client, d, tenant.tenantId, orderId, input);
+      return { issued: true };
+    });
   }
 
   // ---------------------------------------------------------------- device registry
@@ -226,6 +281,115 @@ export class ZatcaService {
             SET certificate_pem = $2, csid_kind = $3, csid_secret_enc = $4, status = $5, updated_at = now()
           WHERE id = $1 RETURNING ${DEVICE_PUBLIC_COLUMNS}`,
         [deviceId, dto.certificate_pem, dto.kind, dto.secret ? encryptSecret(dto.secret, key) : null, status],
+      );
+      return u.rows[0];
+    });
+  }
+
+  // ---------------------------------------------------------------- onboarding (needs the connection)
+
+  private fatoora(): FatooraGateway {
+    if (!(this.gateway instanceof FatooraGateway)) {
+      throw new BadRequestException('The ZATCA connection is not enabled (ZATCA_GATEWAY=fatoora)');
+    }
+    return this.gateway;
+  }
+
+  /** Step 1: exchange the CSR + the OTP from the Fatoora portal for the Compliance CSID. */
+  async onboardCompliance(tenant: TenantContext, deviceId: string, otp: string) {
+    const gw = this.fatoora();
+    const key = this.masterKey();
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const r = await client.query(
+        `SELECT env, csr_pem, certificate_pem FROM zatca_devices WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [deviceId, tenant.tenantId],
+      );
+      if (r.rows.length === 0) throw new NotFoundException('Device not found');
+      if (!r.rows[0].csr_pem) throw new BadRequestException('Generate the CSR first');
+      if (r.rows[0].certificate_pem) throw new BadRequestException('This device already has a certificate');
+      const csid = await gw.requestComplianceCsid(r.rows[0].env, r.rows[0].csr_pem, otp);
+      const u = await client.query(
+        `UPDATE zatca_devices SET certificate_pem = $2, csid_kind = 'compliance', csid_secret_enc = $3,
+                compliance_request_id = $4, status = 'compliance', updated_at = now()
+          WHERE id = $1 RETURNING ${DEVICE_PUBLIC_COLUMNS}`,
+        [deviceId, csid.certificatePem, encryptSecret(csid.secret, key), csid.requestId],
+      );
+      return u.rows[0];
+    });
+  }
+
+  /** Step 2: sends a sample invoice, credit note and debit note; all must be accepted. */
+  async runComplianceChecks(tenant: TenantContext, deviceId: string) {
+    const gw = this.fatoora();
+    const key = this.masterKey();
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const r = await client.query(
+        `SELECT env, seller, private_key_enc, certificate_pem, csid_secret_enc, csid_kind FROM zatca_devices
+          WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [deviceId, tenant.tenantId],
+      );
+      if (r.rows.length === 0) throw new NotFoundException('Device not found');
+      const d = r.rows[0];
+      if (d.csid_kind !== 'compliance' || !d.certificate_pem) throw new BadRequestException('Request the compliance CSID first');
+      const creds = { privateKeyPem: decryptSecret(d.private_key_enc, key), certificatePem: d.certificate_pem };
+      const secret = decryptSecret(d.csid_secret_enc, key);
+      const results: { kind: string; ok: boolean; status: number; response: unknown }[] = [];
+      let pih = ZATCA_FIRST_PIH;
+      const kinds = ['invoice', 'credit_note', 'debit_note'] as const;
+      for (let i = 0; i < kinds.length; i++) {
+        const kind = kinds[i];
+        const doc = generateSignedDocument(
+          {
+            kind,
+            invoice_no: `SME${i + 1}`,
+            uuid: randomUUID(),
+            icv: i + 1,
+            pih,
+            issue_at: new Date(),
+            currency: 'SAR',
+            tax_rate: 0.15,
+            tax_inclusive: false,
+            lines: [{ name: 'Compliance check item', quantity: 1, unit_price: 100, total: 100 }],
+            discount: 0,
+            payment_code: '10',
+            buyer_name: null,
+            seller: d.seller as ZatcaSeller,
+            ...(kind === 'invoice' ? {} : { reference_invoice_no: 'SME1', reason: 'compliance check' }),
+          },
+          creds,
+        );
+        pih = doc.invoice_hash;
+        const res = await gw.complianceCheck(d.env, d.certificate_pem, secret, doc);
+        results.push({ kind, ok: res.ok, status: res.status, response: res.response });
+        if (!res.ok) break;
+      }
+      const passed = results.length === kinds.length && results.every((x) => x.ok);
+      if (passed) {
+        await client.query(`UPDATE zatca_devices SET compliance_checked_at = now(), updated_at = now() WHERE id = $1`, [deviceId]);
+      }
+      return { passed, results };
+    });
+  }
+
+  /** Step 3: exchange the compliance request for the Production CSID; the device goes live. */
+  async activateProduction(tenant: TenantContext, deviceId: string) {
+    const gw = this.fatoora();
+    const key = this.masterKey();
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const r = await client.query(
+        `SELECT env, certificate_pem, csid_secret_enc, csid_kind, compliance_request_id, compliance_checked_at
+           FROM zatca_devices WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [deviceId, tenant.tenantId],
+      );
+      if (r.rows.length === 0) throw new NotFoundException('Device not found');
+      const d = r.rows[0];
+      if (d.csid_kind !== 'compliance') throw new BadRequestException('Device is not in the compliance stage');
+      if (!d.compliance_checked_at) throw new BadRequestException('Run and pass the compliance checks first');
+      const csid = await gw.requestProductionCsid(d.env, d.certificate_pem, decryptSecret(d.csid_secret_enc, key), d.compliance_request_id);
+      const u = await client.query(
+        `UPDATE zatca_devices SET certificate_pem = $2, csid_kind = 'production', csid_secret_enc = $3, status = 'active', updated_at = now()
+          WHERE id = $1 RETURNING ${DEVICE_PUBLIC_COLUMNS}`,
+        [deviceId, csid.certificatePem, encryptSecret(csid.secret, key)],
       );
       return u.rows[0];
     });

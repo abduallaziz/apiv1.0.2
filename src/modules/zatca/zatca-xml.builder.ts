@@ -128,7 +128,7 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
 
   // ---- parties
   const sellerInner =
-    (s.crn ? el('cac:PartyIdentification', cbc('ID', s.crn, ' schemeID="CRN"')) : '') +
+    el('cac:PartyIdentification', cbc('ID', s.crn, ` schemeID="${escAttr(s.id_scheme ?? 'CRN')}"`)) +
     el(
       'cac:PostalAddress',
       cbc('StreetName', s.street) +
@@ -142,12 +142,16 @@ export function buildInvoiceXml(input: ZatcaDocInput, a: ZatcaAmounts, parts: Xm
     el('cac:PartyTaxScheme', cbc('CompanyID', s.vat_number) + el('cac:TaxScheme', cbc('ID', 'VAT'))) +
     el('cac:PartyLegalEntity', cbc('RegistrationName', s.legal_name));
   x.push(el('cac:AccountingSupplierParty', party(sellerInner)));
-  x.push(
-    el(
-      'cac:AccountingCustomerParty',
-      party(input.buyer_name ? el('cac:PartyLegalEntity', cbc('RegistrationName', input.buyer_name)) : ''),
-    ),
-  );
+  // The standard forbids empty elements: with no named buyer (walk-in simplified invoice) the
+  // customer party is left out entirely.
+  if (input.buyer_name) {
+    x.push(
+      el(
+        'cac:AccountingCustomerParty',
+        party(el('cac:PartyLegalEntity', cbc('RegistrationName', input.buyer_name))),
+      ),
+    );
+  }
 
   // ---- payment, allowance, taxes
   x.push(

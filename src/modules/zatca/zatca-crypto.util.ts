@@ -137,8 +137,10 @@ export function buildPhase2Qr(i: Phase2QrInput): string {
     tlv(3, i.timestamp),
     tlv(4, i.totalWithVat),
     tlv(5, i.vatAmount),
-    tlv(6, i.invoiceHash),
-    tlv(7, i.signature),
+    // Security Features Std §4.1: tag 6 is the raw 32-byte SHA-256 (not its base64 text); the
+    // signature (tag 7) is likewise carried as raw DER bytes.
+    tlv(6, Buffer.from(i.invoiceHash, 'base64')),
+    tlv(7, Buffer.from(i.signature, 'base64')),
     tlv(8, i.publicKeyDer),
     tlv(9, i.certSignature),
   ]).toString('base64');

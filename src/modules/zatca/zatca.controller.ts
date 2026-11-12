@@ -6,7 +6,7 @@ import { RequirePermission } from '../../core/permissions/require-permission.dec
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { ZatcaService } from './zatca.service';
-import { AttachCertificateDto, CreateZatcaDeviceDto } from './dto/zatca.dto';
+import { AttachCertificateDto, CreateZatcaDeviceDto, OnboardDto } from './dto/zatca.dto';
 
 // Preparation screens' API: register the device, produce its CSR, import the certificate and look at
 // the document queue. Nothing here contacts ZATCA.
@@ -41,6 +41,24 @@ export class ZatcaController {
     @Body() dto: AttachCertificateDto,
   ) {
     return this.service.attachCertificate(tenant, id, dto);
+  }
+
+  @Post('devices/:id/onboard')
+  @RequirePermission('settings.manage')
+  onboard(@GetTenant() tenant: TenantContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OnboardDto) {
+    return this.service.onboardCompliance(tenant, id, dto.otp);
+  }
+
+  @Post('devices/:id/compliance-checks')
+  @RequirePermission('settings.manage')
+  complianceChecks(@GetTenant() tenant: TenantContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.runComplianceChecks(tenant, id);
+  }
+
+  @Post('devices/:id/activate')
+  @RequirePermission('settings.manage')
+  activate(@GetTenant() tenant: TenantContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.activateProduction(tenant, id);
   }
 
   @Get('invoices')

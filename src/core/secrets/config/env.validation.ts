@@ -35,6 +35,8 @@ export const envValidationSchema = Joi.object({
   // an onboarded device (docs/DESIGN_ZATCA_PHASE2.md). Off by default; nothing is sent to ZATCA here —
   // documents are prepared, signed, chained and stored until the connection is added.
   ZATCA_ENABLED: Joi.boolean().default(false),
+  // 'fatoora' = really send to ZATCA (onboarding + reporting); 'null' = documents wait as pending.
+  ZATCA_GATEWAY: Joi.string().valid('null', 'fatoora').default('null'),
   // 32-byte master key (base64 or 64 hex chars) encrypting the device private keys and CSID secrets.
   // Required when ZATCA_ENABLED=true or device keys are generated. Never log it.
   ZATCA_KEY_ENC_KEY: Joi.string().min(32).optional().allow(''),

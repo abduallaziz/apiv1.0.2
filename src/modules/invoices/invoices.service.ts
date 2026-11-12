@@ -1463,6 +1463,13 @@ export class InvoicesService {
 
     this.metricsService.recordInvoice(tenant.tenantId, 'cancelled');
 
+    // ZATCA: a cancelled sale that has a signed document gets its credit note (off unless ZATCA_ENABLED).
+    if (this.zatca.enabled) {
+      await this.zatca.issueCreditNote(tenant, id, dto.reason ?? 'cancelled').catch((err) => {
+        this.logger.error(`ZATCA credit note failed for cancelled invoice ${id}: ${err?.message ?? err}`);
+      });
+    }
+
     // يعكس أي خصم مخزون تم فعليًا عند البيع (لا شيء إن لم يُخصَم أصلًا) — best-effort أيضًا
     this.repo
       .reverseSaleStockDeduction(tenant.tenantId, id, actorId)

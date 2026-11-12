@@ -200,8 +200,9 @@ describe('signed document', () => {
     expect(t.get(3)!.toString()).toBe('2026-11-12T07:05:09Z');
     expect(t.get(4)!.toString()).toBe('51.75');
     expect(t.get(5)!.toString()).toBe('6.75');
-    expect(t.get(6)!.toString()).toBe(d.invoice_hash);
-    expect(t.get(7)!.toString()).toBe(d.signature);
+    expect(t.get(6)!.length).toBe(32);
+    expect(t.get(6)!.toString('base64')).toBe(d.invoice_hash);
+    expect(t.get(7)!.toString('base64')).toBe(d.signature);
     expect(t.get(8)!.equals(publicKeyDer(cert.certificatePem))).toBe(true);
     expect(t.get(9)!.equals(cert.certSignature)).toBe(true);
   });
@@ -275,5 +276,46 @@ describe('CSR for the EGS unit', () => {
     expect(prod).toContain('ZATCA-Code-Signing');
     expect(prod).not.toContain('PREZATCA');
     expect(() => buildCsr(privateKeyPem, { ...base, env: 'sandbox', invoiceTypes: '12' })).toThrow();
+  });
+});
+
+describe('credit note for a cancelled sale', () => {
+  it('chains on the device, references the original and is issued once', async () => {
+    const { ZatcaService } = await import('./zatca.service');
+    const key = Buffer.alloc(32, 9).toString('base64');
+    const { privateKeyPem } = generateDeviceKeyPair();
+    const cert = makeTestCertificate(privateKeyPem);
+    const orig = baseInput();
+    const inserts: any[][] = [];
+    const updates: any[][] = [];
+    let issued = false;
+    const client = {
+      query: jest.fn(async (sql: string, params: any[]) => {
+        if (sql.includes("kind = 'invoice'")) return { rows: [{ device_id: 'dev1', invoice_no: 'INV-000001', doc_input: JSON.parse(JSON.stringify(orig)) }] };
+        if (sql.includes("kind = 'credit_note'")) return { rows: issued ? [{}] : [] };
+        if (sql.includes('FROM zatca_devices')) {
+          return { rows: [{ id: 'dev1', private_key_enc: encryptSecret(privateKeyPem, key), certificate_pem: cert.certificatePem, icv_last: 1, pih_last: 'PREVHASH' }] };
+        }
+        if (sql.startsWith('INSERT')) { inserts.push(params); issued = true; return { rows: [] }; }
+        if (sql.startsWith('UPDATE')) { updates.push(params); return { rows: [] }; }
+        return { rows: [] };
+      }),
+    };
+    const svc = new ZatcaService(
+      { get: () => key } as any,
+      { runInTenantContext: (_t: any, fn: any) => fn(client) } as any,
+      {} as any,
+    );
+    const t = { tenantId: 't1' } as any;
+    expect(await svc.issueCreditNote(t, 'o1', 'cancelled')).toEqual({ issued: true });
+    const row = inserts[0];
+    expect(row[3]).toBe('credit_note');
+    expect(row[5]).toBe(2); // icv
+    expect(row[6]).toBe('PREVHASH'); // pih
+    expect(row[7]).toBe('CN-INV-000001');
+    expect(row[10]).toContain('<cbc:InvoiceTypeCode name="0200000">381</cbc:InvoiceTypeCode>');
+    expect(row[10]).toContain('<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>INV-000001</cbc:ID>');
+    expect(updates[0][1]).toBe(2);
+    expect(await svc.issueCreditNote(t, 'o1', 'cancelled')).toEqual({ issued: false, reason: 'already_issued' });
   });
 });

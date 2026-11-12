@@ -18,8 +18,11 @@ export class SellerDto {
   @Matches(/^3\d{13}3$/, { message: 'vat_number must be 15 digits starting and ending with 3' })
   vat_number: string;
 
-  @IsOptional() @IsString() @MaxLength(20)
-  crn?: string;
+  @IsString() @MinLength(1) @MaxLength(20)
+  crn: string;
+
+  @IsOptional() @IsIn(['CRN', 'MOM', 'MLS', '700', 'SAG', 'OTH'])
+  id_scheme?: 'CRN' | 'MOM' | 'MLS' | '700' | 'SAG' | 'OTH';
 
   @IsString() @MinLength(2) @MaxLength(100)
   street: string;
@@ -38,6 +41,12 @@ export class SellerDto {
 
   @Matches(/^\d{5}$/, { message: 'postal_zone must be 5 digits' })
   postal_zone: string;
+}
+
+export class OnboardDto {
+  // One-time password generated in the Fatoora portal
+  @Matches(/^\d{6}$/, { message: 'otp must be the 6-digit code from the Fatoora portal' })
+  otp: string;
 }
 
 export class CreateZatcaDeviceDto {
