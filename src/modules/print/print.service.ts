@@ -354,7 +354,8 @@ export class PrintService {
       created_at: order.created_at,
       currency_symbol: tenant.currency_symbol ?? '',
       template: t,
-      auto_print: tenant.printer_settings?.auto_print === true,
+      // The kitchen ticket has its own switch (printer_settings.kitchen_auto_print).
+      auto_print: tenant.printer_settings?.kitchen_auto_print === true,
       header_text: t.header_text,
       business_name: tenant.name ?? '',
       table_name: tableName,

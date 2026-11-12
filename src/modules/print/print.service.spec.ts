@@ -200,6 +200,19 @@ describe('PrintService.getKitchenPayload', () => {
     const all = await svc.getKitchenPayload(TENANT, order.id, { all: true });
     expect(all.items).toHaveLength(3);
   });
+
+  it('auto_print follows kitchen_auto_print, not the invoice auto_print', async () => {
+    // invoice auto-print ON, kitchen switch not set -> kitchen stays manual
+    const off = build({ order: { table_id: 't5' } });
+    expect((await off.svc.getKitchenPayload(TENANT, order.id)).auto_print).toBe(false);
+
+    const on = build({
+      order: { table_id: 't5' },
+      tenant: { printer_settings: { auto_print: false, kitchen_auto_print: true } },
+    });
+    const p = await on.svc.getKitchenPayload(TENANT, order.id);
+    expect(p.auto_print).toBe(true);
+  });
 });
 
 describe('PrintService.updateTemplate / uploadLogo guards', () => {
