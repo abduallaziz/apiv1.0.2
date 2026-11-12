@@ -26,10 +26,15 @@ function build(opts: {
       ? jest.fn().mockRejectedValue(new Error('db exploded'))
       : jest
           .fn()
-          .mockResolvedValue({ id: 'order-1', stockDeducted: !!opts.stockDeducted }),
+          .mockResolvedValue({
+            id: 'order-1',
+            invoice_no: 'INV-000007',
+            stockDeducted: !!opts.stockDeducted,
+          }),
     getBranchDefaultWarehouse: jest.fn().mockResolvedValue(opts.warehouse ?? null),
     deductStockForSale: jest.fn().mockResolvedValue(undefined),
     hasTrackedItems: jest.fn().mockResolvedValue(!!opts.tracked),
+    getInvoiceNumberFormat: jest.fn().mockResolvedValue({ prefix: 'INV-', padding: 6 }),
     getItemBasics: jest
       .fn()
       .mockResolvedValue(
@@ -238,6 +243,16 @@ describe('InvoicesService.create — stock deducted inside the sale transaction 
     const { service, repo } = build({ previewDiscount: 0, flags, warehouse: null });
     await run(service);
     expect(repo.createWithItemsPooled.mock.calls[0][3]).toBeUndefined();
+  });
+});
+
+describe('InvoicesService.create — sequential invoice number', () => {
+  it('takes the number inside the sale transaction with the designer format and returns it', async () => {
+    const { service, repo } = build({ previewDiscount: 0, flags: ['POOLED_INVOICE_WRITES_ENABLED'] });
+    const res: any = await service.create(new TenantContext('t1', 'b1'), { ...dto(), redeem_reward_instance_ids: undefined }, 'u1', 'cashier', 'b1', 'shift-1', '1.1.1.1', 'dev');
+    expect(repo.getInvoiceNumberFormat).toHaveBeenCalledWith('t1', 'b1');
+    expect(repo.createWithItemsPooled.mock.calls[0][4]).toEqual({ prefix: 'INV-', padding: 6 });
+    expect(res.invoice_no).toBe('INV-000007');
   });
 });
 

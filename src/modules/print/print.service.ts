@@ -268,7 +268,11 @@ export class PrintService {
     return {
       kind: 'invoice',
       order_id: order.id,
-      order_number: String(order.id).slice(-6).toUpperCase(),
+      // the sequential legal number when the order has one, else the short id (older orders)
+      invoice_no: (order.invoice_no as string | null) ?? null,
+      order_number:
+        (order.invoice_no as string | null) ??
+        String(order.id).slice(-6).toUpperCase(),
       created_at: order.created_at,
       currency_symbol: tenant.currency_symbol ?? '',
       template: t,

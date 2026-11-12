@@ -30,6 +30,55 @@ export interface TemplateBlock {
   visible: boolean;
 }
 
+// ---- Designer v2 (docs/DESIGN_INVOICE_DESIGNER_V2.md, phase 1) ----------------
+// Presentation choices only. Every field has a default that reproduces the
+// receipt exactly as it looked before, so a template saved earlier (or '{}')
+// still prints the same. Legally required ZATCA elements (seller name, tax
+// number, date/time, invoice number, VAT amount, total, QR) are NOT toggles:
+// they can be renamed (labels) but never hidden.
+export const STYLE_FONT_SIZES = ['sm', 'md', 'lg'] as const;
+export const STYLE_FONT_WEIGHTS = ['normal', 'bold_totals'] as const;
+export const STYLE_ALIGNS = ['start', 'center'] as const;
+export const STYLE_LINE_SPACINGS = ['compact', 'normal', 'relaxed'] as const;
+export const STYLE_SEPARATORS = ['dashed', 'solid', 'none'] as const;
+export const STYLE_HEADER_LAYOUTS = ['logo_top', 'logo_side', 'text_only'] as const;
+/** Named accents only (never a free colour string). */
+export const STYLE_ACCENTS = ['black', 'blue', 'green', 'red', 'purple', 'gray'] as const;
+export const RECEIPT_LANGUAGES = ['auto', 'ar', 'en', 'bilingual'] as const;
+export const DATE_FORMATS = ['mdy', 'dmy', 'ymd'] as const;
+export const TIME_FORMATS = ['12h', '24h'] as const;
+/** Label keys the owner may rename (value: plain text, max 40 chars). */
+export const LABEL_KEYS = [
+  'title',
+  'invoice',
+  'date',
+  'customer',
+  'vehicle',
+  'cashier',
+  'worker',
+  'subtotal',
+  'discount',
+  'vat',
+  'total',
+  'payments',
+  'cashTendered',
+  'change',
+  'notes',
+  'taxNumber',
+  'commercialRegister',
+] as const;
+
+export interface InvoiceStyle {
+  font_size: (typeof STYLE_FONT_SIZES)[number];
+  font_weight: (typeof STYLE_FONT_WEIGHTS)[number];
+  /** Alignment of the header and footer text. */
+  align: (typeof STYLE_ALIGNS)[number];
+  line_spacing: (typeof STYLE_LINE_SPACINGS)[number];
+  separators: (typeof STYLE_SEPARATORS)[number];
+  accent: (typeof STYLE_ACCENTS)[number];
+  header_layout: (typeof STYLE_HEADER_LAYOUTS)[number];
+}
+
 export interface InvoiceTemplate {
   /** Storage path of an uploaded logo (private bucket); resolved to a signed URL in the payload. */
   logo_path: string | null;
@@ -48,6 +97,24 @@ export interface InvoiceTemplate {
   /** ZATCA QR; only rendered when true AND a tax number exists. */
   qr_enabled: boolean;
   copies: number;
+  // ---- Designer v2 ----
+  style: InvoiceStyle;
+  language: (typeof RECEIPT_LANGUAGES)[number];
+  /** Item name and line total are always shown. */
+  item_columns: { variant: boolean; qty: boolean; unit_price: boolean };
+  /** VAT and total are always shown. */
+  totals_lines: { subtotal: boolean; discount: boolean };
+  /** Renamed headings, only for keys in LABEL_KEYS. */
+  labels: Record<string, string>;
+  /** Invoice title, e.g. "Simplified Tax Invoice". */
+  title: string | null;
+  header_text: string | null;
+  terms_text: string | null;
+  custom_fields: { label: string; value: string }[];
+  date_format: (typeof DATE_FORMATS)[number];
+  time_format: (typeof TIME_FORMATS)[number];
+  /** Sequential invoice number format (used by the numbering phase). */
+  invoice_number: { prefix: string; padding: number };
 }
 
 export interface KitchenTemplate {
@@ -74,6 +141,8 @@ export interface PrintPayloadBase {
 
 export interface InvoicePrintPayload extends PrintPayloadBase {
   kind: 'invoice';
+  /** Sequential legal invoice number (null for orders created before numbering). */
+  invoice_no: string | null;
   template: InvoiceTemplate;
   business: {
     name: string;

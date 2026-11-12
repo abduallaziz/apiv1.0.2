@@ -22,6 +22,7 @@ function build(opts: {
     create: jest.fn().mockResolvedValue({ id: 'order-1' }),
     insertItems: jest.fn().mockResolvedValue(['oi-1']),
     createWithItemsPooled: jest.fn().mockResolvedValue({ id: 'order-1' }),
+    getInvoiceNumberFormat: jest.fn().mockResolvedValue({ prefix: 'INV-', padding: 6 }),
     getBranchDefaultWarehouse: jest.fn().mockResolvedValue(null),
     findById: jest.fn().mockResolvedValue({
       id: 'order-1',

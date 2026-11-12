@@ -91,3 +91,64 @@ describe('resolveTemplate (tenant vs branch override)', () => {
     expect((r.template as { font_size: string }).font_size).toBe('lg');
   });
 });
+
+describe('designer v2 fields', () => {
+  it('a template saved before v2 keeps the exact old look (all v2 defaults)', () => {
+    const t = normalizeInvoiceTemplate({ paper_width: '58mm', qr_enabled: true });
+    const d = defaultInvoiceTemplate();
+    expect(t.style).toEqual(d.style);
+    expect(t.item_columns).toEqual({ variant: true, qty: true, unit_price: true });
+    expect(t.totals_lines).toEqual({ subtotal: true, discount: true });
+    expect(t.date_format).toBe('mdy');
+    expect(t.time_format).toBe('12h');
+    expect(t.labels).toEqual({});
+    expect(t.custom_fields).toEqual([]);
+  });
+
+  it('accepts a full valid v2 template (strict)', () => {
+    const t = normalizeInvoiceTemplate(
+      {
+        style: { font_size: 'lg', align: 'start', separators: 'solid', accent: 'blue', header_layout: 'text_only' },
+        language: 'bilingual',
+        item_columns: { variant: false, qty: true, unit_price: false },
+        totals_lines: { subtotal: false, discount: true },
+        labels: { title: 'Tax invoice', total: 'Grand total' },
+        title: 'Simplified Tax Invoice',
+        header_text: 'Welcome',
+        terms_text: 'No returns after 7 days',
+        custom_fields: [{ label: 'Branch no.', value: '12' }],
+        date_format: 'dmy',
+        time_format: '24h',
+        invoice_number: { prefix: 'RIY-', padding: 8 },
+      },
+      true,
+    );
+    expect(t.style.font_size).toBe('lg');
+    expect(t.language).toBe('bilingual');
+    expect(t.item_columns.unit_price).toBe(false);
+    expect(t.labels.total).toBe('Grand total');
+    expect(t.invoice_number).toEqual({ prefix: 'RIY-', padding: 8 });
+  });
+
+  it('rejects bad values on save (strict) but repairs them on read (lenient)', () => {
+    const bad = { style: { accent: '#ff0000' } };
+    expect(() => normalizeInvoiceTemplate(bad, true)).toThrow(BadRequestException);
+    expect(normalizeInvoiceTemplate(bad).style.accent).toBe('black');
+    expect(() => normalizeInvoiceTemplate({ labels: { evil: 'x' } }, true)).toThrow(/not a known label/);
+    expect(() => normalizeInvoiceTemplate({ labels: { total: 'x'.repeat(41) } }, true)).toThrow(/too long/);
+    expect(() =>
+      normalizeInvoiceTemplate({ custom_fields: Array.from({ length: 6 }, () => ({ label: 'a', value: 'b' })) }, true),
+    ).toThrow(/at most 5/);
+    expect(() => normalizeInvoiceTemplate({ invoice_number: { prefix: '<script>' } }, true)).toThrow(BadRequestException);
+    expect(() => normalizeInvoiceTemplate({ invoice_number: { padding: 2 } }, true)).toThrow(BadRequestException);
+  });
+
+  it('the legally required parts cannot be switched off: no toggle exists for them', () => {
+    const t = normalizeInvoiceTemplate({
+      totals_lines: { vat: false, total: false },
+      item_columns: { name: false, line_total: false },
+    });
+    expect(Object.keys(t.totals_lines).sort()).toEqual(['discount', 'subtotal']);
+    expect(Object.keys(t.item_columns).sort()).toEqual(['qty', 'unit_price', 'variant']);
+  });
+});

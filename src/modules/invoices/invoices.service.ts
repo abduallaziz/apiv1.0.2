@@ -694,7 +694,12 @@ export class InvoicesService {
       }
     }
 
-    let invoice: { id: string; stockDeducted?: boolean; stockError?: string };
+    let invoice: {
+      id: string;
+      invoice_no?: string | null;
+      stockDeducted?: boolean;
+      stockError?: string;
+    };
     try {
       if (usePooledWrite) {
         // POOLED_STOCK_IN_TX_ENABLED — deduct stock inside the sale
@@ -760,6 +765,7 @@ export class InvoicesService {
           },
           pooledItems,
           stockInTxWarehouse ? { warehouseId: stockInTxWarehouse } : undefined,
+          await this.repo.getInvoiceNumberFormat(tenant.tenantId, branchId),
         );
       } else {
         invoice = await this.repo.create(tenant, {
@@ -1266,6 +1272,8 @@ export class InvoicesService {
 
     return {
       id: invoice.id,
+      // Sequential legal number (null only on the non-pooled dev path).
+      invoice_no: invoice.invoice_no ?? null,
       total: built.total,
       // Additive, read-only fields (Owner-approved residual-gap fix) —
       // the receipt previously fell back to the client-side `cart` preview
