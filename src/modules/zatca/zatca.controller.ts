@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -59,6 +59,12 @@ export class ZatcaController {
   @RequirePermission('settings.manage')
   activate(@GetTenant() tenant: TenantContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.activateProduction(tenant, id);
+  }
+
+  @Delete('devices/:id')
+  @RequirePermission('settings.manage')
+  deleteDevice(@GetTenant() tenant: TenantContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.deleteDevice(tenant, id);
   }
 
   @Get('invoices')

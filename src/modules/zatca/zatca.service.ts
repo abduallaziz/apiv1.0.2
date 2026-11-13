@@ -422,7 +422,11 @@ export class ZatcaService {
       }
       const passed = results.length === kinds.length && results.every((x) => x.ok);
       if (passed) {
-        await client.query(`UPDATE zatca_devices SET compliance_checked_at = now(), updated_at = now() WHERE id = $1`, [deviceId]);
+        // The developer-portal sandbox has no production CSID and REJECTS production credentials on
+        // the compliance endpoint (401). A sandbox device therefore stays on its compliance CSID and
+        // goes live as soon as the checks pass — there is no "activate production" step for it.
+        const activate = d.env === 'sandbox' ? ", status = 'active'" : '';
+        await client.query(`UPDATE zatca_devices SET compliance_checked_at = now()${activate}, updated_at = now() WHERE id = $1`, [deviceId]);
       }
       return { passed, results };
     });
@@ -440,6 +444,11 @@ export class ZatcaService {
       );
       if (r.rows.length === 0) throw new NotFoundException('Device not found');
       const d = r.rows[0];
+      // The sandbox has no production CSID — it operates on the compliance CSID and is already live
+      // after the compliance checks. Requesting a production CSID there breaks sending (401).
+      if (d.env === 'sandbox') {
+        throw new BadRequestException('Sandbox devices run on the compliance certificate; they are live after the compliance checks (no production step).');
+      }
       if (d.csid_kind !== 'compliance') throw new BadRequestException('Device is not in the compliance stage');
       if (!d.compliance_checked_at) throw new BadRequestException('Run and pass the compliance checks first');
       const csid = await gw.requestProductionCsid(d.env, d.certificate_pem, decryptSecret(d.csid_secret_enc, key), d.compliance_request_id);
@@ -449,6 +458,23 @@ export class ZatcaService {
         [deviceId, csid.certificatePem, encryptSecret(csid.secret, key)],
       );
       return u.rows[0];
+    });
+  }
+
+  /** Soft-deletes a device (and its pending documents) so a misconfigured one can be re-created. */
+  async deleteDevice(tenant: TenantContext, deviceId: string) {
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const r = await client.query(
+        `UPDATE zatca_devices SET deleted_at = now(), updated_at = now()
+          WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL RETURNING id`,
+        [deviceId, tenant.tenantId],
+      );
+      if (r.rows.length === 0) throw new NotFoundException('Device not found');
+      await client.query(
+        `UPDATE zatca_invoices SET deleted_at = now() WHERE device_id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [deviceId, tenant.tenantId],
+      );
+      return { deleted: true };
     });
   }
 
