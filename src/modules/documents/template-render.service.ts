@@ -33,6 +33,10 @@ export interface RenderElement {
   visible?: boolean;
   /** 'first' (default): page 1 only; 'every': repeated on every printed page. */
   anchor?: 'first' | 'every';
+  /** Box / typography options (validated on save; re-checked here before reaching CSS). */
+  style?: Record<string, unknown>;
+  /** Side-by-side placement of flow blocks. */
+  layout?: { sideBySide?: boolean; width?: number; place?: string };
 }
 
 export interface RenderBody {
@@ -162,10 +166,19 @@ export class TemplateRenderService {
           clamp(num(x, 10), 0, 60),
         );
         const mine = elements.filter((e) => num(e.page, 0) === idx);
-        const flow = mine
-          .filter((e) => e.region !== 'overlay' && !isOverlayType(e.type))
-          .map((e) => wrapFlow(e, this.flowElement(e, input)))
-          .join('');
+        const flowEls = mine.filter(
+          (e) => e.region !== 'overlay' && !isOverlayType(e.type),
+        );
+        // consecutive blocks flagged sideBySide share a row with the block before them
+        const groups: RenderElement[][] = [];
+        for (const e of flowEls) {
+          if (e.layout?.sideBySide === true && groups.length > 0) {
+            groups[groups.length - 1].push(e);
+          } else {
+            groups.push([e]);
+          }
+        }
+        const flow = groups.map((g) => this.flowGroup(g, input)).join('');
         const overlay = input.omitOverlays
           ? ''
           : mine
@@ -196,6 +209,52 @@ export class TemplateRenderService {
 
   // ---------------------------------------------------------------- flow (structured) elements
 
+  private flowGroup(g: RenderElement[], input: RenderInput): string {
+    const first = g[0];
+    const plain =
+      g.length === 1 &&
+      first.layout?.width === undefined &&
+      !first.layout?.place;
+    if (plain) return wrapFlow(first, this.flowElement(first, input));
+    const equal = 100 / g.length;
+    const gapShare = ((g.length - 1) * 4) / g.length;
+    const cols = g
+      .map((e) => {
+        const w = clamp(num(e.layout?.width, equal), 5, 100);
+        const basis =
+          g.length === 1 ? w + '%' : 'calc(' + w + '% - ' + gapShare + 'mm)';
+        return (
+          '<div class="col" style="flex:0 0 ' +
+          basis +
+          '">' +
+          wrapFlow(e, this.flowElement(e, input), false) +
+          '</div>'
+        );
+      })
+      .join('');
+    const place = first.layout?.place;
+    const justify =
+      place === 'center'
+        ? 'center'
+        : place === 'end'
+          ? 'flex-end'
+          : 'flex-start';
+    const gap = marginTop(first.style);
+    // cards stretch to equal height, except rows that hold a table or the totals
+    const top = g.some((e) => e.type === 'totals' || e.type === 'items_table')
+      ? ';align-items:flex-start'
+      : '';
+    return (
+      '<div class="row" style="justify-content:' +
+      justify +
+      (gap ? ';' + gap : '') +
+      top +
+      '">' +
+      cols +
+      '</div>'
+    );
+  }
+
   private flowElement(e: RenderElement, input: RenderInput): string {
     const c = e.config ?? {};
     const data = input.data;
@@ -203,7 +262,7 @@ export class TemplateRenderService {
     const lang = input.direction === 'rtl' ? 'ar' : 'en';
     switch (e.type) {
       case 'heading':
-        return `<h1>${interpolate(str(c.text), data, missing)}</h1>`;
+        return `<h1>${interpolate(str(c.text), data, missing).replace(/\n/g, '<br>')}</h1>`;
       case 'text':
       case 'terms':
       case 'footer':
@@ -213,17 +272,17 @@ export class TemplateRenderService {
       case 'page_break':
         return '<div class="pagebreak"></div>';
       case 'company_info':
-        return kv('company', data, lang);
+        return kv('company', data, lang, c);
       case 'customer_info':
-        return kv('customer', data, lang);
+        return kv('customer', data, lang, c);
       case 'document_info':
-        return kv('document', data, lang);
+        return kv('document', data, lang, c);
       case 'payment_details':
-        return kv('payment', data, lang);
+        return kv('payment', data, lang, c);
       case 'items_table':
-        return this.itemsTable(c, data);
+        return this.itemsTable(c, data, lang);
       case 'totals':
-        return this.totals(data);
+        return this.totals(data, c, lang);
       default:
         return ''; // unknown types render nothing rather than raw content
     }
@@ -232,7 +291,10 @@ export class TemplateRenderService {
   private itemsTable(
     c: Record<string, unknown>,
     data: Record<string, unknown>,
+    lang: 'ar' | 'en',
   ): string {
+    const cur = c.showCurrency === true ? currencyLabel(lang) : '';
+    const headBg = hexOk(c.headerBg);
     const cols = (Array.isArray(c.columns) ? c.columns : []) as Array<{
       key?: string;
       label?: string;
@@ -243,23 +305,31 @@ export class TemplateRenderService {
     const rows = Array.isArray(data.items)
       ? (data.items as Array<Record<string, unknown>>)
       : [];
-    const width = (x: { width?: number }) =>
-      typeof x.width === 'number' && x.width >= 5 && x.width <= 100
-        ? ` style="width:${x.width}%"`
-        : '';
+    const thStyle = (x: { width?: number }) => {
+      const parts: string[] = [];
+      if (typeof x.width === 'number' && x.width >= 5 && x.width <= 100)
+        parts.push('width:' + x.width + '%');
+      if (headBg) parts.push('background:' + headBg);
+      return parts.length ? ' style="' + parts.join(';') + '"' : '';
+    };
     const head = columns
       .map(
         (x) =>
-          `<th class="${x.align === 'center' ? 'c' : ''}"${width(x)}>${escapeHtml(x.label ?? x.key)}</th>`,
+          `<th class="${x.align === 'center' ? 'c' : ''}"${thStyle(x)}>${escapeHtml(x.label ?? x.key)}</th>`,
       )
       .join('');
+    const cell = (r: Record<string, unknown>, i: number, key: string) => {
+      if (key === 'index') return String(i + 1);
+      const v = display(r[key]);
+      return cur && v !== '' && MONEY_COLUMNS.has(key) ? v + ' ' + cur : v;
+    };
     const body = rows
       .map(
-        (r) =>
+        (r, i) =>
           `<tr>${columns
             .map(
               (x) =>
-                `<td class="${x.align === 'center' ? 'c' : ''}">${escapeHtml(display(r[x.key]))}</td>`,
+                `<td class="${x.align === 'center' ? 'c' : ''}">${escapeHtml(cell(r, i, x.key ?? ''))}</td>`,
             )
             .join('')}</tr>`,
       )
@@ -270,7 +340,13 @@ export class TemplateRenderService {
     return `<table class="${cls}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
   }
 
-  private totals(data: Record<string, unknown>): string {
+  private totals(
+    data: Record<string, unknown>,
+    c: Record<string, unknown>,
+    lang: 'ar' | 'en',
+  ): string {
+    const cur = c.showCurrency === true ? currencyLabel(lang) : '';
+    const accent = hexOk(c.accent);
     const lines = Array.isArray(data.totals)
       ? (data.totals as Array<{
           label?: unknown;
@@ -279,11 +355,15 @@ export class TemplateRenderService {
         }>)
       : [];
     return (
-      '<table class="totals"><tbody>' +
+      '<table class="totals' +
+      (accent ? ' accent' : '') +
+      '"' +
+      (accent ? ' style="--accent:' + accent + '"' : '') +
+      '><tbody>' +
       lines
         .map(
           (l) =>
-            `<tr class="${l.strong ? 'strong' : ''}"><td>${escapeHtml(l.label)}</td><td class="n">${escapeHtml(display(l.value))}</td></tr>`,
+            `<tr class="${l.strong ? 'strong' : ''}"><td>${escapeHtml(l.label)}</td><td class="n">${escapeHtml(display(l.value) !== '' && cur ? display(l.value) + ' ' + cur : display(l.value))}</td></tr>`,
         )
         .join('') +
       '</tbody></table>'
@@ -330,6 +410,26 @@ export class TemplateRenderService {
       const cls = e.anchor === 'every' ? 'ov fixed' : 'ov';
       return `<img class="${cls}" style="${style}" src="${escapeHtml(src)}" alt="">`;
     }
+    if (e.type === 'text_box') {
+      const missing = input.body.missingValue === 'dash' ? '—' : '';
+      const text = interpolate(
+        str(e.config?.text),
+        input.data,
+        missing,
+      ).replace(/\n/g, '<br>');
+      const cls = e.anchor === 'every' ? 'ov fixed tb' : 'ov tb';
+      return (
+        '<div class="' +
+        cls +
+        '" style="' +
+        style +
+        ';' +
+        styleCss(e.style) +
+        '">' +
+        text +
+        '</div>'
+      );
+    }
     if (e.type === 'qr' || e.type === 'signature_qr') {
       const kind = e.type === 'signature_qr' ? 'verification' : e.config?.kind;
       const payload = this.qrPayload(kind, e.config, input);
@@ -349,12 +449,108 @@ export class TemplateRenderService {
 }
 
 // data-el lets the editor locate each block in the rendered page (click-to-select); harmless in PDF.
-function wrapFlow(e: RenderElement, html: string): string {
-  const id = typeof e.id === 'string' && /^[\w-]{1,64}$/.test(e.id) ? e.id : '';
-  return id ? `<div class="el" data-el="${id}">${html}</div>` : html;
+function marginTop(style: unknown): string {
+  const v =
+    style && typeof style === 'object'
+      ? (style as Record<string, unknown>).spaceBefore
+      : undefined;
+  return typeof v === 'number' ? 'margin-top:' + clamp(v, 0, 60) + 'mm' : '';
 }
 
+function wrapFlow(e: RenderElement, html: string, withMargin = true): string {
+  const id = typeof e.id === 'string' && /^[\w-]{1,64}$/.test(e.id) ? e.id : '';
+  const css = [styleCss(e.style), withMargin ? marginTop(e.style) : '']
+    .filter(Boolean)
+    .join(';');
+  const fs = e.style && typeof e.style.fontSize === 'number' ? ' fs' : '';
+  if (!id && !css) return html;
+  return (
+    '<div class="el' +
+    fs +
+    '"' +
+    (id ? ' data-el="' + id + '"' : '') +
+    (css ? ' style="' + css + '"' : '') +
+    '>' +
+    html +
+    '</div>'
+  );
+}
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const hexOk = (v: unknown): string | null =>
+  typeof v === 'string' && HEX_RE.test(v) ? v : null;
+
+const MONEY_COLUMNS = new Set(['unit_price', 'discount', 'tax', 'total']);
+const currencyLabel = (lang: 'ar' | 'en') => (lang === 'ar' ? 'ر.س' : 'SAR');
+
+/** Whitelisted CSS from validated style options; anything unexpected is dropped. */
+function styleCss(raw: unknown): string {
+  if (!raw || typeof raw !== 'object') return '';
+  const s = raw as Record<string, unknown>;
+  const out: string[] = [];
+  const bg = hexOk(s.bg);
+  if (bg) out.push('background:' + bg);
+  const color = hexOk(s.color);
+  if (color) out.push('color:' + color);
+  const border = hexOk(s.border);
+  if (border)
+    out.push(
+      'border:' + clamp(num(s.borderWidth, 0.3), 0, 2) + 'mm solid ' + border,
+    );
+  if (typeof s.radius === 'number')
+    out.push('border-radius:' + clamp(s.radius, 0, 30) + 'mm;overflow:hidden');
+  if (typeof s.padding === 'number')
+    out.push('padding:' + clamp(s.padding, 0, 30) + 'mm');
+  if (typeof s.fontSize === 'number')
+    out.push('font-size:' + clamp(s.fontSize, 6, 72) + 'pt');
+  if (['start', 'center', 'end'].includes(s.align as string))
+    out.push('text-align:' + (s.align as string));
+  if (s.weight === 'bold') out.push('font-weight:700');
+  return out.join(';');
+}
+
+const ICON_PATHS: Record<string, string> = {
+  phone:
+    'M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z',
+  mail: 'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z M22 6l-10 7L2 6',
+  pin: 'M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+  user: 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+  doc: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6 M8 13h8 M8 17h8',
+  calendar:
+    'M8 2v4 M16 2v4 M3 10h18 M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z',
+  calendar_check:
+    'M8 2v4 M16 2v4 M3 10h18 M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z M9 16l2 2 4-4',
+  hash: 'M4 9h16 M4 15h16 M10 3 8 21 M16 3l-2 18',
+  card: 'M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z M2 10h20',
+};
+const FIELD_ICON: Record<string, string> = {
+  phone: 'phone',
+  email: 'mail',
+  address: 'pin',
+  name: 'user',
+  number: 'doc',
+  date: 'calendar',
+  valid_until: 'calendar_check',
+  due_date: 'calendar',
+  vat_number: 'hash',
+  cr_number: 'hash',
+  reference: 'doc',
+  notes: 'doc',
+  method: 'card',
+  bank_name: 'card',
+  iban: 'card',
+};
+const icon = (field: string): string => {
+  const d = ICON_PATHS[FIELD_ICON[field] ?? 'doc'];
+  return (
+    '<svg class="ic" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' +
+    d +
+    '"/></svg>'
+  );
+};
+
 const OVERLAY_TYPES = [
+  'text_box',
   'stamp',
   'signature',
   'signature_qr',
@@ -368,20 +564,43 @@ function kv(
   section: string,
   data: Record<string, unknown>,
   lang: 'ar' | 'en',
+  c: Record<string, unknown> = {},
 ): string {
   const obj = data[section];
   if (!obj || typeof obj !== 'object') return '';
   const src = obj as Record<string, unknown>;
   // fields and their labels come from the whitelist catalog, never from the data's own keys
-  const rows = sectionFields(section)
-    .map((b) => ({ k: b.label[lang], v: display(src[b.path.split('.')[1]]) }))
+  const all = sectionFields(section);
+  const chosen = Array.isArray(c.fields)
+    ? (c.fields as unknown[])
+        .map((k) => all.find((b) => b.path.split('.')[1] === k))
+        .filter((b): b is (typeof all)[number] => !!b)
+    : all;
+  const mode =
+    c.labelMode === 'inline' || c.labelMode === 'none' ? c.labelMode : 'split';
+  const withIcons = c.icons === true;
+  const rows = chosen
+    .map((b) => {
+      const field = b.path.split('.')[1];
+      return { field, k: b.label[lang], v: display(src[field]) };
+    })
     .filter((r) => r.v !== '')
-    .map(
-      (r) =>
-        `<div class="kv"><span class="k">${escapeHtml(r.k)}</span><span class="v">${escapeHtml(r.v)}</span></div>`,
-    )
+    .map((r) => {
+      const ic = withIcons ? icon(r.field) : '';
+      const label =
+        mode === 'none'
+          ? ic
+          : '<span class="kl">' +
+            ic +
+            '<span class="k">' +
+            escapeHtml(r.k) +
+            (mode === 'inline' ? ':' : '') +
+            '</span></span>';
+      const value = '<span class="v">' + escapeHtml(r.v) + '</span>';
+      return '<div class="kv ' + mode + '">' + label + value + '</div>';
+    })
     .join('');
-  return `<div class="block ${section}">${rows}</div>`;
+  return '<div class="block ' + section + '">' + rows + '</div>';
 }
 
 function css(w: number, h: number | null, size: string): string {
@@ -423,5 +642,17 @@ table.totals { width: 45%; margin-inline-start: auto; }
 table.totals td { padding: 3px 6px; }
 table.totals td.n { text-align: end; font-variant-numeric: tabular-nums; }
 table.totals tr.strong td { font-weight: 700; border-top: 1px solid #0c447c; }
+table.totals.accent tr.strong td { background: var(--accent); color: #fff; border-top: 0; }
+.row { display: flex; gap: 4mm; align-items: stretch; break-inside: avoid; }
+.col { min-width: 0; display: flex; }
+.col > .el { flex: 1; min-width: 0; }
+.col > .block, .col > .text, .col > h1 { flex: 1; min-width: 0; }
+.col table.totals { width: 100%; margin: 0; }
+.el.fs * { font-size: inherit; }
+.el h1 { margin: 0; }
+.ic { color: #0c447c; flex: none; margin-inline-end: 6px; vertical-align: middle; }
+.kv .kl { display: inline-flex; align-items: center; }
+.kv.inline, .kv.none { justify-content: flex-start; gap: 4px; }
+.ov.tb { overflow-wrap: anywhere; line-height: 1.5; object-fit: initial; }
 `;
 }

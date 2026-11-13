@@ -9,6 +9,7 @@ import {
   BINDING_PATHS,
   ITEM_COLUMN_KEYS,
   bindingsInText,
+  sectionFieldKeys,
 } from './bindings.catalog';
 
 // Strict, whitelist-based validation of a template body (design A4: validated JSON, no code).
@@ -36,6 +37,7 @@ export const OVERLAY_TYPES = [
   'image',
   'qr',
   'signature_qr',
+  'text_box',
 ] as const;
 
 const PAPERS = ['A4', 'A5', '80mm', '58mm'];
@@ -78,11 +80,100 @@ function str(v: unknown, name: string, max: number): string {
   return v as string;
 }
 
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const hex = (v: unknown, name: string): string => {
+  if (typeof v !== 'string' || !HEX_RE.test(v))
+    fail(`${name} must be a #RRGGBB color`);
+  return v as string;
+};
+
+const INFO_SECTION: Record<string, string> = {
+  company_info: 'company',
+  customer_info: 'customer',
+  document_info: 'document',
+  payment_details: 'payment',
+};
+
+/** Box/typography options of a block. Fixed keys, validated values: never raw CSS. */
+function sanitizeStyle(raw: unknown): Obj | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObj(raw)) return fail('style must be an object');
+  const s = raw;
+  const out: Obj = {};
+  if (s.bg !== undefined) out.bg = hex(s.bg, 'style.bg');
+  if (s.color !== undefined) out.color = hex(s.color, 'style.color');
+  if (s.border !== undefined) out.border = hex(s.border, 'style.border');
+  if (s.borderWidth !== undefined)
+    out.borderWidth = num(s.borderWidth, 'style.borderWidth', 0, 2);
+  if (s.radius !== undefined) out.radius = num(s.radius, 'style.radius', 0, 30);
+  if (s.padding !== undefined)
+    out.padding = num(s.padding, 'style.padding', 0, 30);
+  if (s.fontSize !== undefined)
+    out.fontSize = num(s.fontSize, 'style.fontSize', 6, 72);
+  if (s.spaceBefore !== undefined)
+    out.spaceBefore = num(s.spaceBefore, 'style.spaceBefore', 0, 60);
+  if (s.align !== undefined) {
+    if (!['start', 'center', 'end'].includes(s.align as string))
+      fail('style.align invalid');
+    out.align = s.align;
+  }
+  if (s.weight !== undefined) {
+    if (!['normal', 'bold'].includes(s.weight as string))
+      fail('style.weight invalid');
+    out.weight = s.weight;
+  }
+  return out;
+}
+
+/** Side-by-side placement of flow blocks (a row of blocks instead of one per line). */
+function sanitizeLayout(raw: unknown): Obj | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObj(raw)) return fail('layout must be an object');
+  const l = raw;
+  const out: Obj = {};
+  if (l.sideBySide !== undefined)
+    out.sideBySide = bool(l.sideBySide, 'layout.sideBySide');
+  if (l.width !== undefined) out.width = num(l.width, 'layout.width', 5, 100);
+  if (l.place !== undefined) {
+    if (!['start', 'center', 'end'].includes(l.place as string))
+      fail('layout.place invalid');
+    out.place = l.place;
+  }
+  return out;
+}
+
 function sanitizeConfig(type: string, raw: unknown): Obj | undefined {
   if (raw === undefined) return undefined;
   if (!isObj(raw)) return fail('config must be an object');
   const cfg = raw;
   const out: Obj = {};
+  const section = INFO_SECTION[type];
+  if (section) {
+    if (cfg.fields !== undefined) {
+      const allowed = sectionFieldKeys(section);
+      if (!Array.isArray(cfg.fields) || cfg.fields.length > 20)
+        fail('config.fields must be an array');
+      out.fields = (cfg.fields as unknown[]).map((f) => {
+        if (typeof f !== 'string' || !allowed.has(f))
+          fail(`unknown field ${JSON.stringify(f)} for ${type}`);
+        return f;
+      });
+    }
+    if (cfg.labelMode !== undefined) {
+      if (!['split', 'inline', 'none'].includes(cfg.labelMode as string))
+        fail('config.labelMode invalid');
+      out.labelMode = cfg.labelMode;
+    }
+    if (cfg.icons !== undefined) out.icons = bool(cfg.icons, 'config.icons');
+  }
+  if (type === 'items_table' || type === 'totals') {
+    if (cfg.showCurrency !== undefined)
+      out.showCurrency = bool(cfg.showCurrency, 'config.showCurrency');
+  }
+  if (type === 'items_table' && cfg.headerBg !== undefined)
+    out.headerBg = hex(cfg.headerBg, 'config.headerBg');
+  if (type === 'totals' && cfg.accent !== undefined)
+    out.accent = hex(cfg.accent, 'config.accent');
   if (cfg.text !== undefined) {
     const text = str(cfg.text, 'config.text', MAX_TEXT);
     for (const b of bindingsInText(text)) {
@@ -149,6 +240,14 @@ function sanitizeElement(raw: unknown, idx: number): Obj {
   if (!Number.isInteger(out.page)) fail('page must be an integer');
   const config = sanitizeConfig(type, e.config);
   if (config) out.config = config;
+  if (isFlow || type === 'text_box') {
+    const style = sanitizeStyle(e.style);
+    if (style) out.style = style;
+  }
+  if (isFlow) {
+    const layout = sanitizeLayout(e.layout);
+    if (layout) out.layout = layout;
+  }
   if (e.visible !== undefined) out.visible = bool(e.visible, 'visible');
 
   if (isOverlay) {
@@ -182,6 +281,8 @@ function sanitizeElement(raw: unknown, idx: number): Obj {
       out.zIndex = num(e.zIndex, 'zIndex', 0, 1000);
       if (!Number.isInteger(out.zIndex)) fail('zIndex must be an integer');
     }
+    if (type === 'text_box' && out.size === undefined)
+      fail('a text box requires a size');
     if (type === 'qr' || type === 'signature_qr') {
       if (out.size === undefined) fail('a QR code requires a size');
       const cfg = (out.config ?? {}) as Obj;

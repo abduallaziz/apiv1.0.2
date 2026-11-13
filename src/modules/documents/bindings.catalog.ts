@@ -139,6 +139,7 @@ export const ITEM_COLUMNS: Array<{
   key: string;
   label: { en: string; ar: string };
 }> = [
+  { key: 'index', label: { en: '#', ar: 'م' } },
   { key: 'name', label: { en: 'Item', ar: 'الصنف' } },
   { key: 'sku', label: { en: 'SKU', ar: 'الرمز' } },
   { key: 'unit', label: { en: 'Unit', ar: 'الوحدة' } },
@@ -153,6 +154,11 @@ export const ITEM_COLUMN_KEYS = new Set(ITEM_COLUMNS.map((c) => c.key));
 /** Sections shown by the structured blocks (company_info etc.), in display order. */
 export function sectionFields(section: string): BindingDef[] {
   return BINDINGS.filter((b) => b.group === section);
+}
+
+/** Field keys a structured block may show (company: name, phone ...). */
+export function sectionFieldKeys(section: string): Set<string> {
+  return new Set(sectionFields(section).map((b) => b.path.split('.')[1]));
 }
 
 const BINDING_RE = /\{\{\s*([^{}]*?)\s*\}\}/g;
