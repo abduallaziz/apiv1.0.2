@@ -105,8 +105,10 @@ permissions system + `@RequirePermission`, `TenantSessionService` + RLS pattern,
 ```
 - Structured types (`region: "flow"`): company_info, customer_info, document_info, items_table,
   totals, terms, payment_details, footer, heading, text, divider, container.
-- Free overlay types (`region: "overlay"`): stamp, signature, logo, image, qr. Each instance has its
-  own geometry (the example structure in the brief is adopted verbatim).
+- Free overlay types (`region: "overlay"`): stamp, signature, signature_qr, logo, image, qr. Each
+  instance has its own geometry (the example structure in the brief is adopted verbatim).
+  `signature_qr` is a placeable verification barcode (not a legal cryptographic signature; that
+  provider is deferred).
 
 ---
 
@@ -276,10 +278,16 @@ themselves. No email, no WhatsApp, no sharing integration — removes the mailer
 Print output stays available. The document-verification QR (Phase 4) still produces a public
 scan-to-verify page, but that is authenticity verification, **not** a sharing channel.
 
-Open questions (to confirm before/with approval):
-1. Which doc types in the FIRST shipped phase set (quotation + tax/simplified invoice + receipt?), rest added via the extensible `doc_type`.
-2. Does the customer accept/reject a quotation from the public verification link, or only staff record it (ties to the quotation feature design).
-3. Cryptographic e-signature provider (Phase 7 part 3) — in scope now or deferred to a later provider integration.
+Decisions confirmed (owner, 2026-11-12):
+1. **All document types in scope** (quotation, tax_invoice, simplified_invoice, receipt,
+   payment_voucher, work_order, delivery_note, purchase_order, customer_statement, custom) — the
+   `doc_type` enum carries them all; extensible.
+2. **Quotation is a document to send** to a company / official entity. **No accept/reject** — not on
+   a public link and not required as a customer action. The public verification page is **view/verify
+   only** (no action buttons). Any internal "mark converted to invoice" stays staff-side and optional.
+3. **Stamp / signature / signature-QR (barcode) are placeable elements** (asset library + free overlay
+   + QR element) — IN SCOPE. A full **cryptographic e-signature provider is DEFERRED** (not needed
+   now); the signature-QR is a visual/verification element, not a legal crypto signature.
 ```
 ```
 **Next:** on `Approved – Proceed with Implementation`, execute Phase 1 only, then return for review before Phase 2.
