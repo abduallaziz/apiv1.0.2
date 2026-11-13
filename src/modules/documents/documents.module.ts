@@ -3,6 +3,7 @@ import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsEnabledGuard } from './documents-enabled.guard';
 import { TemplatesService } from './templates.service';
+import { DefaultTemplateService } from './default-template.service';
 import { AssetsController } from './assets.controller';
 import { DocumentsStatusController } from './documents-status.controller';
 import { VerificationController } from './verification.controller';
@@ -27,6 +28,7 @@ import { PdfRendererService } from '../shifts/report/pdf-renderer.service';
   providers: [
     DocumentsEnabledGuard,
     TemplatesService,
+    DefaultTemplateService,
     AssetsService,
     TemplateRenderService,
     PdfRendererService,

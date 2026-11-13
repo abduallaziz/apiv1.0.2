@@ -25,10 +25,11 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { DocumentsEnabledGuard } from './documents-enabled.guard';
 import { TemplatesService } from './templates.service';
+import { DefaultTemplateService } from './default-template.service';
 import { AssetsService } from './assets.service';
 import { TemplateRenderService } from './template-render.service';
 import type { RenderBody } from './template-render.service';
-import { SAMPLE_DATA } from './render-sample-data';
+import { sampleData } from './render-sample-data';
 import { sanitizeBody } from './template-body.util';
 import { BINDINGS, ITEM_COLUMNS } from './bindings.catalog';
 import { PdfRendererService } from '../shifts/report/pdf-renderer.service';
@@ -46,6 +47,7 @@ import {
 export class DocumentsController {
   constructor(
     private readonly templates: TemplatesService,
+    private readonly defaults: DefaultTemplateService,
     private readonly assets: AssetsService,
     private readonly renderer: TemplateRenderService,
     private readonly pdf: PdfRendererService,
@@ -99,7 +101,7 @@ export class DocumentsController {
       paper: over?.paper ?? t.paper,
       orientation: over?.orientation ?? t.orientation,
       direction: lang === 'en' ? 'ltr' : 'rtl',
-      data: SAMPLE_DATA,
+      data: sampleData(lang === 'en' ? 'en' : 'ar'),
       assetUrls,
       omitOverlays: over?.overlays === false,
       qr: this.sampleQr(),
@@ -166,11 +168,14 @@ export class DocumentsController {
 
   @Get()
   @RequirePermission('documents.view')
-  list(
+  async list(
     @GetTenant() tenant: TenantContext,
+    @Req() req: Request,
     @Query('docType') docType?: string,
     @Query('status') status?: string,
   ) {
+    // first visit: the tenant gets the ready-made quotation templates (Arabic + English)
+    await this.defaults.ensure(tenant, this.userId(req));
     return this.templates.list(tenant, { docType, status });
   }
 

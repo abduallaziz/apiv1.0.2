@@ -8,6 +8,10 @@
       {
         "include": "database/migrations/**/*.sql",
         "outDir": "dist"
+      },
+      {
+        "include": "modules/documents/default-assets/*.png",
+        "outDir": "dist"
       }
     ],
     "watchAssets": true

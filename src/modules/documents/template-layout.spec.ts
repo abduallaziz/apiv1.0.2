@@ -387,3 +387,34 @@ describe('sanitizeBody: layout, style and new options', () => {
     ).toThrow(BadRequestException);
   });
 });
+
+describe('free-positioned blocks', () => {
+  it('takes a block out of the flow and places it at page millimetres', () => {
+    const html = render({
+      elements: [
+        { id: 'a', type: 'text', config: { text: 'flowing' } },
+        {
+          id: 'b',
+          type: 'text',
+          config: { text: 'floating' },
+          layout: { free: { x: 12.5, y: 80, width: 90 } },
+        },
+      ],
+    });
+    expect(html).toContain('class="free" style="left:12.5mm;top:80mm;width:90mm"');
+    // the free block is no longer inside the flow container
+    expect(html.indexOf('data-el="b"')).toBeGreaterThan(html.indexOf('</table>'));
+    expect(html.indexOf('data-el="a"')).toBeLessThan(html.indexOf('</table>'));
+  });
+
+  it('validates the free spot', () => {
+    const body = (free: unknown) => ({
+      elements: [{ id: 'a', type: 'text', layout: { free } }],
+    });
+    expect(() => sanitizeBody(body({ x: 5, y: 5, width: 100 }))).not.toThrow();
+    expect(() => sanitizeBody(body({ x: 5, y: 5, width: 1 }))).toThrow(
+      BadRequestException,
+    );
+    expect(() => sanitizeBody(body('x'))).toThrow(BadRequestException);
+  });
+});

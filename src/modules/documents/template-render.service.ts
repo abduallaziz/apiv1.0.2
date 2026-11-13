@@ -41,6 +41,8 @@ export interface RenderElement {
     width?: number;
     place?: string;
     divider?: boolean;
+    /** Free spot in page millimetres: the block leaves the flow. */
+    free?: { x: number; y: number; width: number; scale?: number };
   };
 }
 
@@ -171,9 +173,15 @@ export class TemplateRenderService {
           clamp(num(x, 10), 0, 60),
         );
         const mine = elements.filter((e) => num(e.page, 0) === idx);
-        const flowEls = mine.filter(
+        const flowAll = mine.filter(
           (e) => e.region !== 'overlay' && !isOverlayType(e.type),
         );
+        // blocks dragged to a free spot leave the flow and sit at page millimetres
+        const flowEls = flowAll.filter((e) => !freeSpot(e));
+        const freeHtml = flowAll
+          .filter((e) => freeSpot(e))
+          .map((e) => this.freeBlock(e, input))
+          .join('');
         // consecutive blocks flagged sideBySide share a row with the block before them
         const groups: RenderElement[][] = [];
         for (const e of flowEls) {
@@ -184,13 +192,13 @@ export class TemplateRenderService {
           }
         }
         const flow = groups.map((g) => this.flowGroup(g, input)).join('');
-        const overlay = input.omitOverlays
+        const overlay = freeHtml + (input.omitOverlays
           ? ''
           : mine
               .filter((e) => e.region === 'overlay' || isOverlayType(e.type))
               .sort((a, b) => num(a.zIndex, 0) - num(b.zIndex, 0))
               .map((e) => this.overlayElement(e, input))
-              .join('');
+              .join(''));
         const [mt, mr, mb, ml] = pad;
         // The flow sits in a table whose empty thead/tfoot rows repeat on every printed page: that
         // gives continuation pages the same top/bottom margins as page 1 (left/right via padding).
@@ -213,6 +221,16 @@ export class TemplateRenderService {
   }
 
   // ---------------------------------------------------------------- flow (structured) elements
+
+  private freeBlock(e: RenderElement, input: RenderInput): string {
+    const f = freeSpot(e);
+    if (!f) return '';
+    return (
+      '<div class="free" style="left:' + f.x + 'mm;top:' + f.y + 'mm;width:' + f.width + 'mm' + (f.scale !== 1 ? ';transform:scale(' + f.scale + ');transform-origin:top left' : '') + '">' +
+      wrapFlow(e, this.flowElement(e, input), false) +
+      '</div>'
+    );
+  }
 
   private flowGroup(g: RenderElement[], input: RenderInput): string {
     const first = g[0];
@@ -515,6 +533,19 @@ function marginTop(style: unknown): string {
   return typeof v === 'number' ? 'margin-top:' + clamp(v, 0, 60) + 'mm' : '';
 }
 
+function freeSpot(
+  e: RenderElement,
+): { x: number; y: number; width: number; scale: number } | null {
+  const f = e.layout?.free;
+  if (!f || typeof f !== 'object') return null;
+  return {
+    x: clamp(num(f.x, 0), -100, 1000),
+    y: clamp(num(f.y, 0), -100, 3000),
+    width: clamp(num(f.width, 100), 5, 1000),
+    scale: clamp(num(f.scale, 1), 0.2, 5),
+  };
+}
+
 function wrapFlow(e: RenderElement, html: string, withMargin = true): string {
   const id = typeof e.id === 'string' && /^[\w-]{1,64}$/.test(e.id) ? e.id : '';
   const css = [styleCss(e.style), withMargin ? marginTop(e.style) : '']
@@ -681,6 +712,7 @@ body { font-family: 'Cairo','Noto Naskh Arabic','Noto Sans Arabic','Segoe UI',Ta
 .page { position: relative; width: ${w}mm; ${h ? `min-height: ${h}mm;` : ''} page-break-after: always; }
 .page:last-child { page-break-after: auto; }
 .flow { position: relative; z-index: 0; }
+.free { position: absolute; z-index: 1; }
 .ov { position: absolute; object-fit: contain; transform-origin: center; }
 .ov.fixed { position: fixed; }
 .ov.qr { background: #fff; }
@@ -695,6 +727,9 @@ hr { border: 0; border-top: 1px solid #cbd5e1; margin: 8px 0; }
 .text { margin: 6px 0; line-height: 1.6; overflow-wrap: anywhere; }
 /* mixed Arabic / Latin / numbers: each value orders itself, long values wrap instead of clipping */
 .kv .v, table.items td, table.items th, table.totals td { unicode-bidi: plaintext; overflow-wrap: anywhere; }
+/* plaintext cells take their direction from the text, so an English value would sit on the LEFT of an Arabic page: pin every cell to the start side of the document instead (zero specificity so .c / .n / column alignment still win) */
+:where(html[dir=rtl]) :where(.kv .v, table.items td, table.items th, table.totals td) { text-align: right; }
+:where(html[dir=ltr]) :where(.kv .v, table.items td, table.items th, table.totals td) { text-align: left; }
 h1 { overflow-wrap: anywhere; }
 .block { margin: 6px 0; }
 .kv { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
@@ -703,7 +738,7 @@ table { width: 100%; border-collapse: collapse; margin: 6px 0; }
 table.items thead { display: table-header-group; }
 table.items tr, table.totals tr { page-break-inside: avoid; break-inside: avoid; }
 table.totals { break-inside: avoid; }
-table.items th { background: #0c447c; color: #fff; padding: 5px 6px; text-align: start; font-weight: 600; }
+table.items th { background: #0c447c; color: #fff; padding: 5px 6px; font-weight: 600; }
 table.items td { padding: 5px 6px; border-bottom: 1px solid #e2e8f0; }
 .c { text-align: center; }
 table.totals { width: 45%; margin-inline-start: auto; }
@@ -715,7 +750,7 @@ table.totals.accent tr.strong td { background: var(--accent); color: #fff; borde
 .col { min-width: 0; display: flex; }
 .col > .el { flex: 1; min-width: 0; }
 .col > .block, .col > .text, .col > h1 { flex: 1; min-width: 0; }
-.col table.totals { width: 100%; margin: 0; }
+.col table.totals, .free table.totals { width: 100%; margin: 0; }
 .el.fs * { font-size: inherit; }
 .el h1 { margin: 0; }
 .ic { color: #0c447c; flex: none; margin-inline-end: 6px; vertical-align: middle; }

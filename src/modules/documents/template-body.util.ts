@@ -135,6 +135,18 @@ function sanitizeLayout(raw: unknown): Obj | undefined {
     out.sideBySide = bool(l.sideBySide, 'layout.sideBySide');
   if (l.width !== undefined) out.width = num(l.width, 'layout.width', 5, 100);
   if (l.divider !== undefined) out.divider = bool(l.divider, 'layout.divider');
+  if (l.free !== undefined) {
+    if (!isObj(l.free)) return fail('layout.free must be an object');
+    const f = l.free;
+    out.free = {
+      x: num(f.x, 'layout.free.x', -100, 1000),
+      y: num(f.y, 'layout.free.y', -100, 3000),
+      width: num(f.width, 'layout.free.width', 5, 1000),
+      ...(f.scale !== undefined
+        ? { scale: num(f.scale, 'layout.free.scale', 0.2, 5) }
+        : {}),
+    };
+  }
   if (l.place !== undefined) {
     if (!['start', 'center', 'end'].includes(l.place as string))
       fail('layout.place invalid');

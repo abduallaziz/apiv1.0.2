@@ -70,3 +70,16 @@ export const SAMPLE_DATA: Record<string, unknown> = {
     { label: 'Total', value: 460, strong: true },
   ],
 };
+
+/** The sample document for the editor preview: totals are labelled in the page language (the rest stays as sample text). */
+export function sampleData(lang: 'ar' | 'en'): Record<string, unknown> {
+  if (lang === 'en') return SAMPLE_DATA;
+  return {
+    ...SAMPLE_DATA,
+    totals: [
+      { label: 'المجموع الفرعي', value: 400 },
+      { label: 'ضريبة القيمة المضافة 15%', value: 60 },
+      { label: 'الإجمالي', value: 460, strong: true },
+    ],
+  };
+}
