@@ -183,7 +183,7 @@ Templates:   GET/POST /documents/templates ; GET/PATCH/DELETE /:id ;
 Assets:      GET/POST /documents/assets ; GET/PATCH/DELETE /:id ; POST /:id/version ;
              POST /:id/permissions ; GET /:id/signed-url
 Generate:    POST /documents/:docType/:sourceId/issue (snapshot+render) ; GET /documents/generated/:id ;
-             GET /documents/generated/:id/pdf
+             GET /documents/generated/:id/pdf   (download — the delivery mechanism; no email/WhatsApp)
 Verify:      GET /public/verify/:token   (public, whitelist fields only, no auth)
 Approvals:   POST /documents/approvals ; GET /documents/approvals?docType=
 ```
@@ -269,12 +269,17 @@ feature-flag registry. **No change** to invoices/POS/ZATCA/VAT code.
 
 ---
 
-## 15. Open questions (to confirm before/with approval)
+## 15. Delivery & open questions
 
-1. Email delivery channel now or later (no mailer integrated today; WhatsApp = `wa.me` link, print = ready).
-2. Which doc types in the FIRST shipped phase set (quotation + tax/simplified invoice + receipt?), rest added via the extensible `doc_type`.
-3. Does the customer accept/reject a quotation from the public link, or only staff record it (ties to the quotation feature design).
-4. Cryptographic e-signature provider (Phase 7 part 3) — in scope now or deferred to a later provider integration.
+**Delivery = PDF download only (confirmed).** The user downloads the generated PDF and sends it
+themselves. No email, no WhatsApp, no sharing integration — removes the mailer dependency entirely.
+Print output stays available. The document-verification QR (Phase 4) still produces a public
+scan-to-verify page, but that is authenticity verification, **not** a sharing channel.
+
+Open questions (to confirm before/with approval):
+1. Which doc types in the FIRST shipped phase set (quotation + tax/simplified invoice + receipt?), rest added via the extensible `doc_type`.
+2. Does the customer accept/reject a quotation from the public verification link, or only staff record it (ties to the quotation feature design).
+3. Cryptographic e-signature provider (Phase 7 part 3) — in scope now or deferred to a later provider integration.
 ```
 ```
 **Next:** on `Approved – Proceed with Implementation`, execute Phase 1 only, then return for review before Phase 2.
