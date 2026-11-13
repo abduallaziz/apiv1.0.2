@@ -7694,3 +7694,40 @@ Owner sent the exact approval message again on 2026-11-09 for the remaining agre
 
 <!-- MIGRATIONS-255-257-APPLIED-2026-11-10 -->
 ## Correction (2026-11-10): migrations 255, 256 and 257 ARE applied on the live database (verified read-only: schema_migrations lists them and the new tables/columns exist). The "NOT applied" wording in the PHASE-5-G1-INTEGRATION section and in the parallel sessions' own sections was true when written; the owner ran `npm run migrate` afterwards. Only the api restart and browser tests remain (TASKS.md "Remaining after this round").
+
+
+<!-- ZATCA-PHASE2-SANDBOX-LIVE-2026-11-12 -->
+## ZATCA e-invoicing (Phase 2 / Fatoora) — implemented, sandbox-validated, demo LIVE (2026-11-12)
+
+Design approved ("Approved – Proceed with Implementation") then built, merged to `main` (API + web) and deployed. Flag-gated: `ZATCA_ENABLED` (default false), `ZATCA_GATEWAY` (`null` default / `fatoora`), `ZATCA_KEY_ENC_KEY` (our internal AES-256-GCM master key encrypting device private keys + CSID secrets — NOT a ZATCA credential; must stay stable). Migrations 268–272.
+
+### What was built
+- **Document engine** (`src/modules/zatca/`): canonical UBL 2.1 invoice/credit/debit note, SHA-256 hash = next PIH, ECDSA secp256k1 signature, XAdES block, 9-tag TLV QR, CSR (PKCS#10), CSID import, AES-GCM secret encryption. `zatca-xml.builder.ts`, `zatca-document.service.ts`, `zatca-crypto.util.ts`, `zatca-amounts.util.ts`, `zatca-csr.util.ts`, `der.util.ts`.
+- **Sequential invoice numbering** (migration 268, `fn_next_invoice_no`) inside the sale tx; gap-free/duplicate-free.
+- **Issuance inside the sale** (`zatca.service.ts` `issueInTransaction`, `FOR UPDATE` device lock advancing ICV + PIH chain). Off unless `ZATCA_ENABLED`; no device on the branch → no-op.
+- **Gateway** (`fatoora.gateway.ts`): compliance CSID, compliance checks, production CSID, reporting (simplified) / clearance (standard). Env → path: sandbox=`developer-portal`, simulation=`simulation`, production=`core`. Sandbox has only the compliance endpoint, so sandbox submits route to `compliance/invoices` and a PASS counts as reported.
+- **Onboarding endpoints** (`zatca.controller.ts`): create device, generate CSR, onboard (OTP → compliance CSID), compliance checks, activate (production), delete device, invoice queue, flush.
+- **Standard (B2B) vs simplified (B2C)**: chosen by buyer VAT number; full AccountingCustomerParty (tax scheme + national address + supply date) for standard, name-only/empty for simplified. Buyer flows from the customer record (migration 271 adds customer tax identity columns).
+- **Credit notes**: full-cancellation (whole original reversed) and partial-return (only returned lines, totals matched to the refund, idempotent per return_id — migration 270). Wired into `sales-returns.service.ts` and invoice cancel.
+- **VAT categories** S/Z/E/O with VATEX exemption reason (migration 272 adds tenant `tax_category` + reason); flows from tenant tax config.
+- **Web**: Settings → "الفوترة الإلكترونية (زاتكا)" screen (`features/zatca/`): device registration, CSR, OTP, compliance checks, queue + "send now", delete device.
+
+### Validated against the REAL ZATCA sandbox (not just unit tests)
+All document types AND all VAT categories returned **status PASS, 0 errors, 0 warnings** from the Authority's compliance check. Four bugs that ONLY the real validator reveals were found and fixed:
+1. `AccountingCustomerParty` is MANDATORY in the XSD even for a walk-in simplified invoice → always emitted (empty Party when no buyer).
+2. QR tags 6 (hash) and 7 (signature) carry the **base64 text**, not raw bytes — the validator compares them as text to the signed XML (the security-standard "32 raw bytes" wording loses to the validator).
+3. QR timestamp = the real **UTC instant**, reconciling with KSA-local IssueDate/IssueTime (KSA-25).
+4. Standard (B2B) invoices need the supply date `cac:Delivery/ActualDeliveryDate` (BR-KSA-15).
+
+### Demo is LIVE on sandbox
+On the deployed demo a device was registered (Main Branch, sandbox, test seller, OTP `123456`), and real sales produced signed invoices that **REPORTED to the ZATCA sandbox successfully** ("أُبلغ"). Bug found & fixed during demo: sandbox devices must stay on the **compliance CSID** — the sandbox compliance endpoint rejects PRODUCTION credentials (HTTP 401), so "activate production" is blocked for sandbox and the device goes live right after the compliance checks. Added device delete for recovery.
+
+### Decisions
+- **One device per branch** (final) — independent ICV/PIH chain per branch (concurrency + isolation); single-branch business sees no extra friction. See memory `zatca-device-per-tenant-decision`.
+- **Invisible onboarding (PAUSED)**: owner wants ZATCA invisible to the seller like Rewaa. Key fact: **ZATCA e-invoicing applies only to VAT-registered businesses** — a tenant with no VAT number is outside ZATCA (sells normally, no device/OTP/fields). Future design: gate ZATCA on the tenant having a VAT number, auto-create the device from the profile, do the one-time authorization in onboarding/ops (not the seller's UI), auto-send on a schedule, hide the screen. Paused until the owner has full details. See memory `zatca-invisible-onboarding-pending`.
+
+### Remaining (not built yet)
+- Automatic scheduled send (today it is the manual "send now" button).
+- Conditional/invisible onboarding per the paused design.
+- UI inputs for VAT category/exemption and buyer tax identity.
+- Production go-live for a real tenant (real VAT number + Fatoora-portal OTP; env `production`).
