@@ -141,6 +141,7 @@ export const ITEM_COLUMNS: Array<{
 }> = [
   { key: 'index', label: { en: '#', ar: 'م' } },
   { key: 'name', label: { en: 'Item', ar: 'الصنف' } },
+  { key: 'description', label: { en: 'Description', ar: 'الوصف' } },
   { key: 'sku', label: { en: 'SKU', ar: 'الرمز' } },
   { key: 'unit', label: { en: 'Unit', ar: 'الوحدة' } },
   { key: 'quantity', label: { en: 'Qty', ar: 'الكمية' } },

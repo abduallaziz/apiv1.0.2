@@ -36,7 +36,12 @@ export interface RenderElement {
   /** Box / typography options (validated on save; re-checked here before reaching CSS). */
   style?: Record<string, unknown>;
   /** Side-by-side placement of flow blocks. */
-  layout?: { sideBySide?: boolean; width?: number; place?: string };
+  layout?: {
+    sideBySide?: boolean;
+    width?: number;
+    place?: string;
+    divider?: boolean;
+  };
 }
 
 export interface RenderBody {
@@ -224,7 +229,9 @@ export class TemplateRenderService {
         const basis =
           g.length === 1 ? w + '%' : 'calc(' + w + '% - ' + gapShare + 'mm)';
         return (
-          '<div class="col" style="flex:0 0 ' +
+          '<div class="col' +
+          (e.layout?.divider ? ' div' : '') +
+          '" style="flex:0 0 ' +
           basis +
           '">' +
           wrapFlow(e, this.flowElement(e, input), false) +
@@ -263,8 +270,9 @@ export class TemplateRenderService {
     switch (e.type) {
       case 'heading':
         return `<h1>${interpolate(str(c.text), data, missing).replace(/\n/g, '<br>')}</h1>`;
-      case 'text':
       case 'terms':
+        return this.terms(c, data, missing);
+      case 'text':
       case 'footer':
         return `<div class="text ${e.type}">${interpolate(str(c.text), data, missing).replace(/\n/g, '<br>')}</div>`;
       case 'divider':
@@ -288,6 +296,46 @@ export class TemplateRenderService {
     }
   }
 
+  private terms(
+    c: Record<string, unknown>,
+    data: Record<string, unknown>,
+    missing: string,
+  ): string {
+    const text = interpolate(str(c.text), data, missing);
+    const titleBg = hexOk(c.titleBg);
+    const bullet = hexOk(c.bulletColor);
+    const title = str(c.title);
+    // plain terms (no title / bullet colour set) keep the original rendering
+    if (!title && !bullet && !titleBg) {
+      return (
+        '<div class="text terms">' + text.replace(/\n/g, '<br>') + '</div>'
+      );
+    }
+    const head = title
+      ? '<div class="th"' +
+        (titleBg ? ' style="background:' + titleBg + '"' : '') +
+        '>' +
+        icon('doc') +
+        escapeHtml(title) +
+        '</div>'
+      : '';
+    const items = text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => '<li>' + l.replace(/^(•|-|\*)\s*/, '') + '</li>')
+      .join('');
+    return (
+      '<div class="terms2"' +
+      (bullet ? ' style="--bullet:' + bullet + '"' : '') +
+      '>' +
+      head +
+      '<ul class="bl">' +
+      items +
+      '</ul></div>'
+    );
+  }
+
   private itemsTable(
     c: Record<string, unknown>,
     data: Record<string, unknown>,
@@ -300,6 +348,7 @@ export class TemplateRenderService {
       label?: string;
       align?: string;
       width?: number;
+      bold?: boolean;
     }>;
     const columns = cols.filter((x) => typeof x.key === 'string');
     const rows = Array.isArray(data.items)
@@ -329,14 +378,14 @@ export class TemplateRenderService {
           `<tr>${columns
             .map(
               (x) =>
-                `<td class="${x.align === 'center' ? 'c' : ''}">${escapeHtml(cell(r, i, x.key ?? ''))}</td>`,
+                `<td class="${x.align === 'center' ? 'c' : ''}${x.bold ? ' b' : ''}">${escapeHtml(cell(r, i, x.key ?? ''))}</td>`,
             )
             .join('')}</tr>`,
       )
       .join('');
     // repeatHeader (default on): the header row is printed again on every page the table spans
     const repeat = c.repeatHeader !== false;
-    const cls = `items${c.zebra === true ? ' zebra' : ''}${repeat ? '' : ' norepeat'}`;
+    const cls = `items${c.zebra === true ? ' zebra' : ''}${repeat ? '' : ' norepeat'}${c.grid === true ? ' grid' : ''}`;
     return `<table class="${cls}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
   }
 
@@ -347,6 +396,15 @@ export class TemplateRenderService {
   ): string {
     const cur = c.showCurrency === true ? currencyLabel(lang) : '';
     const accent = hexOk(c.accent);
+    const accentValue = hexOk(c.accentValue) ?? accent;
+    const labelBg = hexOk(c.labelBg);
+    const vars = [
+      accent ? '--accent:' + accent : '',
+      accentValue ? '--accent2:' + accentValue : '',
+      labelBg ? '--lbl:' + labelBg : '',
+    ]
+      .filter(Boolean)
+      .join(';');
     const lines = Array.isArray(data.totals)
       ? (data.totals as Array<{
           label?: unknown;
@@ -358,7 +416,7 @@ export class TemplateRenderService {
       '<table class="totals' +
       (accent ? ' accent' : '') +
       '"' +
-      (accent ? ' style="--accent:' + accent + '"' : '') +
+      (vars ? ' style="' + vars + '"' : '') +
       '><tbody>' +
       lines
         .map(
@@ -398,7 +456,7 @@ export class TemplateRenderService {
     const size = e.size ?? { width: 30, height: 30 };
     const style =
       `left:${clamp(num(pos.x, 0), -500, 1500)}mm;top:${clamp(num(pos.y, 0), -500, 3000)}mm;` +
-      `width:${clamp(num(size.width, 30), 1, 1000)}mm;height:${clamp(num(size.height, 30), 1, 1000)}mm;` +
+      `width:${clamp(num(size.width, 30), 0.2, 1000)}mm;height:${clamp(num(size.height, 30), 0.2, 1000)}mm;` +
       `transform:rotate(${clamp(num(e.rotation, 0), -360, 360)}deg);` +
       `opacity:${clamp(num(e.opacity, 1), 0, 1)};z-index:${Math.trunc(clamp(num(e.zIndex, 1), 0, 1000))}`;
 
@@ -579,6 +637,7 @@ function kv(
   const mode =
     c.labelMode === 'inline' || c.labelMode === 'none' ? c.labelMode : 'split';
   const withIcons = c.icons === true;
+  const rowBg = hexOk(c.rowBg);
   const rows = chosen
     .map((b) => {
       const field = b.path.split('.')[1];
@@ -600,7 +659,16 @@ function kv(
       return '<div class="kv ' + mode + '">' + label + value + '</div>';
     })
     .join('');
-  return '<div class="block ' + section + '">' + rows + '</div>';
+  return (
+    '<div class="block ' +
+    section +
+    (rowBg ? ' band' : '') +
+    '"' +
+    (rowBg ? ' style="--row:' + rowBg + '"' : '') +
+    '>' +
+    rows +
+    '</div>'
+  );
 }
 
 function css(w: number, h: number | null, size: string): string {
@@ -654,5 +722,21 @@ table.totals.accent tr.strong td { background: var(--accent); color: #fff; borde
 .kv .kl { display: inline-flex; align-items: center; }
 .kv.inline, .kv.none { justify-content: flex-start; gap: 4px; }
 .ov.tb { overflow-wrap: anywhere; line-height: 1.5; object-fit: initial; }
+.block.band .kv { background: var(--row); border-radius: 2mm; padding: 1.2mm 3mm; margin: 1mm 0; }
+.col.div { border-inline-start: 0.3mm solid #cbd5e1; padding-inline-start: 4mm; }
+.col.div:first-child { border: 0; padding: 0; }
+table.items.grid td, table.items.grid th { border-inline-start: 1px solid #d5e2ef; }
+table.items.grid td:first-child, table.items.grid th:first-child { border-inline-start: 0; }
+table.items td.b { font-weight: 700; }
+table.totals td:first-child { background: var(--lbl, transparent); }
+table.totals tr.strong td { font-size: 1.15em; }
+table.totals.accent tr.strong td:first-child { background: var(--accent); }
+table.totals.accent tr.strong td:last-child { background: var(--accent2, var(--accent)); }
+table.totals td { border-bottom: 1px solid #e2e8f0; }
+.terms2 .th { display: flex; align-items: center; gap: 6px; background: #0c447c; color: #fff; font-weight: 700; padding: 2mm 4mm; border-radius: 6mm; margin-bottom: 2mm; }
+.terms2 .th .ic { color: #fff; margin: 0; }
+.terms2 ul.bl { list-style: none; margin: 0; padding: 0; }
+.terms2 li { position: relative; padding-inline-start: 5mm; margin: 1mm 0; line-height: 1.5; overflow-wrap: anywhere; }
+.terms2 li::before { content: ''; position: absolute; inset-inline-start: 0; top: 0.65em; width: 2mm; height: 2mm; border-radius: 50%; background: var(--bullet, #14b8a6); }
 `;
 }

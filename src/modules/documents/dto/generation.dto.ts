@@ -35,6 +35,11 @@ export class ManualItemDto {
   unit_price: number;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(1_000_000_000)

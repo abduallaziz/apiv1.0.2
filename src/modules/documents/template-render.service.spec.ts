@@ -163,7 +163,7 @@ describe('TemplateRenderService', () => {
     );
     expect(html).toContain('opacity:1');
     expect(html).toContain('rotate(360deg)');
-    expect(html).toContain('width:1000mm;height:1mm');
+    expect(html).toContain('width:1000mm;height:0.2mm');
   });
 
   it('non-whitelisted data never reaches the page (even if the data object has it)', () => {

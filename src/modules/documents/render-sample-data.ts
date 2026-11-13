@@ -32,6 +32,7 @@ export const SAMPLE_DATA: Record<string, unknown> = {
   items: [
     {
       name: 'Item A',
+      description: 'Sample description for item A',
       sku: 'A-1',
       unit: 'pcs',
       quantity: 2,
@@ -42,6 +43,7 @@ export const SAMPLE_DATA: Record<string, unknown> = {
     },
     {
       name: 'Item B',
+      description: 'Sample description for item B',
       sku: 'B-2',
       unit: 'pcs',
       quantity: 1,
@@ -52,6 +54,7 @@ export const SAMPLE_DATA: Record<string, unknown> = {
     },
     {
       name: 'Item C',
+      description: 'Sample description for item C',
       sku: 'C-3',
       unit: 'box',
       quantity: 4,

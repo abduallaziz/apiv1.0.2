@@ -26,6 +26,7 @@ export interface ManualItemInput {
   quantity: number;
   unit_price: number;
   discount?: number;
+  description?: string;
   sku?: string;
   unit?: string;
 }
@@ -120,6 +121,7 @@ export function computeManualTotals(
 
   const items2 = rows.map(({ it, net }) => ({
     name: it.name,
+    description: it.description,
     sku: it.sku,
     unit: it.unit,
     quantity: it.quantity,

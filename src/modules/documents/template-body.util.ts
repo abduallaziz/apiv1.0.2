@@ -134,6 +134,7 @@ function sanitizeLayout(raw: unknown): Obj | undefined {
   if (l.sideBySide !== undefined)
     out.sideBySide = bool(l.sideBySide, 'layout.sideBySide');
   if (l.width !== undefined) out.width = num(l.width, 'layout.width', 5, 100);
+  if (l.divider !== undefined) out.divider = bool(l.divider, 'layout.divider');
   if (l.place !== undefined) {
     if (!['start', 'center', 'end'].includes(l.place as string))
       fail('layout.place invalid');
@@ -165,6 +166,7 @@ function sanitizeConfig(type: string, raw: unknown): Obj | undefined {
       out.labelMode = cfg.labelMode;
     }
     if (cfg.icons !== undefined) out.icons = bool(cfg.icons, 'config.icons');
+    if (cfg.rowBg !== undefined) out.rowBg = hex(cfg.rowBg, 'config.rowBg');
   }
   if (type === 'items_table' || type === 'totals') {
     if (cfg.showCurrency !== undefined)
@@ -172,8 +174,23 @@ function sanitizeConfig(type: string, raw: unknown): Obj | undefined {
   }
   if (type === 'items_table' && cfg.headerBg !== undefined)
     out.headerBg = hex(cfg.headerBg, 'config.headerBg');
-  if (type === 'totals' && cfg.accent !== undefined)
-    out.accent = hex(cfg.accent, 'config.accent');
+  if (type === 'totals') {
+    if (cfg.accent !== undefined) out.accent = hex(cfg.accent, 'config.accent');
+    if (cfg.accentValue !== undefined)
+      out.accentValue = hex(cfg.accentValue, 'config.accentValue');
+    if (cfg.labelBg !== undefined)
+      out.labelBg = hex(cfg.labelBg, 'config.labelBg');
+  }
+  if (type === 'items_table' && cfg.grid !== undefined)
+    out.grid = bool(cfg.grid, 'config.grid');
+  if (type === 'terms') {
+    if (cfg.title !== undefined)
+      out.title = str(cfg.title, 'config.title', 120);
+    if (cfg.titleBg !== undefined)
+      out.titleBg = hex(cfg.titleBg, 'config.titleBg');
+    if (cfg.bulletColor !== undefined)
+      out.bulletColor = hex(cfg.bulletColor, 'config.bulletColor');
+  }
   if (cfg.text !== undefined) {
     const text = str(cfg.text, 'config.text', MAX_TEXT);
     for (const b of bindingsInText(text)) {
@@ -214,6 +231,7 @@ function sanitizeConfig(type: string, raw: unknown): Obj | undefined {
         if (!ALIGNS.includes(col.align as string)) fail('column.align invalid');
         column.align = col.align;
       }
+      if (col.bold !== undefined) column.bold = bool(col.bold, 'column.bold');
       return column;
     });
   }
@@ -270,8 +288,8 @@ function sanitizeElement(raw: unknown, idx: number): Obj {
       if (!isObj(e.size)) fail('size must be an object');
       const s = e.size as Obj;
       out.size = {
-        width: num(s.width, 'size.width', 1, 1000),
-        height: num(s.height, 'size.height', 1, 1000),
+        width: num(s.width, 'size.width', 0.2, 1000),
+        height: num(s.height, 'size.height', 0.2, 1000),
       };
     }
     if (e.rotation !== undefined)
