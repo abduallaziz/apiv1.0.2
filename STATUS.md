@@ -7731,3 +7731,8 @@ On the deployed demo a device was registered (Main Branch, sandbox, test seller,
 - Conditional/invisible onboarding per the paused design.
 - UI inputs for VAT category/exemption and buyer tax identity.
 - Production go-live for a real tenant (real VAT number + Fatoora-portal OTP; env `production`).
+
+
+<!-- SESSION-RELEASE-2026-11-12 -->
+## Full session release documented (2026-11-12): see docs/RELEASE_2026-11-12.md + docs/ZATCA_IMPLEMENTATION.md
+Everything shipped this session (both repos, merged to main + deployed): ZATCA phase 2 (sandbox-validated, demo live), invoice designer v2, sequential invoice numbers, simplified expenses section, kitchen auto-print switch, dashboard-follows-selected-branch, receipt tax-mode line removed, design docs + go-live runbook. All pending branches merged in order with no conflicts; API 815 specs green. Railway demo env set (ZATCA_ENABLED/GATEWAY/KEY_ENC_KEY). Full changelog in docs/RELEASE_2026-11-12.md; ZATCA deep reference in docs/ZATCA_IMPLEMENTATION.md.
