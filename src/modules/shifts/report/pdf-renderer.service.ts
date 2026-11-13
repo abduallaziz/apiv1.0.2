@@ -110,6 +110,31 @@ export class PdfRendererService implements OnModuleDestroy {
     }
   }
 
+  // Generic document PDF (additive; renderSinglePage above is unchanged). The HTML carries its own
+  // @page size, so Chrome paginates exactly as the template defines (used by the Document Builder).
+  async renderDocument(html: string): Promise<Buffer> {
+    const browser = await this.getBrowser();
+    const page = await browser.newPage();
+    try {
+      // 'load' waits for <img> resources, so stamps/logos are in the PDF
+      await page.setContent(html, {
+        waitUntil: 'load',
+        timeout: 30000,
+      });
+      const pdf = await page.pdf({
+        preferCSSPageSize: true,
+        printBackground: true,
+        margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      });
+      return Buffer.from(pdf);
+    } catch (e) {
+      this.logger.error(`Document PDF render failed: ${(e as Error).message}`);
+      throw e;
+    } finally {
+      await page.close().catch(() => undefined);
+    }
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.browser?.close().catch(() => undefined);
     this.browser = null;

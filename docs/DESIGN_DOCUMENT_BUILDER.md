@@ -290,4 +290,62 @@ Decisions confirmed (owner, 2026-11-12):
    now); the signature-QR is a visual/verification element, not a legal crypto signature.
 ```
 ```
-**Next:** on `Approved – Proceed with Implementation`, execute Phase 1 only, then return for review before Phase 2.
+**Phase 1 — DONE (2026-11-13).** Migrations `273_document_builder_core.sql`,
+`274_document_assets.sql`, `275_document_generation.sql` applied (tables, RLS, service_role grants,
+indexes per §3). Permissions `documents.view`/`documents.manage`/`documents.approve` added to
+`permissions.seed.ts` and granted to superadmin/owner (all three) and manager (view+manage) —
+re-seeded live. Module skeleton `src/modules/documents/` (`documents.module.ts`,
+`documents.controller.ts` with no routes yet, `documents-enabled.guard.ts`, `document.types.ts`)
+registered in `app.module.ts`. Feature flag `DOCUMENTS_BUILDER_ENABLED` added to
+`env.validation.ts` (default false, same pattern as `ZATCA_ENABLED`) and wired as a guard on the
+controller. tsc clean, eslint clean, full Nest boot verified, all 815 unit tests pass.
+
+Note: §6's migration matrix listed permissions as a 4th SQL file (`276_..._seed.sql`); the actual
+codebase seeds permissions through `permissions.seed.ts` (run on every `start:prod`), so that step
+landed there instead of a migration file — same data, matching existing convention.
+
+**Phase 2 — DONE (2026-11-13).** Template management under `/documents/templates` (all behind
+`DOCUMENTS_BUILDER_ENABLED` + `documents.view/manage`): list/filter, create, get, patch (meta + body),
+soft-delete, duplicate, publish, archive, set default, versions list, restore version, assignments
+(tenant/branch, branch ownership re-checked). Versioning: `current_version_id` = published version;
+the draft = highest version; editing a published template creates a new version, editing an
+unpublished draft updates it in place; restore copies an old body into a new draft. Migration
+`276_document_assignment_doc_type.sql` fixes 273 (assignment uniqueness is per doc_type).
+Files: `templates.service.ts`, `dto/template.dto.ts`, `documents.controller.ts`, spec (10 tests).
+tsc/eslint clean, 825 unit tests pass.
+
+**Phase 3 — DONE (2026-11-13).** Asset library under `/documents/assets` (flag + `documents.view/manage`):
+list/filter, multipart upload (PNG/JPEG/WEBP only, max 5MB, magic bytes verified, SVG rejected),
+get (with versions), rename/archive, soft-delete, replace file (new version, history kept),
+per-asset permissions (role/branch `can_use`, tenant ownership re-checked), short-lived (300s)
+signed URL (`documents.manage`; stamp/signature access audited, URL never logged). Files go to the
+private bucket through the existing `StorageService`; `storage_path` is never returned to clients.
+Files: `assets.service.ts`, `assets.controller.ts`, `dto/asset.dto.ts`, spec (8 tests).
+tsc/eslint clean, 833 unit tests pass. Known limit: `StorageService` has no delete, so a failed DB
+insert after upload leaves an orphan private file (not reachable by any URL).
+Note: `can_use` rows are stored now and enforced at issue time in Phase 10.
+
+**Phase 4 — DONE (2026-11-13).** Render engine `template-render.service.ts`: one HTML string
+feeds preview, PDF and print. Paper A4/A5/80mm/58mm + orientation via `@page`, RTL/LTR, flow elements
+(heading/text/terms/footer/divider, company/customer/document/payment blocks, items table with
+repeating header, totals) and free overlay elements in mm (x/y/size/rotation/opacity/z-index; the
+same asset can be placed many times). Safety: all text/data HTML-escaped, no scripts, `{{path}}`
+lookup is own-property only, images only from https/data URLs and only assets resolved for THIS
+tenant (`AssetsService.signedUrlsFor`), numbers printed as given with English numerals, values clamped.
+Endpoints (flag + `documents.manage`): `GET /documents/templates/:id/preview?lang=` (HTML) and
+`GET /documents/templates/:id/pdf?lang=` — both with fictional sample data (`render-sample-data.ts`),
+never tenant data. PDF uses a new additive `renderDocument()` on the existing `PdfRendererService`
+(existing `renderSinglePage` untouched). A real Chrome render (Arabic + rotated stamp) produced a valid PDF.
+Specs: 10 renderer tests; 843 unit tests pass, tsc/eslint clean.
+Known limits (by phase): fonts use the same system stack as the shift report (Cairo is not bundled —
+needs a font-file decision); overlays are positioned per page container (per-page anchoring across
+physical PDF pages and page margins on continuation pages are Phase 8); QR elements draw nothing until
+Phase 9; `{{path}}` has no whitelist/picker until Phase 7.
+
+**Phases 5-11 — DONE (2026-11-13).** Executed back-to-back on the owner's instruction ("don't stop until
+finished"): 5 visual editor shell, 6 free overlay elements (drag/resize/rotate/snap, multi-instance,
+server-side body validation + migration 276 fix), 7 dynamic bindings (whitelist catalog + picker),
+8 smart tables + multipage (repeating headers/margins, page break, anchors), 9 QR management + public
+verification page, 10 issuing + approvals + immutable snapshots (migration 277 triggers), 11 integrity /
+RTL / compatibility tests and docs. Full reference, endpoints, rules, enabling checklist and known limits:
+**`docs/DOCUMENT_BUILDER.md`**. Flag `DOCUMENTS_BUILDER_ENABLED` is still OFF.

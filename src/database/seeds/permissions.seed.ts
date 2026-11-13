@@ -696,6 +696,29 @@ const permissions = [
     action: 'view',
     description: 'View the D01 Price Override Audit trail',
   },
+
+  // Document Template Builder (docs/DESIGN_DOCUMENT_BUILDER.md) — behind
+  // DOCUMENTS_BUILDER_ENABLED until the flag flips on.
+  {
+    name: 'documents.view',
+    resource: 'documents',
+    action: 'view',
+    description: 'View document templates, assets and generated documents',
+  },
+  {
+    name: 'documents.manage',
+    resource: 'documents',
+    action: 'manage',
+    description:
+      'Create/edit/publish document templates, upload and manage assets',
+  },
+  {
+    name: 'documents.approve',
+    resource: 'documents',
+    action: 'approve',
+    description:
+      'Approve use of a sensitive stamp/signature asset before a document is issued',
+  },
 ];
 
 const rolePerms: {
@@ -791,6 +814,9 @@ add('superadmin', [
   'kitchen.manage',
   'coupons.manage',
   'note_presets.manage',
+  'documents.view',
+  'documents.manage',
+  'documents.approve',
 ]);
 add('owner', [
   'invoice.create.own',
@@ -876,6 +902,9 @@ add('owner', [
   'accounting.period.manage',
   'accounting.configuration.manage',
   'price_override.audit.view',
+  'documents.view',
+  'documents.manage',
+  'documents.approve',
 ]);
 add('manager', [
   'invoice.create.own',
@@ -950,6 +979,8 @@ add('manager', [
   'accounting.reconciliation.view',
   'accounting.period.manage',
   'price_override.audit.view',
+  'documents.view',
+  'documents.manage',
 ]);
 add('inventory_clerk', [
   'items.view',

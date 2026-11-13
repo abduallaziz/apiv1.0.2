@@ -44,6 +44,10 @@ export const envValidationSchema = Joi.object({
   // live AND a dedicated non-BYPASSRLS Postgres role backing it (see the
   // caveat in loyalty.service.ts) before this actually enforces anything.
   POOLED_LOYALTY_WRITES_ENABLED: Joi.boolean().default(false),
+  // Document Template Builder (docs/DESIGN_DOCUMENT_BUILDER.md). Gates every documents.* route and
+  // the settings nav entry. Off by default: the module is mounted (migrations 273-275 create its
+  // tables unconditionally) but none of it is reachable until this flips on, post Phase 11.
+  DOCUMENTS_BUILDER_ENABLED: Joi.boolean().default(false),
 
   // ── Auth ─────────────────────────────────────────────
   JWT_SECRET: Joi.string().min(32).required(),

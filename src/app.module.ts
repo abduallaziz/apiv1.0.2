@@ -54,6 +54,7 @@ import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { PrintModule } from './modules/print/print.module';
 import { ZatcaModule } from './modules/zatca/zatca.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueueModule } from './core/queue/queue.module';
 import { OutboxModule } from './core/outbox/outbox.module';
@@ -139,6 +140,7 @@ import { RootController } from './root.controller';
     TenantsModule,
     PrintModule,
     ZatcaModule,
+    DocumentsModule,
     PaymentsModule,
     QueueModule,
     OutboxModule,
