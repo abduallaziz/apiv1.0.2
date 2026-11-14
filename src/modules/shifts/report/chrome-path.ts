@@ -2,6 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 
+// Flags that make headless Chrome run inside a locked-down container (Railway).
+export const CHROME_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--no-zygote',
+];
+
 // Side-effect surface of the resolver, injectable so it can be unit-tested.
 export interface ChromeFs {
   exists(p: string): boolean;
@@ -103,16 +112,16 @@ export function resolveChromeExecutable(
     // puppeteer download cache
     const cacheRoots = [
       env.PUPPETEER_CACHE_DIR,
-      env.HOME ? path.join(env.HOME, '.cache', 'puppeteer') : undefined,
+      env.HOME ? path.posix.join(env.HOME, '.cache', 'puppeteer') : undefined,
       '/root/.cache/puppeteer',
     ];
     for (const root of cacheRoots) {
       if (!root) continue;
       for (const kind of ['chrome', 'chrome-headless-shell']) {
-        for (const ver of io.readdir(path.join(root, kind))) {
+        for (const ver of io.readdir(path.posix.join(root, kind))) {
           for (const bin of [
-            path.join(root, kind, ver, 'chrome-linux64', 'chrome'),
-            path.join(
+            path.posix.join(root, kind, ver, 'chrome-linux64', 'chrome'),
+            path.posix.join(
               root,
               kind,
               ver,

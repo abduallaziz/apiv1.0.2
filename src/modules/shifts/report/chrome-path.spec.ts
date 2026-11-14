@@ -1,4 +1,8 @@
-import { ChromeFs, resolveChromeExecutable } from './chrome-path';
+import {
+  CHROME_LAUNCH_ARGS,
+  ChromeFs,
+  resolveChromeExecutable,
+} from './chrome-path';
 
 const io = (over: Partial<ChromeFs> & { files?: string[] }): ChromeFs => ({
   exists: (p) => (over.files ?? []).includes(p),
@@ -29,7 +33,10 @@ describe('resolveChromeExecutable', () => {
   it('uses which when PATH scan misses', () => {
     const r = resolveChromeExecutable(
       {},
-      io({ files: ['/opt/c/chromium'], which: (n) => (n === 'chromium' ? '/opt/c/chromium' : null) }),
+      io({
+        files: ['/opt/c/chromium'],
+        which: (n) => (n === 'chromium' ? '/opt/c/chromium' : null),
+      }),
       'linux',
     );
     expect(r).toMatchObject({ path: '/opt/c/chromium', source: 'which' });
@@ -67,5 +74,13 @@ describe('resolveChromeExecutable', () => {
     const r = resolveChromeExecutable({}, io({}), 'linux');
     expect(r.path).toBeNull();
     expect(r.tried.length).toBeGreaterThan(0);
+  });
+});
+
+describe('CHROME_LAUNCH_ARGS', () => {
+  it('contains the container-safe flags', () => {
+    expect(CHROME_LAUNCH_ARGS).toEqual(
+      expect.arrayContaining(['--no-sandbox', '--disable-dev-shm-usage']),
+    );
   });
 });

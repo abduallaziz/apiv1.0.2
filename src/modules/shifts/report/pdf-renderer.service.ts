@@ -4,9 +4,8 @@ import {
   OnModuleDestroy,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
 import type { Browser } from 'puppeteer-core';
+import { CHROME_LAUNCH_ARGS, resolveChromeExecutable } from './chrome-path';
 
 // Renders an HTML string to a real PDF with headless Chrome (puppeteer-core,
 // owner-approved 2026-11-09: the most widely used option and the only one
@@ -19,40 +18,90 @@ export class PdfRendererService implements OnModuleDestroy {
   private browser: Browser | null = null;
   private launching: Promise<Browser> | null = null;
 
-  private resolveExecutable(): string | null {
-    const fromEnv =
-      process.env.PUPPETEER_EXECUTABLE_PATH ?? process.env.CHROME_PATH;
-    const candidates = [
-      fromEnv,
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-      '/usr/bin/google-chrome',
-      '/usr/bin/google-chrome-stable',
-      'C:/Program Files/Google/Chrome/Application/chrome.exe',
-      'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    ].filter((p): p is string => !!p);
-    const found = candidates.find((p) => fs.existsSync(p));
-    if (found) return found;
-    // Last resort: a chromium / chrome binary on PATH (e.g. nixpacks).
-    const names =
-      process.platform === 'win32'
-        ? ['chrome.exe']
-        : ['chromium', 'chromium-browser', 'google-chrome'];
-    for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-      for (const name of names) {
-        const full = path.join(dir, name);
-        if (dir && fs.existsSync(full)) return full;
+  // Which executable the engine will use (resolved once, logged once).
+  private resolved: { path: string; source: string; args: string[] } | null =
+    null;
+  private resolveError: string | null = null;
+
+  /**
+   * Resolve a Chrome/Chromium binary: env var, well-known paths, PATH, `which`, nix store,
+   * puppeteer cache, then (last resort) the serverless build shipped by @sparticuz/chromium.
+   * A system chromium is preferred because it uses the installed fonts (Arabic shaping).
+   */
+  private async resolveExecutable(): Promise<{
+    path: string;
+    source: string;
+    args: string[];
+  } | null> {
+    if (this.resolved) return this.resolved;
+    const sys = resolveChromeExecutable();
+    if (sys.path) {
+      this.resolved = {
+        path: sys.path,
+        source: sys.source,
+        args: [...CHROME_LAUNCH_ARGS],
+      };
+    } else {
+      try {
+        const mod = (await import('@sparticuz/chromium')) as {
+          default: {
+            executablePath: () => Promise<string>;
+            args: string[];
+          };
+        };
+        const exe = await mod.default.executablePath();
+        this.resolved = {
+          path: exe,
+          source: '@sparticuz/chromium',
+          args: Array.from(
+            new Set([...mod.default.args, ...CHROME_LAUNCH_ARGS]),
+          ),
+        };
+      } catch (e) {
+        this.resolveError = `no Chrome found (tried ${sys.tried.length} paths) and @sparticuz/chromium failed: ${(e as Error).message}`;
+        this.logger.error(`PDF engine unavailable: ${this.resolveError}`);
+        return null;
       }
     }
-    return null;
+    this.logger.log(
+      `PDF engine: using ${this.resolved.path} (source: ${this.resolved.source})`,
+    );
+    return this.resolved;
+  }
+
+  /** Health probe: renders a tiny PDF and reports which executable was used. */
+  async diagnose(): Promise<{
+    status: 'ok' | 'down';
+    executable: string | null;
+    source: string | null;
+    bytes?: number;
+    detail?: string;
+  }> {
+    try {
+      const pdf = await this.renderSinglePage(
+        '<div class="page" style="padding:8px">PDF OK</div>',
+      );
+      return {
+        status: 'ok',
+        executable: this.resolved?.path ?? null,
+        source: this.resolved?.source ?? null,
+        bytes: pdf.length,
+      };
+    } catch (e) {
+      return {
+        status: 'down',
+        executable: this.resolved?.path ?? null,
+        source: this.resolved?.source ?? null,
+        detail: this.resolveError ?? (e as Error).message,
+      };
+    }
   }
 
   private async getBrowser(): Promise<Browser> {
     if (this.browser?.connected) return this.browser;
     if (this.launching === null) {
-      const executablePath = this.resolveExecutable();
-      if (!executablePath) {
+      const resolved = await this.resolveExecutable();
+      if (!resolved) {
         throw new ServiceUnavailableException(
           'PDF engine is not available on this server (no Chrome/Chromium found; set PUPPETEER_EXECUTABLE_PATH)',
         );
@@ -63,15 +112,9 @@ export class PdfRendererService implements OnModuleDestroy {
       });
       this.launching = puppeteer
         .launch({
-          executablePath,
+          executablePath: resolved.path,
           headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--no-zygote',
-          ],
+          args: resolved.args,
           timeout: 30000,
         })
         .then((b) => {

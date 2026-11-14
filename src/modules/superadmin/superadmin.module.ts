@@ -18,6 +18,7 @@ import { QueueModule } from '../../core/queue/queue.module';
 import { BillingModule } from '../../core/billing/billing.module';
 import { HealthController } from './health/health.controller';
 import { HealthService } from './health/health.service';
+import { PdfRendererService } from '../shifts/report/pdf-renderer.service';
 import { PublicHealthController } from './health/public-health.controller';
 
 @Module({
@@ -43,6 +44,7 @@ import { PublicHealthController } from './health/public-health.controller';
     SuperAdminService,
     AuditLogsService,
     HealthService,
+    PdfRendererService,
     AuditLogsRepository,
     SuperAdminSubscriptionsService,
     AuthControlService,

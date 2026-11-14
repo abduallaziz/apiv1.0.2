@@ -4,11 +4,15 @@ import { TenantGuard } from '../../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../../core/permissions/permission.guard';
 import { RequirePermission } from '../../../core/permissions/require-permission.decorator';
 import { HealthService } from './health.service';
+import { PdfRendererService } from '../../shifts/report/pdf-renderer.service';
 
 @Controller('superadmin/health')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 export class HealthController {
-  constructor(private readonly healthService: HealthService) {}
+  constructor(
+    private readonly healthService: HealthService,
+    private readonly pdf: PdfRendererService,
+  ) {}
 
   @Get()
   @RequirePermission('superadmin.health.view')
@@ -26,6 +30,13 @@ export class HealthController {
   @RequirePermission('superadmin.health.view')
   async getRedisHealth() {
     return this.healthService.checkRedis();
+  }
+
+  // Renders a one-page PDF and reports which Chrome executable was used (deploy check).
+  @Get('pdf')
+  @RequirePermission('superadmin.health.view')
+  async getPdfHealth() {
+    return this.pdf.diagnose();
   }
 
   @Get('queues')
