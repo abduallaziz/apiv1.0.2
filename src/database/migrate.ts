@@ -93,7 +93,10 @@ async function applyMigration(filename: string): Promise<void> {
   // استخدام escape آمن بدل string interpolation مباشر
   const safeFilename = filename.replace(/'/g, "''");
   await runSQL(
-    `INSERT INTO schema_migrations (filename) VALUES ('${safeFilename}')`,
+    // ON CONFLICT: two deployments can run this runner at the same time (e.g. two quick pushes); the
+    // loser must not fail the deploy just because the winner already recorded the same file (the
+    // migrations are idempotent, so applying one twice is harmless).
+    `INSERT INTO schema_migrations (filename) VALUES ('${safeFilename}') ON CONFLICT (filename) DO NOTHING`,
   );
 
   console.log(`  ✅ Applied: ${filename}`);
