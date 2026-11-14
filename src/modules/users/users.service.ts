@@ -34,6 +34,11 @@ interface ExistingUserBranch {
   branch_id: string | null;
 }
 
+import {
+  assertBranchChangeAllowed,
+  resolveNewStaffBranch,
+} from './staff-branch.util';
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -64,6 +69,28 @@ export class UsersService {
       this.usersRepository.revokeAttendanceAccess(id, tenantId),
       this.authService.revokeAllSessionsForUser(id, tenantId),
     ]);
+  }
+
+  // Under branch isolation only central actors (users.branch_id NULL) may move staff between branches.
+  private async assertBranchChange(
+    tenant: TenantContext,
+    actorId: string,
+    existing: unknown,
+    newBranchId: string | null | undefined,
+  ) {
+    if (!tenant.isolated || newBranchId === undefined) return;
+    const row = existing as { role: string; branch_id: string | null };
+    const actorBranch = await this.usersRepository.findBranchOf(
+      actorId,
+      tenant.tenantId as string,
+    );
+    assertBranchChangeAllowed(
+      tenant,
+      row.role,
+      row.branch_id ?? null,
+      newBranchId,
+      actorBranch === null,
+    );
   }
 
   async findAll(tenant: TenantContext) {
@@ -214,6 +241,7 @@ export class UsersService {
 
     await this.assertNoDuplicates(dto, tenant.tenantId, id);
     await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
+    await this.assertBranchChange(tenant, actorId, existing, dto.branch_id);
 
     const updates: Record<string, unknown> = {};
     if (dto.branch_id !== undefined) updates.branch_id = dto.branch_id;
@@ -311,6 +339,7 @@ export class UsersService {
     }
 
     await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
+    const branchId = resolveNewStaffBranch(tenant, dto.role, dto.branch_id);
 
     const password_hash = await bcrypt.hash(dto.password, 12);
 
@@ -321,7 +350,7 @@ export class UsersService {
       name: dto.name,
       role: dto.role,
       is_active: true,
-      branch_id: dto.branch_id ?? null,
+      branch_id: branchId,
     });
 
     if (error) throw new BadRequestException(error.message);
@@ -351,6 +380,7 @@ export class UsersService {
 
     await this.assertNoDuplicates(dto, tenant.tenantId);
     await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
+    const branchId = resolveNewStaffBranch(tenant, UserRole.NONE, dto.branch_id);
 
     const { data, error } = await this.usersRepository.create({
       tenant_id: tenant.tenantId,
@@ -360,7 +390,7 @@ export class UsersService {
       role: UserRole.NONE,
       is_active: true,
       is_employee_profile: true,
-      branch_id: dto.branch_id ?? null,
+      branch_id: branchId,
       employee_number: dto.employee_number ?? null,
       phone: dto.phone ?? null,
       identity_number: dto.identity_number ?? null,
@@ -427,6 +457,7 @@ export class UsersService {
     const existing = await this.findOne(id, tenant);
 
     await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
+    await this.assertBranchChange(tenant, actorId, existing, dto.branch_id);
 
     const updates: Record<string, unknown> = {};
     if (dto.name) updates.name = dto.name;

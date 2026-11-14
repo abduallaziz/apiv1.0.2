@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { AttendanceRepository } from './repositories/attendance.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { HrBranchService } from './hr-branch.service';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly repo: AttendanceRepository) {}
+  constructor(
+    private readonly repo: AttendanceRepository,
+    private readonly hrBranch: HrBranchService,
+  ) {}
 
   async checkIn(
     tenant: TenantContext,
@@ -18,6 +22,13 @@ export class AttendanceService {
     const open = await this.repo.findOpenRecord(tenant.tenantId, userId);
     if (open) {
       throw new BadRequestException('Already checked in — check out first');
+    }
+    if (tenant.isolated) {
+      // The check-in branch is the employee's own branch (never taken from the request body); a central
+      // user without a branch of their own works in the branch they are currently in.
+      branchId =
+        (await this.repo.findUserBranch(tenant.tenantId, userId)) ??
+        tenant.branchId;
     }
     if (branchId) {
       const branchOk = await this.repo.branchBelongsToTenant(
@@ -52,6 +63,7 @@ export class AttendanceService {
     reason: string,
     createdBy: string,
   ) {
+    const exceptionBranch = await this.hrBranch.branchOfEmployee(tenant, userId);
     // Parsed/iterated in UTC — see the identical note in SchedulesService.bulkCreate.
     const parseYMD = (s: string) => {
       const [y, m, d] = s.split('-').map(Number);
@@ -73,6 +85,7 @@ export class AttendanceService {
       dates,
       reason,
       createdBy,
+      exceptionBranch,
     );
   }
 
@@ -80,6 +93,6 @@ export class AttendanceService {
     tenant: TenantContext,
     filters: { userId?: string; from?: string; to?: string },
   ) {
-    return this.repo.findExceptions(tenant.tenantId, filters);
+    return this.repo.findExceptions(tenant, filters);
   }
 }

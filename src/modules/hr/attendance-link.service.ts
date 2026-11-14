@@ -141,7 +141,7 @@ export class AttendanceLinkService {
     const created = await this.attendanceRepo.checkIn(
       user.tenant_id,
       user.id,
-      null,
+      (user as { branch_id?: string | null }).branch_id ?? null,
       { lat, lng, code },
     );
     this.logAudit({

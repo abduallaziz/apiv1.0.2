@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { TenantContext } from '../../../core/tenant/tenant-context';
+import { scopeToBranch } from '../../../core/tenant/branch-scope.util';
 
 @Injectable()
 export class AttendanceRepository {
@@ -68,6 +69,20 @@ export class AttendanceRepository {
           )
         : null,
     }));
+  }
+
+  async findUserBranch(
+    tenantId: string,
+    userId: string,
+  ): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('branch_id')
+      .eq('id', userId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as { branch_id: string | null } | null)?.branch_id ?? null;
   }
 
   async branchBelongsToTenant(
@@ -140,6 +155,7 @@ export class AttendanceRepository {
 
     if (filters.userId) q = q.eq('user_id', filters.userId);
     if (filters.branchId) q = q.eq('branch_id', filters.branchId);
+    q = scopeToBranch(q, tenant);
     if (filters.from) q = q.gte('check_in_at', filters.from);
     if (filters.to) q = q.lte('check_in_at', filters.to);
 
@@ -171,6 +187,7 @@ export class AttendanceRepository {
     dates: string[],
     reason: string,
     createdBy: string,
+    branchId: string | null = null,
   ) {
     const { data, error } = await this.supabase
       .from('attendance_exceptions')
@@ -181,6 +198,7 @@ export class AttendanceRepository {
           date,
           reason,
           created_by: createdBy,
+          branch_id: branchId,
         })),
         { onConflict: 'tenant_id,user_id,date' },
       )
@@ -190,7 +208,7 @@ export class AttendanceRepository {
   }
 
   async findExceptions(
-    tenantId: string,
+    tenant: TenantContext,
     filters: { userId?: string; from?: string; to?: string },
   ) {
     let q = this.supabase
@@ -198,8 +216,9 @@ export class AttendanceRepository {
       .select(
         'id, user_id, date, reason, created_at, users!attendance_exceptions_user_id_fkey(name)',
       )
-      .eq('tenant_id', tenantId)
+      .eq('tenant_id', tenant.tenantId)
       .order('date', { ascending: false });
+    q = scopeToBranch(q, tenant);
     if (filters.userId) q = q.eq('user_id', filters.userId);
     if (filters.from) q = q.gte('date', filters.from);
     if (filters.to) q = q.lte('date', filters.to);

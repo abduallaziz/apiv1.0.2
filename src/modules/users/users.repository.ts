@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { scopeToBranch } from '../../core/tenant/branch-scope.util';
 
 @Injectable()
 export class UsersRepository extends ScopedRepository {
@@ -15,7 +16,7 @@ export class UsersRepository extends ScopedRepository {
     'base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value, attendance_token, attendance_device_fingerprint, attendance_enabled, shift_pattern_id, custom_days_of_week, custom_shifts, custom_day_overrides, schedule_start_date, department, job_title, avatar_url, employee_number, phone, identity_number, manager_name, employment_type, join_date, city, address, gps_radius_meters, is_employee_profile, branch_id';
 
   async findAll(tenant: TenantContext) {
-    return this.scopedQuery('users', tenant)
+    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
       .select(
         `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
       )
@@ -42,7 +43,7 @@ export class UsersRepository extends ScopedRepository {
   }
 
   async findById(id: string, tenant: TenantContext) {
-    return this.scopedQuery('users', tenant)
+    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
       .select(
         `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
       )
@@ -84,7 +85,7 @@ export class UsersRepository extends ScopedRepository {
   // profile. A System User with a real login can exist without ever appearing
   // here (see 058_employee_profile_flag.sql).
   async findAllEmployees(tenant: TenantContext) {
-    return this.scopedQuery('users', tenant)
+    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
       .select(
         `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
       )
@@ -95,7 +96,7 @@ export class UsersRepository extends ScopedRepository {
   // Candidates for "Link existing System User" — has real login (role != none)
   // but no Employee Core profile yet.
   async findLinkableSystemUsers(tenant: TenantContext) {
-    return this.scopedQuery('users', tenant)
+    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
       .select('id, name, email, role')
       .eq('is_employee_profile', false)
       .neq('role', 'none')
@@ -112,6 +113,22 @@ export class UsersRepository extends ScopedRepository {
         `id, email, name, role, is_active, commission_rate, ${UsersRepository.PAYROLL_FIELDS}`,
       )
       .single();
+  }
+
+  /** users.branch_id of an actor (NULL = central owner/admin); undefined when the user is unknown. */
+  async findBranchOf(
+    id: string,
+    tenantId: string,
+  ): Promise<string | null | undefined> {
+    const { data } = await this.supabase
+      .from('users')
+      .select('branch_id')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    return data
+      ? ((data as { branch_id: string | null }).branch_id ?? null)
+      : undefined;
   }
 
   async countActive(tenant: TenantContext) {
@@ -279,7 +296,7 @@ export class UsersRepository extends ScopedRepository {
     const { data, error } = await this.supabase
       .from('users')
       .select(
-        'id, tenant_id, name, job_title, annual_leave_balance, attendance_device_fingerprint, tenants(name, logo_url)',
+        'id, tenant_id, branch_id, name, job_title, annual_leave_balance, attendance_device_fingerprint, tenants(name, logo_url)',
       )
       .eq('attendance_token', token)
       .eq('is_active', true)

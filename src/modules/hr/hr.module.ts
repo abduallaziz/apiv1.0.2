@@ -21,6 +21,7 @@ import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { CoreAuthModule } from '../../core/auth/auth.module';
 import { UsersModule } from '../users/users.module';
 import { GeofenceService } from '../../shared/geo/geofence.service';
+import { HrBranchService } from './hr-branch.service';
 
 @Module({
   imports: [PermissionsModule, CoreAuthModule, UsersModule],
@@ -46,6 +47,7 @@ import { GeofenceService } from '../../shared/geo/geofence.service';
     NotificationsRepository,
     LeavesService,
     GeofenceService,
+    HrBranchService,
   ],
 })
 export class HrModule {}
