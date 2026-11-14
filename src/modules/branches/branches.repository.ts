@@ -4,6 +4,25 @@ import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { ensureBranchWarehouse } from './branch-warehouse.util';
 
+const BRANCH_COLUMNS =
+  'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at, short_code, city, phone, email, tax_number, commercial_registration, invoice_footer, printer_size, working_hours';
+
+/** Optional wizard profile columns accepted on create. */
+export type BranchProfileInput = Partial<{
+  short_code: string | null;
+  city: string | null;
+  phone: string | null;
+  email: string | null;
+  tax_number: string | null;
+  commercial_registration: string | null;
+  invoice_footer: string | null;
+  printer_size: string | null;
+  working_hours: Record<string, unknown> | null;
+  geofence_lat: number | null;
+  geofence_lng: number | null;
+  geofence_radius_m: number | null;
+}>;
+
 @Injectable()
 export class BranchesRepository {
   private readonly logger = new Logger(BranchesRepository.name);
@@ -15,9 +34,7 @@ export class BranchesRepository {
   async findAll(tenant: TenantContext, activeOnly = false) {
     let query = this.supabase
       .from('branches')
-      .select(
-        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
-      )
+      .select(BRANCH_COLUMNS)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null);
 
@@ -36,9 +53,7 @@ export class BranchesRepository {
   async findById(id: string, tenant: TenantContext) {
     const { data, error } = await this.supabase
       .from('branches')
-      .select(
-        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
-      )
+      .select(BRANCH_COLUMNS)
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
@@ -75,6 +90,26 @@ export class BranchesRepository {
     return (data ?? []).some(
       (b: { id: string; name: string }) =>
         b.id !== excludeId && String(b.name).trim().toLowerCase() === wanted,
+    );
+  }
+
+  /** Case-insensitive, per-tenant short code clash among live branches. */
+  async shortCodeExists(
+    tenant: TenantContext,
+    code: string,
+    excludeId?: string,
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('branches')
+      .select('id, short_code')
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
+      .not('short_code', 'is', null);
+    if (error) throw error;
+    const wanted = code.trim().toUpperCase();
+    return (data ?? []).some(
+      (b: { id: string; short_code: string }) =>
+        b.id !== excludeId && String(b.short_code).toUpperCase() === wanted,
     );
   }
 
@@ -125,7 +160,8 @@ export class BranchesRepository {
 
   async create(
     tenant: TenantContext,
-    data: { name: string; address?: string },
+    data: { name: string; address?: string } & BranchProfileInput,
+    warehouseName?: string,
   ) {
     const { data: branch, error } = await this.supabase
       .from('branches')
@@ -134,10 +170,9 @@ export class BranchesRepository {
         name: data.name,
         address: data.address ?? null,
         is_active: true,
+        ...pickProfile(data),
       })
-      .select(
-        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
-      )
+      .select(BRANCH_COLUMNS)
       .single();
 
     if (error) {
@@ -154,6 +189,7 @@ export class BranchesRepository {
       branch.id as string,
       branch.name as string,
       this.logger,
+      warehouseName,
     );
     return warehouseId
       ? { ...branch, default_warehouse_id: warehouseId }
@@ -171,7 +207,8 @@ export class BranchesRepository {
       geofence_lat: number | null;
       geofence_lng: number | null;
       geofence_radius_m: number | null;
-    }>,
+    }> &
+      BranchProfileInput,
   ) {
     const { data: branch, error } = await this.supabase
       .from('branches')
@@ -179,9 +216,7 @@ export class BranchesRepository {
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
-      .select(
-        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
-      )
+      .select(BRANCH_COLUMNS)
       .single();
 
     if (error) throw error;
@@ -373,4 +408,26 @@ export class BranchesRepository {
       .eq('tenant_id', tenantId);
     if (error) throw error;
   }
+}
+
+const PROFILE_KEYS = [
+  'short_code',
+  'city',
+  'phone',
+  'email',
+  'tax_number',
+  'commercial_registration',
+  'invoice_footer',
+  'printer_size',
+  'working_hours',
+  'geofence_lat',
+  'geofence_lng',
+  'geofence_radius_m',
+] as const;
+
+/** Only the profile columns that were actually provided (undefined keys are not sent). */
+function pickProfile(data: BranchProfileInput): BranchProfileInput {
+  const out: Record<string, unknown> = {};
+  for (const k of PROFILE_KEYS) if (data[k] !== undefined) out[k] = data[k];
+  return out as BranchProfileInput;
 }

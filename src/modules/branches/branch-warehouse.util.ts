@@ -20,6 +20,8 @@ export async function ensureBranchWarehouse(
   branchId: string,
   branchName: string,
   logger?: WarnLogger,
+  /** Optional custom name for the auto-created warehouse (wizard); default keeps "Warehouse - <branch>". */
+  warehouseName?: string,
 ): Promise<string | null> {
   try {
     const { data: existing } = await supabase
@@ -40,7 +42,10 @@ export async function ensureBranchWarehouse(
         tenant_id: tenantId,
         branch_id: branchId,
         code,
-        name: `Warehouse - ${branchName}`.slice(0, 120),
+        name: (warehouseName?.trim() || `Warehouse - ${branchName}`).slice(
+          0,
+          120,
+        ),
         is_active: true,
       })
       .select('id')

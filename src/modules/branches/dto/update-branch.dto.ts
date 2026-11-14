@@ -7,8 +7,9 @@ import {
   Min,
   MaxLength,
 } from 'class-validator';
+import { BranchProfileDto } from './branch-profile.dto';
 
-export class UpdateBranchDto {
+export class UpdateBranchDto extends BranchProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)

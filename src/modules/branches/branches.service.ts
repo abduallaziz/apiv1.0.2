@@ -12,7 +12,15 @@ import { TenantContext } from '../../core/tenant/tenant.context';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { BranchPublishService } from './publish/branch-publish.service';
+import { checkContactValues } from '../customers/customer-normalize';
 import { BillingService } from '../../core/billing/billing.service';
+
+const SHORT_CODE_TAKEN = 'A branch with this short code already exists';
+
+function isShortCodeClash(e: unknown): boolean {
+  const err = e as { code?: string; message?: string } | null;
+  return err?.code === '23505' && String(err.message).includes('short_code');
+}
 
 @Injectable()
 export class BranchesService {
@@ -39,16 +47,44 @@ export class BranchesService {
     dto: CreateBranchDto,
     tenant: TenantContext,
     userId: string | null = null,
+    central = true,
   ) {
     const name = dto.name?.trim();
     if (!name) throw new BadRequestException('name should not be empty');
     if (await this.repo.nameExists(tenant, name)) {
       throw new ConflictException('A branch with this name already exists');
     }
+    const {
+      copy_setup_from_main: copySetup,
+      warehouse_name: warehouseName,
+      wizard_copy: wizardCopy,
+      ...rest
+    } = dto;
+    const profile = await this.validateProfile(tenant, rest);
+    const actor = { userId, central };
+    // Validate the wizard copy BEFORE creating anything (central + isolation + source branch).
+    if (wizardCopy) {
+      if (!this.publisher) {
+        throw new BadRequestException('Copying from a branch is unavailable');
+      }
+      await this.publisher.assertCanCopyFromBranch(tenant, wizardCopy, actor);
+    }
     await this.billingService.checkBranchLimit(tenant.tenantId);
-    const { copy_setup_from_main: copySetup, ...rest } = dto;
-    const branch = await this.repo.create(tenant, { ...rest, name });
+    const branch = await this.createRow(
+      tenant,
+      { ...rest, ...profile, name },
+      warehouseName,
+    );
     await this.provisionAccounting(tenant.tenantId, branch.id as string, name);
+    if (wizardCopy && this.publisher) {
+      const wizard_copy = await this.publisher.copyFromBranch(
+        tenant,
+        wizardCopy,
+        branch.id as string,
+        actor,
+      );
+      return { ...branch, wizard_copy };
+    }
     if (copySetup && tenant.isolated && tenant.tenantId && this.publisher) {
       try {
         const iso = await this.repo.getIsolation(tenant.tenantId);
@@ -69,6 +105,47 @@ export class BranchesService {
       }
     }
     return branch;
+  }
+
+  /** Insert; a unique-index race on short_code surfaces as the same 409 as the pre-check. */
+  private async createRow(
+    tenant: TenantContext,
+    data: Parameters<BranchesRepository['create']>[1],
+    warehouseName?: string,
+  ) {
+    try {
+      return await this.repo.create(tenant, data, warehouseName);
+    } catch (e) {
+      if (isShortCodeClash(e)) throw new ConflictException(SHORT_CODE_TAKEN);
+      throw e;
+    }
+  }
+
+  /**
+   * Normalises + validates the wizard profile fields (phone format via the customers helper, short code
+   * uniqueness per tenant, case-insensitive). Returns the normalised values to store.
+   */
+  private async validateProfile(
+    tenant: TenantContext,
+    dto: { phone?: string | null; short_code?: string | null },
+    excludeId?: string,
+  ): Promise<{ phone?: string | null }> {
+    const out: { phone?: string | null } = {};
+    if (dto.phone !== undefined) {
+      if (dto.phone === null) out.phone = null;
+      else {
+        const checked = checkContactValues({ phone: dto.phone });
+        if (checked.error) throw new BadRequestException(checked.error);
+        out.phone = checked.phone ?? null;
+      }
+    }
+    if (
+      dto.short_code &&
+      (await this.repo.shortCodeExists(tenant, dto.short_code, excludeId))
+    ) {
+      throw new ConflictException(SHORT_CODE_TAKEN);
+    }
+    return out;
   }
 
   /**
@@ -111,7 +188,14 @@ export class BranchesService {
       }
     }
 
-    const updated = await this.repo.update(id, tenant, dto);
+    const profile = await this.validateProfile(tenant, dto, id);
+    let updated;
+    try {
+      updated = await this.repo.update(id, tenant, { ...dto, ...profile });
+    } catch (e) {
+      if (isShortCodeClash(e)) throw new ConflictException(SHORT_CODE_TAKEN);
+      throw e;
+    }
     if (dto.name && dto.name !== branch.name) {
       await this.repo.renameAutoWarehouse(
         tenant,

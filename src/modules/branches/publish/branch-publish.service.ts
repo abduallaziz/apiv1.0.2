@@ -29,6 +29,20 @@ export interface PublishRequest {
   mode: PublishMode;
 }
 
+export interface WizardCopyRequest {
+  source_branch_id: string;
+  entity_types: string[];
+}
+
+export interface WizardCopyTypeResult {
+  entity_type: string;
+  ok: boolean;
+  created: number;
+  skipped: number;
+  failed: number;
+  error?: string;
+}
+
 @Injectable()
 export class BranchPublishService {
   private readonly logger = new Logger(BranchPublishService.name);
@@ -116,6 +130,100 @@ export class BranchPublishService {
       }),
     );
     return results.filter((r): r is PublishResult => r !== null);
+  }
+
+  /**
+   * Fail-fast guard for the wizard copy (call BEFORE creating the branch): central users only, isolation on,
+   * only known supported types, source must be another active branch.
+   */
+  async assertCanCopyFromBranch(
+    tenant: TenantContext,
+    req: WizardCopyRequest,
+    actor: PublishActor,
+  ): Promise<void> {
+    if (!actor.central) {
+      throw new ForbiddenException(
+        'Only the owner / central users can copy data from another branch.',
+      );
+    }
+    if (!tenant.tenantId || !tenant.isolated) {
+      throw new BadRequestException(
+        'Branch isolation must be enabled to copy data from another branch.',
+      );
+    }
+    for (const type of req.entity_types) this.requirePublisher(type);
+    const active = await this.publications.activeBranches(tenant.tenantId);
+    if (!active.some((b) => b.id === req.source_branch_id)) {
+      throw new BadRequestException('The source branch must be active.');
+    }
+  }
+
+  /**
+   * Wizard step 5(b): copies the chosen entity types from `source_branch_id` into the NEW branch through the
+   * regular publishers (copy_new, idempotent). Best effort PER TYPE: a failing type is reported, never thrown.
+   */
+  async copyFromBranch(
+    tenant: TenantContext,
+    req: WizardCopyRequest,
+    targetBranchId: string,
+    actor: PublishActor,
+  ): Promise<WizardCopyTypeResult[]> {
+    await this.assertCanCopyFromBranch(tenant, req, actor);
+    if (req.source_branch_id === targetBranchId) {
+      throw new BadRequestException(
+        'The source branch cannot be the new branch.',
+      );
+    }
+    const tenantId = tenant.tenantId as string;
+    const types = [...new Set(req.entity_types)];
+    return Promise.all(
+      types.map(async (type): Promise<WizardCopyTypeResult> => {
+        try {
+          const publisher = this.requirePublisher(type);
+          const ctx = this.ctx(tenantId, req.source_branch_id, actor.userId);
+          const ids = await publisher.listSourceIds(ctx);
+          if (!ids.length) {
+            return {
+              entity_type: type,
+              ok: true,
+              created: 0,
+              skipped: 0,
+              failed: 0,
+            };
+          }
+          const res = await this.run(
+            publisher,
+            tenantId,
+            req.source_branch_id,
+            ids,
+            [targetBranchId],
+            'copy_new',
+            actor.userId,
+          );
+          const t = res.results[0];
+          return {
+            entity_type: type,
+            ok: t.failed === 0,
+            created: t.created,
+            skipped: t.skipped,
+            failed: t.failed,
+            error: t.errors[0]?.message,
+          };
+        } catch (e) {
+          this.logger.warn(
+            `wizard copy "${type}" failed: ${(e as Error).message}`,
+          );
+          return {
+            entity_type: type,
+            ok: false,
+            created: 0,
+            skipped: 0,
+            failed: 0,
+            error: (e as Error).message,
+          };
+        }
+      }),
+    );
   }
 
   private requirePublisher(type: string): EntityPublisher {

@@ -108,7 +108,12 @@ export class BranchesController {
     @GetTenant() tenant: TenantContext,
     @Req() req: { user: JwtPayload },
   ) {
-    return this.service.create(dto, tenant, req.user?.sub ?? null);
+    return this.service.create(
+      dto,
+      tenant,
+      req.user?.sub ?? null,
+      !req.user?.branch_id,
+    );
   }
 
   @Patch(':id')
