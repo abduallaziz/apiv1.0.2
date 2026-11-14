@@ -113,6 +113,11 @@ export function createThrottlers(redis: Redis): ThrottlerOptions[] {
       name: 'session',
       ttl: WINDOW_MS,
       limit: 60,
+      // Same trap as 'auth' above: without skipIf this 60/min tier applied to EVERY route
+      // (shift/kitchen/notification polling, tax settings...) so a busy tenant got 429s.
+      // Only AuthController (refresh/logout) is bounded by it.
+      skipIf: (context: ExecutionContext) =>
+        context.getClass().name !== 'AuthController',
     },
   ];
 }

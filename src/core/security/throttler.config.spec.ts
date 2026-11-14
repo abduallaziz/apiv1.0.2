@@ -25,3 +25,16 @@ describe('createThrottlers - auth tier scope', () => {
     expect(authTier!.skipIf!(ctxFor('InvoicesController'))).toBe(true);
   });
 });
+
+describe('createThrottlers - session tier scope', () => {
+  const tier = createThrottlers({} as never).find((t) => t.name === 'session');
+  const ctxFor = (name: string) =>
+    ({ getClass: () => ({ name }) }) as unknown as ExecutionContext;
+
+  it('bounds only AuthController, never polling business routes', () => {
+    expect(tier!.limit).toBe(60);
+    expect(tier!.skipIf!(ctxFor('AuthController'))).toBe(false);
+    expect(tier!.skipIf!(ctxFor('ShiftsController'))).toBe(true);
+    expect(tier!.skipIf!(ctxFor('NotificationsController'))).toBe(true);
+  });
+});
