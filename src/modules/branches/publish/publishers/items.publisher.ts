@@ -73,7 +73,7 @@ export async function mapLookupByName(
     .ilike('name', escapeLike(String(src.name)))
     .limit(1);
   if (hitErr) throw hitErr;
-  let id = (hit?.[0] as { id: string } | undefined)?.id ?? null;
+  let id = hit?.[0]?.id ?? null;
   if (!id) {
     const extra =
       table === 'categories'
@@ -93,7 +93,7 @@ export async function mapLookupByName(
       .select('id')
       .single();
     if (error) throw error;
-    id = (created as { id: string }).id;
+    id = created.id;
   }
   memo.set(key, id);
   return id;
@@ -142,7 +142,9 @@ async function syncChildren(
 
   const variantMap = new Map<string, string>();
   for (const v of (sVars ?? []) as PublishRow[]) {
-    const match = ((tVars ?? []) as { id: string; name: string; sku: string | null }[]).find(
+    const match = (
+      (tVars ?? []) as { id: string; name: string; sku: string | null }[]
+    ).find(
       (t) =>
         (v.sku && t.sku === v.sku) ||
         (!v.sku && t.name.toLowerCase() === String(v.name).toLowerCase()),
@@ -190,7 +192,7 @@ async function syncChildren(
       .select('id')
       .single();
     if (error) throw error;
-    variantMap.set(v.id, (created as { id: string }).id);
+    variantMap.set(v.id, created.id);
   }
 
   const { data: sBars, error: sbErr } = await db
@@ -285,7 +287,7 @@ export function itemsPublisher(cache?: RedisCacheService): EntityPublisher {
         ({ data, error } = await insert({ ...cols, sku: null }));
       }
       if (error) throw error;
-      const id = (data as unknown as { id: string }).id;
+      const id = data.id;
       await syncChildren(ctx, row.id, id, targetBranchId, false);
       return id;
     },

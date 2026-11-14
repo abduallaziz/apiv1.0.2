@@ -168,7 +168,7 @@ export class BranchPublishService {
         'Every target must be an active branch of this tenant.',
       );
     }
-    return wanted.map((id) => byId.get(id)!);
+    return wanted.map((id) => byId.get(id));
   }
 
   private async run(

@@ -59,6 +59,6 @@ export class BranchPublicationsRepository {
       .eq('is_active', true)
       .is('deleted_at', null);
     if (error) throw error;
-    return (data ?? []) as { id: string; name: string; is_main: boolean }[];
+    return data ?? [];
   }
 }

@@ -86,7 +86,7 @@ export function simplePublisher(cfg: SimplePublisherConfig): EntityPublisher {
         : q.eq(cfg.naturalKey.column, value);
       const { data, error } = await q.limit(1);
       if (error) throw error;
-      return (data?.[0] as { id: string } | undefined)?.id ?? null;
+      return data?.[0]?.id ?? null;
     },
 
     async exists(ctx, targetId, targetBranchId) {
@@ -109,7 +109,7 @@ export function simplePublisher(cfg: SimplePublisherConfig): EntityPublisher {
         .select('id')
         .single();
       if (error) throw error;
-      return (data as { id: string }).id;
+      return data.id;
     },
 
     async update(ctx, row, targetId, targetBranchId) {
@@ -117,7 +117,8 @@ export function simplePublisher(cfg: SimplePublisherConfig): EntityPublisher {
         ...pickColumns(row, cfg.columns),
         ...(cfg.overrides?.(targetBranchId) ?? {}),
       };
-      if (cfg.hasUpdatedAt !== false) patch.updated_at = new Date().toISOString();
+      if (cfg.hasUpdatedAt !== false)
+        patch.updated_at = new Date().toISOString();
       const { error } = await ctx.db
         .from(cfg.table)
         .update(patch)

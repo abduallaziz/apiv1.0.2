@@ -8,7 +8,9 @@ export class BranchPublishRegistry {
 
   register(publisher: EntityPublisher): this {
     if (this.publishers.has(publisher.type)) {
-      throw new Error(`Publishable type "${publisher.type}" already registered`);
+      throw new Error(
+        `Publishable type "${publisher.type}" already registered`,
+      );
     }
     this.publishers.set(publisher.type, publisher);
     return this;

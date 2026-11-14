@@ -40,9 +40,8 @@ function make(pub: EntityPublisher, provenance: Record<string, string> = {}) {
       { id: B2, name: 'Two', is_main: false },
       { id: B3, name: 'Three', is_main: false },
     ]),
-    findTargetId: jest.fn(
-      (_t: string, _e: string, s: string, b: string) =>
-        Promise.resolve(provenance[`${s}:${b}`] ?? null),
+    findTargetId: jest.fn((_t: string, _e: string, s: string, b: string) =>
+      Promise.resolve(provenance[`${s}:${b}`] ?? null),
     ),
     record: jest.fn((r: Record<string, unknown>) => {
       recorded.push(r);
@@ -111,7 +110,11 @@ describe('BranchPublishService targets and sources', () => {
   it("'all' means every active branch except the source", async () => {
     const pub = fakePublisher();
     const { svc } = make(pub);
-    const res = await svc.publish(iso, req({ target_branch_ids: 'all' }), actor);
+    const res = await svc.publish(
+      iso,
+      req({ target_branch_ids: 'all' }),
+      actor,
+    );
     expect(res.results.map((r) => r.branch_id)).toEqual([B2, B3]);
     expect(pub.create).toHaveBeenCalledTimes(4);
   });
@@ -132,7 +135,11 @@ describe('BranchPublishService idempotency and collisions', () => {
   it('creates and records provenance on first publish', async () => {
     const { svc, recorded } = make(fakePublisher());
     const res = await svc.publish(iso, req(), actor);
-    expect(res.results[0]).toMatchObject({ created: 2, updated: 0, skipped: 0 });
+    expect(res.results[0]).toMatchObject({
+      created: 2,
+      updated: 0,
+      skipped: 0,
+    });
     expect(recorded).toHaveLength(2);
     expect(recorded[0]).toMatchObject({
       source_branch_id: SRC,
@@ -146,7 +153,11 @@ describe('BranchPublishService idempotency and collisions', () => {
     const pub = fakePublisher();
     const { svc } = make(pub, { [`s1:${B2}`]: 't-a', [`s2:${B2}`]: 't-b' });
     const res = await svc.publish(iso, req(), actor);
-    expect(res.results[0]).toMatchObject({ created: 0, updated: 0, skipped: 2 });
+    expect(res.results[0]).toMatchObject({
+      created: 0,
+      updated: 0,
+      skipped: 2,
+    });
     expect(pub.create).not.toHaveBeenCalled();
     expect(pub.update).not.toHaveBeenCalled();
   });
@@ -154,12 +165,12 @@ describe('BranchPublishService idempotency and collisions', () => {
   it('update_existing updates published rows and creates missing ones', async () => {
     const pub = fakePublisher();
     const { svc } = make(pub, { [`s1:${B2}`]: 't-a' });
-    const res = await svc.publish(
-      iso,
-      req({ mode: 'update_existing' }),
-      actor,
-    );
-    expect(res.results[0]).toMatchObject({ created: 1, updated: 1, skipped: 0 });
+    const res = await svc.publish(iso, req({ mode: 'update_existing' }), actor);
+    expect(res.results[0]).toMatchObject({
+      created: 1,
+      updated: 1,
+      skipped: 0,
+    });
     expect(pub.update).toHaveBeenCalledWith(
       expect.anything(),
       { id: 's1' },

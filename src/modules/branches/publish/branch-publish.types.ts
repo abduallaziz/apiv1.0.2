@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 export type PublishMode = 'copy_new' | 'update_existing';
 
 /** Loose row shape: the registry is generic over many tables. */
-export type PublishRow = Record<string, any> & { id: string }; // eslint-disable-line @typescript-eslint/no-explicit-any
+export type PublishRow = Record<string, any> & { id: string };
 
 export interface PublishContext {
   tenantId: string;
