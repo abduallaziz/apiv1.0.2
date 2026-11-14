@@ -12,14 +12,17 @@ ALTER TABLE tenant_sku_sequences     ADD COLUMN IF NOT EXISTS branch_id UUID NOT
 ALTER TABLE tenant_barcode_sequences ADD COLUMN IF NOT EXISTS branch_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'::uuid;
 
 DO $$
-DECLARE v_t TEXT;
+DECLARE v_t TEXT; v_pk TEXT;
 BEGIN
   FOREACH v_t IN ARRAY ARRAY['tenant_sku_sequences', 'tenant_barcode_sequences'] LOOP
     -- swap PK (tenant_id) -> (tenant_id, branch_id) only once
     IF (SELECT count(*) FROM pg_index i
           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
          WHERE i.indrelid = format('public.%I', v_t)::regclass AND i.indisprimary) = 1 THEN
-      EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', v_t, v_t || '_pkey');
+      -- look the PK name up instead of assuming <table>_pkey
+      SELECT conname INTO v_pk FROM pg_constraint
+       WHERE conrelid = format('public.%I', v_t)::regclass AND contype = 'p';
+      EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', v_t, v_pk);
       EXECUTE format('ALTER TABLE public.%I ADD PRIMARY KEY (tenant_id, branch_id)', v_t);
     END IF;
   END LOOP;

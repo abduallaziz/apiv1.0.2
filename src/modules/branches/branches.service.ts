@@ -121,8 +121,19 @@ export class BranchesService {
     // Everything that has no branch yet joins the main branch BEFORE the flag flips, so nothing
     // disappears from view the moment isolation starts.
     if (enabled) {
-      await this.repo.backfillHr(tenant.tenantId);
-      await this.repo.backfillToMain(tenant.tenantId);
+      try {
+        await this.repo.backfillHr(tenant.tenantId);
+        await this.repo.backfillToMain(tenant.tenantId);
+      } catch (e) {
+        // A duplicate key between unbranched rows and the main branch's rows (migration 292): readable 409.
+        const err = e as { code?: string; message?: string };
+        if (err?.code === '23505') {
+          throw new ConflictException(
+            err.message ?? 'A duplicate key prevents enabling branch isolation',
+          );
+        }
+        throw e;
+      }
     }
     await this.repo.setIsolation(tenant.tenantId, enabled);
     this.isolation.invalidate(tenant.tenantId);
