@@ -1,3 +1,4 @@
+import { assertVisibleWarehouse } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable, ConflictException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isPostgrestError } from '../../../shared/supabase/postgrest-error.util';
@@ -61,6 +62,7 @@ export class SerialsRepository {
     tenantId: string,
     status?: string,
   ): Promise<any[]> {
+    await assertVisibleWarehouse(tenantId, warehouseId, 'Warehouse');
     let query = this.supabase
       .from('item_serials')
       .select(SERIAL_SELECT)

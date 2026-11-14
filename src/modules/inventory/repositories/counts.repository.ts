@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+  scopedRpcPage,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
 @Injectable()
@@ -14,6 +19,20 @@ export class CountsRepository extends ScopedRepository {
     status?: string,
     pagination: PaginationDto = new PaginationDto(),
   ) {
+    const scoped = await scopedRpcPage<any>(
+      tenantId,
+      'warehouse_id',
+      pagination.perPage,
+      pagination.offset,
+      (limit, offset) =>
+        this.supabase.rpc('fn_stock_counts_list_enriched', {
+          p_tenant_id: tenantId,
+          p_status: status ?? null,
+          p_limit: limit,
+          p_offset: offset,
+        }),
+    );
+    if (scoped) return scoped.rows;
     const { data, error } = await this.supabase.rpc(
       'fn_stock_counts_list_enriched',
       {
@@ -37,6 +56,8 @@ export class CountsRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertVisibleWarehouse(tenantId, data.warehouse_id, 'Stock count');
     return data;
   }
 
@@ -46,6 +67,7 @@ export class CountsRepository extends ScopedRepository {
     startedBy: string,
     scope?: { itemIds?: string[]; locationIds?: string[] },
   ) {
+    await assertWarehouseInBranch(tenantId, payload.warehouse_id as string);
     const { data, error } = await this.supabase
       .from('stock_counts')
       .insert({ ...payload, tenant_id: tenantId, status: 'draft' })

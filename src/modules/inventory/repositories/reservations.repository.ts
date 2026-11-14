@@ -1,4 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+  branchWarehouseIds,
+  inWarehouses,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -14,6 +20,7 @@ export class ReservationsRepository extends ScopedRepository {
       .select('*, items(name, sku), warehouses(name, code)')
       .eq('tenant_id', tenantId);
     if (status) query = query.eq('status', status);
+    query = inWarehouses(query, await branchWarehouseIds(tenantId));
     const { data, error } = await query.order('created_at', {
       ascending: false,
     });
@@ -29,6 +36,8 @@ export class ReservationsRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertVisibleWarehouse(tenantId, data.warehouse_id, 'Reservation');
     return data;
   }
 
@@ -44,6 +53,7 @@ export class ReservationsRepository extends ScopedRepository {
     p_created_by: string | null;
     p_expires_at: string | null;
   }) {
+    await assertWarehouseInBranch(params.p_tenant_id, params.p_warehouse_id);
     const { data, error } = await this.supabase.rpc(
       'fn_create_reservation',
       params,

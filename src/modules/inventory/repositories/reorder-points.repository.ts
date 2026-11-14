@@ -1,4 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+  currentBranchScope,
+  branchWarehouseIds,
+  inWarehouses,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -15,6 +22,7 @@ export class ReorderPointsRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
     if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+    query = inWarehouses(query, await branchWarehouseIds(tenantId));
     const { data, error } = await query.order('created_at', {
       ascending: false,
     });
@@ -30,10 +38,17 @@ export class ReorderPointsRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertVisibleWarehouse(
+        tenantId,
+        data.warehouse_id,
+        'Reorder point',
+      );
     return data;
   }
 
   async upsert(tenantId: string, payload: Record<string, unknown>) {
+    await assertWarehouseInBranch(tenantId, payload.warehouse_id as string);
     const { data, error } = await this.supabase
       .from('inventory_reorder_points')
       .upsert(
@@ -76,6 +91,14 @@ export class ReorderPointsRepository extends ScopedRepository {
       },
     );
     if (error) throw error;
+    const scope = currentBranchScope(tenantId);
+    if (scope && Array.isArray(data)) {
+      const ids = new Set(await scope.warehouseIds());
+      return data.filter(
+        (r: { warehouse_id?: string }) =>
+          !r.warehouse_id || ids.has(r.warehouse_id),
+      );
+    }
     return data;
   }
 }

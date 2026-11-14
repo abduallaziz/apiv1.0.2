@@ -46,16 +46,26 @@ interface InBuilder<Q> {
   in(column: string, values: string[]): Q;
 }
 
-/** Restricts a query to the isolated branch's warehouses (no-op when isolation is off). */
-export async function scopeToBranchWarehouses<Q extends InBuilder<Q>>(
-  query: Q,
+/** Warehouse ids of the isolated branch (nil-uuid placeholder when empty), or null when isolation is off. */
+export async function branchWarehouseIds(
   tenantId: string,
-  column = 'warehouse_id',
-): Promise<Q> {
+): Promise<string[] | null> {
   const scope = currentBranchScope(tenantId);
-  if (!scope) return query;
+  if (!scope) return null;
   const ids = await scope.warehouseIds();
-  return query.in(column, ids.length ? ids : [NIL_UUID]);
+  return ids.length ? ids : [NIL_UUID];
+}
+
+/**
+ * Synchronous filter step: `query = inWarehouses(query, await branchWarehouseIds(tenantId))`.
+ * (Kept sync because awaiting a PostgREST builder would execute it.)
+ */
+export function inWarehouses<Q extends InBuilder<Q>>(
+  query: Q,
+  ids: string[] | null,
+  column = 'warehouse_id',
+): Q {
+  return ids ? query.in(column, ids) : query;
 }
 
 /** True when the warehouse is usable from the current context (always true with isolation off). */
@@ -95,4 +105,28 @@ export async function assertVisibleWarehouse(
 /** True when the branch scope is active for the tenant. */
 export function isBranchIsolated(tenantId?: string): boolean {
   return !!currentBranchScope(tenantId);
+}
+
+/**
+ * For list RPCs that accept no warehouse set: under isolation fetch a wide window, keep the rows whose
+ * `warehouseColumn` is in the branch, then paginate in memory. Returns null when isolation is off so
+ * the caller keeps its original (server-paginated) path untouched.
+ */
+export async function scopedRpcPage<T extends Record<string, any>>(
+  tenantId: string,
+  warehouseColumn: string,
+  limit: number,
+  offset: number,
+  call: (
+    wideLimit: number,
+    wideOffset: number,
+  ) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<{ rows: T[]; total: number } | null> {
+  const scope = currentBranchScope(tenantId);
+  if (!scope) return null;
+  const ids = new Set(await scope.warehouseIds());
+  const { data, error } = await call(5000, 0);
+  if (error) throw error;
+  const all = (data ?? []).filter((r) => ids.has(r[warehouseColumn]));
+  return { rows: all.slice(offset, offset + limit), total: all.length };
 }

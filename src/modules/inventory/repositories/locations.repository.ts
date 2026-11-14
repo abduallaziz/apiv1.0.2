@@ -3,6 +3,10 @@ import {
   Injectable,
   BadRequestException,
 } from '@nestjs/common';
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -62,6 +66,7 @@ export class LocationsRepository extends ScopedRepository {
         : 'code';
     const ascending = options.sortOrder !== 'desc';
 
+    await assertVisibleWarehouse(tenantId, warehouseId, 'Warehouse');
     let query = this.supabase
       .from('warehouse_locations')
       .select('*', { count: 'exact' })
@@ -95,6 +100,7 @@ export class LocationsRepository extends ScopedRepository {
   }
 
   async findById(id: string, warehouseId: string, tenantId: string) {
+    await assertVisibleWarehouse(tenantId, warehouseId, 'Warehouse');
     const { data, error } = await this.supabase
       .from('warehouse_locations')
       .select('*')
@@ -111,6 +117,7 @@ export class LocationsRepository extends ScopedRepository {
     tenantId: string,
     payload: Record<string, unknown>,
   ) {
+    await assertWarehouseInBranch(tenantId, warehouseId);
     const { data, error } = await this.supabase
       .from('warehouse_locations')
       .insert({

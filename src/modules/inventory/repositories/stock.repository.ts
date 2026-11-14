@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant-context';
+import {
+  assertVisibleWarehouse,
+  currentBranchScope,
+  branchWarehouseIds,
+  inWarehouses,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 
 export interface StockLevelFilter {
@@ -52,6 +58,7 @@ export class StockRepository extends ScopedRepository {
       query = query.eq('warehouse_id', filter.warehouseId);
     if (filter.itemId) query = query.eq('item_id', filter.itemId);
     if (filter.variantId) query = query.eq('variant_id', filter.variantId);
+    query = inWarehouses(query, await branchWarehouseIds(tenantId));
 
     const { data, error } = await query.order('updated_at', {
       ascending: false,
@@ -83,6 +90,7 @@ export class StockRepository extends ScopedRepository {
     if (filter.itemId) query = query.eq('item_id', filter.itemId);
     if (filter.warehouseId)
       query = query.eq('warehouse_id', filter.warehouseId);
+    query = inWarehouses(query, await branchWarehouseIds(tenantId));
 
     const { data, error } = await query;
     if (error) throw error;
@@ -95,6 +103,7 @@ export class StockRepository extends ScopedRepository {
     itemId: string,
     variantId?: string,
   ) {
+    await assertVisibleWarehouse(tenantId, warehouseId, 'Warehouse');
     let query = this.supabase
       .from('v_stock_balance')
       .select(
@@ -125,6 +134,7 @@ export class StockRepository extends ScopedRepository {
   }
 
   async findLevelsEnriched(tenantId: string, filter: StockLevelEnrichedFilter) {
+    await assertVisibleWarehouse(tenantId, filter.warehouseId, 'Warehouse');
     const { data, error } = await this.supabase.rpc(
       'fn_inventory_stock_levels_enriched',
       {
@@ -139,6 +149,14 @@ export class StockRepository extends ScopedRepository {
       },
     );
     if (error) throw error;
+    // Branch isolation: the RPC takes one warehouse at most, so drop other branches' rows here.
+    const scope = currentBranchScope(tenantId);
+    if (scope && Array.isArray(data)) {
+      const ids = new Set(await scope.warehouseIds());
+      return data.filter((r: { warehouse_id: string }) =>
+        ids.has(r.warehouse_id),
+      );
+    }
     return data;
   }
 
@@ -148,11 +166,21 @@ export class StockRepository extends ScopedRepository {
     page: number,
     perPage: number,
   ) {
+    await assertVisibleWarehouse(tenantId, filter.warehouseId, 'Warehouse');
+    const scope = currentBranchScope(tenantId);
     const { data, error } = await this.supabase.rpc(
-      'fn_inventory_movements_ledger',
+      scope
+        ? 'fn_inventory_movements_ledger_scoped'
+        : 'fn_inventory_movements_ledger',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: filter.warehouseId ?? null,
+        ...(scope
+          ? {
+              p_warehouse_ids: filter.warehouseId
+                ? [filter.warehouseId]
+                : await scope.warehouseIds(),
+            }
+          : { p_warehouse_id: filter.warehouseId ?? null }),
         p_item_id: filter.itemId ?? null,
         p_movement_type: filter.movementType ?? null,
         p_reference_type: filter.referenceType ?? null,
@@ -188,6 +216,7 @@ export class StockRepository extends ScopedRepository {
       query = query.eq('reference_type', filter.referenceType);
     if (filter.referenceId)
       query = query.eq('reference_id', filter.referenceId);
+    query = inWarehouses(query, await branchWarehouseIds(tenantId));
 
     const from = (page - 1) * perPage;
     const { data, error, count } = await query

@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+  branchWarehouseIds,
+  inWarehouses,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
 @Injectable()
@@ -21,6 +27,7 @@ export class AdjustmentsRepository extends ScopedRepository {
       )
       .eq('tenant_id', tenantId);
     if (status) query = query.eq('status', status);
+    query = inWarehouses(query, await branchWarehouseIds(tenantId));
     const [from, to] = pagination.range;
     const { data, error } = await query
       .order('created_at', { ascending: false })
@@ -39,10 +46,13 @@ export class AdjustmentsRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertVisibleWarehouse(tenantId, data.warehouse_id, 'Adjustment');
     return data;
   }
 
   async create(tenantId: string, payload: Record<string, unknown>) {
+    await assertWarehouseInBranch(tenantId, payload.warehouse_id as string);
     const { data, error } = await this.supabase
       .from('stock_adjustments')
       .insert({ ...payload, tenant_id: tenantId })

@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+  scopedRpcPage,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 
 @Injectable()
@@ -17,6 +22,20 @@ export class TransfersRepository extends ScopedRepository {
     // fn_stock_transfers_list_enriched (migration 036) has no total-count
     // column in its RETURNS TABLE — total is fetched separately here, same
     // tenant_id/status filters, rather than changing the RPC itself.
+    const scoped = await scopedRpcPage<any>(
+      tenantId,
+      'from_warehouse_id',
+      pagination.perPage,
+      pagination.offset,
+      (limit, offset) =>
+        this.supabase.rpc('fn_stock_transfers_list_enriched', {
+          p_tenant_id: tenantId,
+          p_status: status ?? null,
+          p_limit: limit,
+          p_offset: offset,
+        }),
+    );
+    if (scoped) return { data: scoped.rows, total: scoped.total };
     const [{ data, error }, { count, error: countError }] = await Promise.all([
       this.supabase.rpc('fn_stock_transfers_list_enriched', {
         p_tenant_id: tenantId,
@@ -50,6 +69,12 @@ export class TransfersRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertVisibleWarehouse(
+        tenantId,
+        data.from_warehouse_id,
+        'Transfer',
+      );
     return data;
   }
 
@@ -58,6 +83,17 @@ export class TransfersRepository extends ScopedRepository {
     payload: Record<string, unknown>,
     items: Record<string, unknown>[],
   ) {
+    // Isolation: both ends must be in the current branch (cross-branch transfers are forbidden, D10).
+    await assertWarehouseInBranch(
+      tenantId,
+      payload.from_warehouse_id as string,
+      'source warehouse',
+    );
+    await assertWarehouseInBranch(
+      tenantId,
+      payload.to_warehouse_id as string,
+      'destination warehouse',
+    );
     const { data: transfer, error } = await this.supabase
       .from('stock_transfers')
       .insert({ ...payload, tenant_id: tenantId })

@@ -27,7 +27,9 @@ export function clearBranchWarehouseCache(): void {
  */
 @Injectable()
 export class BranchWarehouseScopeInterceptor implements NestInterceptor {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (context.getType() !== 'http') return next.handle();
@@ -51,7 +53,7 @@ export class BranchWarehouseScopeInterceptor implements NestInterceptor {
       tenantId,
       branchId,
       warehouseIds: () => {
-        if (!memo) memo = this.load(tenantId, branchId);
+        if (memo === null) memo = this.load(tenantId, branchId);
         return memo;
       },
     };
