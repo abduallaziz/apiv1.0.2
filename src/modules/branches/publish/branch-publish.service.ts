@@ -90,14 +90,15 @@ export class BranchPublishService {
     targetBranchId: string,
     userId: string | null,
   ): Promise<PublishResult[]> {
-    const out: PublishResult[] = [];
-    for (const publisher of this.registry.setupTypes()) {
-      try {
-        const ctx = this.ctx(tenantId, mainBranchId, userId);
-        const ids = await publisher.listSourceIds(ctx);
-        if (!ids.length) continue;
-        out.push(
-          await this.run(
+    // The setup entity types live in independent tables, so they are copied concurrently (this used to run
+    // one type after another and took ~40 s). Rows of one type stay sequential (e.g. category parents).
+    const results = await Promise.all(
+      this.registry.setupTypes().map(async (publisher) => {
+        try {
+          const ctx = this.ctx(tenantId, mainBranchId, userId);
+          const ids = await publisher.listSourceIds(ctx);
+          if (!ids.length) return null;
+          return await this.run(
             publisher,
             tenantId,
             mainBranchId,
@@ -105,15 +106,16 @@ export class BranchPublishService {
             [targetBranchId],
             'copy_new',
             userId,
-          ),
-        );
-      } catch (e) {
-        this.logger.warn(
-          `copy setup "${publisher.type}" failed: ${(e as Error).message}`,
-        );
-      }
-    }
-    return out;
+          );
+        } catch (e) {
+          this.logger.warn(
+            `copy setup "${publisher.type}" failed: ${(e as Error).message}`,
+          );
+          return null;
+        }
+      }),
+    );
+    return results.filter((r): r is PublishResult => r !== null);
   }
 
   private requirePublisher(type: string): EntityPublisher {

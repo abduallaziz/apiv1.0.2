@@ -131,3 +131,39 @@ describe('ExpenseDepartmentsService branch scoping', () => {
     expect(insert?.args[0]).toMatchObject({ branch_id: 'b-a' });
   });
 });
+
+describe('AccountingRepository.getCommandCenterSummary paging', () => {
+  it('sums lines across pages scoped to the branch books (no 1000-row truncation)', async () => {
+    const pages = [
+      Array.from({ length: 1000 }, () => ({ credit_amount: 1 })),
+      [{ credit_amount: 25 }],
+    ];
+    let page = 0;
+    const repo = new AccountingRepository({} as any);
+    const builder: any = {};
+    for (const m of ['select', 'eq', 'in', 'order']) builder[m] = () => builder;
+    builder.range = jest.fn(() =>
+      Promise.resolve({ data: pages[page++] ?? [], error: null }),
+    );
+    (repo as any).supabase = {
+      from: (t: string) =>
+        t === 'account_role_assignments'
+          ? {
+              select: () => ({
+                eq: () => ({
+                  in: () => Promise.resolve({ data: [{ account_id: 'a1' }] }),
+                }),
+              }),
+            }
+          : builder,
+    };
+    const total = await (repo as any).sumLinesByRole(
+      isolatedA,
+      'sales_revenue',
+      'credit',
+      ['bk1'],
+    );
+    expect(total).toBe(1025);
+    expect(builder.range).toHaveBeenCalledTimes(2);
+  });
+});

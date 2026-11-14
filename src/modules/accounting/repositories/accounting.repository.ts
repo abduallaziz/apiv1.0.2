@@ -192,12 +192,37 @@ export class AccountingRepository extends ScopedRepository {
       },
     );
 
+    await this.attachCreatorNames(tenant, rows);
     return {
       data: rows,
       total: count ?? 0,
       page: pagination.page,
       perPage: pagination.perPage,
     };
+  }
+
+  // created_by -> users.name (the web's user list is branch-scoped, so a central creator would show as a raw id).
+  private async attachCreatorNames(
+    tenant: TenantContext,
+    rows: Record<string, unknown>[],
+  ) {
+    const ids = [
+      ...new Set(
+        rows.map((r) => r.created_by).filter((v): v is string => !!v),
+      ),
+    ];
+    if (ids.length === 0) return;
+    const { data } = await this.supabase
+      .from('users')
+      .select('id, name')
+      .eq('tenant_id', tenant.tenantId)
+      .in('id', ids);
+    const names = new Map(
+      (data ?? []).map((u) => [u.id as string, u.name as string]),
+    );
+    for (const r of rows) {
+      r.created_by_name = names.get(r.created_by as string) ?? null;
+    }
   }
 
   async findJournalEntryDetail(tenant: TenantContext, id: string) {
@@ -254,8 +279,10 @@ export class AccountingRepository extends ScopedRepository {
       reversalEntry = rev ?? null;
     }
 
+    const named = [{ ...entry }] as Record<string, unknown>[];
+    await this.attachCreatorNames(tenant, named);
     return {
-      ...entry,
+      ...named[0],
       lines: lines ?? [],
       order,
       priceOverrideAudits,
@@ -590,27 +617,27 @@ export class AccountingRepository extends ScopedRepository {
     if (accountIds.length === 0) return 0;
 
     const column = side === 'debit' ? 'debit_amount' : 'credit_amount';
-    const { data: lines } = await this.supabase
-      .from('journal_lines')
-      .select(`${column}, journal_entry_id`)
-      .eq('tenant_id', tenant.tenantId)
-      .in('account_id', accountIds);
-
-    // Only lines belonging to a posted entry count toward the summary —
-    // filtered via the entries already scoped to this tenant/status,
-    // matching the "only already-posted truth" constraint.
-    let postedQuery = this.supabase
-      .from('journal_entries')
-      .select('id')
-      .eq('tenant_id', tenant.tenantId)
-      .eq('status', 'posted');
-    if (bookIds) postedQuery = postedQuery.in('accounting_book_id', bookIds);
-    const entryIds = new Set(
-      (await postedQuery).data?.map((e) => e.id as string) ?? [],
-    );
-
-    return (lines ?? [])
-      .filter((l) => entryIds.has(l.journal_entry_id as string))
-      .reduce((sum, l) => sum + Number(l[column]), 0);
+    // Lines are joined to their posted entry (scoped to the branch books) and read page by page: PostgREST caps
+    // a single response at 1000 rows, so the tenant-wide read used previously silently dropped the lines of
+    // newer branches once older ones had more than 1000 lines for these accounts.
+    const PAGE = 1000;
+    let total = 0;
+    for (let from = 0; ; from += PAGE) {
+      let q = this.supabase
+        .from('journal_lines')
+        .select(`${column}, journal_entries!inner(id)`)
+        .eq('tenant_id', tenant.tenantId)
+        .in('account_id', accountIds)
+        .eq('journal_entries.status', 'posted');
+      if (bookIds) q = q.in('journal_entries.accounting_book_id', bookIds);
+      const { data: lines, error } = await q
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      const rows = (lines ?? []) as unknown as Record<string, unknown>[];
+      total += rows.reduce((sum, l) => sum + Number(l[column]), 0);
+      if (rows.length < PAGE) break;
+    }
+    return total;
   }
 }
