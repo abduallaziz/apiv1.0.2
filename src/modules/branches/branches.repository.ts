@@ -270,6 +270,16 @@ export class BranchesRepository {
     };
   }
 
+  /** HR step (migration 297): employees join the main branch, per-employee rows follow the employee. Run before backfillToMain. */
+  async backfillHr(tenantId: string): Promise<Record<string, number>> {
+    const { data, error } = await this.supabase.rpc(
+      'fn_branch_isolation_backfill_hr',
+      { p_tenant_id: tenantId },
+    );
+    if (error) throw error;
+    return (data ?? {}) as Record<string, number>;
+  }
+
   /** Assigns every unbranched row of the registered tables to the main branch (idempotent). */
   async backfillToMain(tenantId: string): Promise<Record<string, number>> {
     const { data, error } = await this.supabase.rpc(

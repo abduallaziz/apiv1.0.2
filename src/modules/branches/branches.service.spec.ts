@@ -115,6 +115,7 @@ describe('BranchesService', () => {
           .mockResolvedValue({ enabled: false, main_branch_id: 'b1' }),
         setIsolation: jest.fn().mockResolvedValue(undefined),
         backfillToMain: jest.fn().mockResolvedValue({}),
+        backfillHr: jest.fn().mockResolvedValue({}),
       });
       await svc.setIsolation(tenant, true);
       expect(repo.backfillToMain).toHaveBeenCalledWith('t1');
