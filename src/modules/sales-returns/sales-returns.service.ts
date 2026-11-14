@@ -65,11 +65,10 @@ export class SalesReturnsService {
     // processing the return (owner decision 2026-11-09); the database
     // function rejects a cash refund when this is null.
     await this.assertOrderVisible(tenant, orderId);
-    const shiftId = await this.repo.findOpenShiftId(
-      tenant.tenantId,
-      actorId,
-      tenant.isolated ? tenant.branchId : null,
-    );
+    const shiftId =
+      tenant.isolated && tenant.branchId
+        ? await this.repo.findOpenShiftId(tenant.tenantId, actorId, tenant.branchId)
+        : await this.repo.findOpenShiftId(tenant.tenantId, actorId);
     try {
       return await this.repo.callCreate({
         tenantId: tenant.tenantId,
