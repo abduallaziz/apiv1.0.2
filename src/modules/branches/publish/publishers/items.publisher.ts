@@ -257,10 +257,13 @@ export function itemsPublisher(cache?: RedisCacheService): EntityPublisher {
     },
 
     async findExisting(ctx, row, targetBranchId) {
-      let q = live(ctx, targetBranchId);
-      if (row.sku) q = q.eq('sku', row.sku);
-      else q = q.ilike('name', escapeLike(String(row.name)));
-      const { data, error } = await q.limit(1);
+      // Items are matched by SKU only (the natural key). An item NAME is not unique: matching by name merged
+      // distinct SKU-less items that merely share a name (14 of 29 items vanished in a catalog copy).
+      // Re-publishing stays idempotent through the provenance table.
+      if (!row.sku) return null;
+      const { data, error } = await live(ctx, targetBranchId)
+        .eq('sku', row.sku)
+        .limit(1);
       if (error) throw error;
       return (data?.[0] as { id: string } | undefined)?.id ?? null;
     },
