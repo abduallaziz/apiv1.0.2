@@ -3,6 +3,8 @@ import {
   Inject,
   ForbiddenException,
   BadRequestException,
+  HttpException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { isDayEvaluable } from './payroll.util';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -1243,7 +1245,25 @@ export class ReportsService {
     return data?.tax_rate ?? 0;
   }
 
+  // Thin wrapper: a database error inside the COGS report used to surface as an opaque 500. Report the
+  // underlying message (first 300 chars) so a deployment/data problem can be diagnosed from the UI.
   async getCogsReport(
+    tenant: TenantContext,
+    user: JwtPayload,
+    query: ReportQueryDto,
+  ) {
+    try {
+      return await this.getCogsReportInner(tenant, user, query);
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const err = e as { message?: string; code?: string; details?: string };
+      throw new InternalServerErrorException(
+        `COGS report failed: ${String(err?.message ?? 'unknown').slice(0, 300)}${err?.code ? ` [${err.code}]` : ''}${err?.details ? ` (${String(err.details).slice(0, 120)})` : ''}`,
+      );
+    }
+  }
+
+  private async getCogsReportInner(
     tenant: TenantContext,
     user: JwtPayload,
     query: ReportQueryDto,
