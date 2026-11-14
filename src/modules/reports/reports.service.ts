@@ -1584,6 +1584,140 @@ export class ReportsService {
     };
   }
 
+  // Tenant-wide read of a query in pages (PostgREST caps a response at 1000 rows).
+  private async fetchAllRows<T>(
+    build: (
+      from: number,
+      to: number,
+    ) => PromiseLike<{ data: T[] | null; error: any }>,
+  ): Promise<T[]> {
+    const pageSize = 1000;
+    const out: T[] = [];
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await build(from, from + pageSize - 1);
+      if (error) throw error;
+      out.push(...(data ?? []));
+      if (!data || data.length < pageSize) break;
+    }
+    return out;
+  }
+
+  /**
+   * Branch isolation: the ONLY cross-branch aggregate. Central users only (403 for a branch-restricted
+   * user). A small set of numbers per active branch, used by the main branch's dashboard.
+   */
+  async getBranchesSummary(tenant: TenantContext, user: JwtPayload) {
+    if (user.branch_id) {
+      throw new ForbiddenException(
+        'The branches summary is available to central users only.',
+      );
+    }
+    const tz = await this.getTenantTimezone(tenant.tenantId);
+    const today = localDateOf(new Date(), tz);
+    const monthStartDate = `${today.substring(0, 7)}-01`;
+    const todayStart = localDayBoundIso(today, 'start', tz);
+    const monthStart = localDayBoundIso(monthStartDate, 'start', tz);
+    const monthEnd = localDayBoundIso(today, 'end', tz);
+
+    const { data: branches, error: bErr } = await this.supabase
+      .from('branches')
+      .select('id, name, is_main')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('is_active', true)
+      .is('deleted_at', null);
+    if (bErr) throw bErr;
+
+    const orders = await this.fetchAllRows<{
+      total: number;
+      branch_id: string | null;
+      created_at: string;
+    }>((f, t) =>
+      this.supabase
+        .from('orders')
+        .select('total, branch_id, created_at')
+        .eq('tenant_id', tenant.tenantId)
+        .is('deleted_at', null)
+        .eq('status', 'completed')
+        .gte('created_at', monthStart)
+        .lte('created_at', monthEnd)
+        .order('created_at', { ascending: true })
+        .range(f, t),
+    );
+    const expenses = await this.fetchAllRows<{
+      amount: number;
+      branch_id: string | null;
+      expense_date: string;
+    }>((f, t) =>
+      this.supabase
+        .from('expenses_v2')
+        .select('amount, branch_id, expense_date')
+        .eq('tenant_id', tenant.tenantId)
+        .in('approval_status', EXPENSE_V2_APPROVED)
+        .is('cancelled_at', null)
+        .gte('expense_date', monthStartDate)
+        .lte('expense_date', today)
+        .order('expense_date', { ascending: true })
+        .range(f, t),
+    );
+    const { data: staff, error: sErr } = await this.supabase
+      .from('users')
+      .select('branch_id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .not('branch_id', 'is', null);
+    if (sErr) throw sErr;
+    const { data: openShifts, error: shErr } = await this.supabase
+      .from('shifts')
+      .select('branch_id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'open');
+    if (shErr) throw shErr;
+
+    const rows = (branches ?? []).map((b) => {
+      let salesToday = 0;
+      let salesMonth = 0;
+      let invoicesToday = 0;
+      let invoicesMonth = 0;
+      for (const o of orders) {
+        if (o.branch_id !== b.id) continue;
+        salesMonth += Number(o.total || 0);
+        invoicesMonth += 1;
+        if (o.created_at >= todayStart) {
+          salesToday += Number(o.total || 0);
+          invoicesToday += 1;
+        }
+      }
+      let expensesMonth = 0;
+      for (const e of expenses) {
+        if (e.branch_id === b.id) expensesMonth += Number(e.amount || 0);
+      }
+      return {
+        branch_id: b.id,
+        branch_name: b.name,
+        is_main: !!b.is_main,
+        sales_today: this.round2(salesToday),
+        invoices_today: invoicesToday,
+        sales_month: this.round2(salesMonth),
+        invoices_month: invoicesMonth,
+        expenses_month: this.round2(expensesMonth),
+        net_month: this.round2(salesMonth - expensesMonth),
+        employee_count: (staff ?? []).filter((u) => u.branch_id === b.id)
+          .length,
+        has_open_shift: (openShifts ?? []).some((sh) => sh.branch_id === b.id),
+      };
+    });
+
+    return {
+      period: { today, month_start: monthStartDate },
+      branches: rows.sort(
+        (a, b) =>
+          Number(b.is_main) - Number(a.is_main) ||
+          b.sales_month - a.sales_month,
+      ),
+    };
+  }
+
   async getBranchComparison(tenant: TenantContext, query: ReportQueryDto) {
     const { from, to } = await this.getDateRange(query, tenant.tenantId);
 

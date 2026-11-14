@@ -311,6 +311,17 @@ export class ReportsController {
     return this.reportsService.getBranchComparison(tenant, query);
   }
 
+  // Branch isolation (task 6): the only explicit cross-branch aggregate; central users only
+  // (enforced in the service), a few numbers per active branch.
+  @Get('branches-summary')
+  @RequirePermission('reports.view.all')
+  async getBranchesSummary(
+    @GetTenant() tenant: TenantContext,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.reportsService.getBranchesSummary(tenant, user);
+  }
+
   @Get('customer-churn')
   @RequirePermission('reports.view.branch')
   async getCustomerChurn(
