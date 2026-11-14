@@ -309,16 +309,16 @@ export class ExpensesV2Service {
       .eq('tenant_id', tenantId);
     if (tenant) defQuery = scopeToBranch(defQuery, tenant);
     const { data: definition, error: defError } = await defQuery.maybeSingle<{
-        id: string;
-        label: string;
-        amount_mode: 'fixed' | 'variable';
-        fixed_amount: number | null;
-        tax_mode: 'none' | 'inclusive' | 'exclusive';
-        default_department_id: string | null;
-        default_category_id: string | null;
-        default_payment_method: string;
-        is_active: boolean;
-      }>();
+      id: string;
+      label: string;
+      amount_mode: 'fixed' | 'variable';
+      fixed_amount: number | null;
+      tax_mode: 'none' | 'inclusive' | 'exclusive';
+      default_department_id: string | null;
+      default_category_id: string | null;
+      default_payment_method: string;
+      is_active: boolean;
+    }>();
     if (defError) throw defError;
     if (!definition)
       throw new NotFoundException('Quick Expense definition not found');

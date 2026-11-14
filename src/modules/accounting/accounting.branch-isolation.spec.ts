@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 import { AccountingRepository } from './repositories/accounting.repository';
 import { AccountingService } from './accounting.service';
 import { ExpenseDepartmentsService } from '../expenses-v2/expense-departments.service';
@@ -107,7 +108,7 @@ describe('ExpenseDepartmentsService branch scoping', () => {
     const { supabase, calls } = fake({ expense_departments: [] });
     const svc = new ExpenseDepartmentsService(supabase as any);
     await svc.findAll('t1', false, legacy);
-    await svc.create('t1', 'u1', { name: 'X' } as any, legacy);
+    await svc.create('t1', 'u1', { name: 'X' }, legacy);
     expect(
       calls.some((c) => c.method === 'eq' && c.args[0] === 'branch_id'),
     ).toBe(false);
@@ -125,7 +126,7 @@ describe('ExpenseDepartmentsService branch scoping', () => {
           c.method === 'eq' && c.args[0] === 'branch_id' && c.args[1] === 'b-a',
       ),
     ).toBe(true);
-    await svc.create('t1', 'u1', { name: 'X' } as any, isolatedA);
+    await svc.create('t1', 'u1', { name: 'X' }, isolatedA);
     const insert = calls.find((c) => c.method === 'insert');
     expect(insert?.args[0]).toMatchObject({ branch_id: 'b-a' });
   });

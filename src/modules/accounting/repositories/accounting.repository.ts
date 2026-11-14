@@ -411,14 +411,12 @@ export class AccountingRepository extends ScopedRepository {
   // whole tenant when isolation is off. Read-only aggregate (fn_trial_balance, migration 301).
   async getTrialBalance(tenant: TenantContext) {
     const bookIds = await this.resolveBranchBookIds(tenant);
-    const { data: totals, error } = await this.supabase.rpc(
-      'fn_trial_balance',
-      {
-        p_tenant_id: tenant.tenantId,
-        p_book_ids: bookIds,
-      },
-    );
-    if (error) throw error;
+    const rpcResult = await this.supabase.rpc('fn_trial_balance', {
+      p_tenant_id: tenant.tenantId,
+      p_book_ids: bookIds,
+    });
+    if (rpcResult.error) throw rpcResult.error;
+    const totals = rpcResult.data as unknown;
     const byAccount = new Map<string, { debit: number; credit: number }>();
     for (const row of (totals ?? []) as {
       account_id: string;
@@ -430,16 +428,23 @@ export class AccountingRepository extends ScopedRepository {
         credit: Number(row.credit_total),
       });
     }
-    const { data: accounts, error: accError } = await this.supabase
+    const accResult = await this.supabase
       .from('accounts')
       .select('id, code, name, account_type, normal_balance')
       .eq('tenant_id', tenant.tenantId)
       .order('code', { ascending: true });
-    if (accError) throw accError;
-    return (accounts ?? [])
-      .filter((a) => byAccount.has(a.id as string))
+    if (accResult.error) throw accResult.error;
+    const accounts = (accResult.data ?? []) as {
+      id: string;
+      code: string;
+      name: string;
+      account_type: string;
+      normal_balance: 'debit' | 'credit';
+    }[];
+    return accounts
+      .filter((a) => byAccount.has(a.id))
       .map((a) => {
-        const t = byAccount.get(a.id as string)!;
+        const t = byAccount.get(a.id);
         const net = t.debit - t.credit;
         return {
           account_id: a.id,
