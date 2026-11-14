@@ -32,12 +32,14 @@ export class EmployeeGeofencesRepository {
     return data;
   }
 
-  async remove(id: string, tenantId: string) {
-    const { error } = await this.supabase
+  async remove(id: string, tenantId: string, branchId: string | null = null) {
+    let q = this.supabase
       .from('employee_geofences')
       .delete()
       .eq('id', id)
       .eq('tenant_id', tenantId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { error } = await q;
     if (error) throw error;
   }
 

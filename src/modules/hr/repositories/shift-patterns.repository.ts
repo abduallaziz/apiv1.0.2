@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
 const SELECT =
-  'id, tenant_id, name, days_of_week, shifts, day_overrides, created_at, updated_at';
+  'id, tenant_id, branch_id, name, days_of_week, shifts, day_overrides, created_at, updated_at';
 
 @Injectable()
 export class ShiftPatternsRepository {
@@ -11,14 +11,35 @@ export class ShiftPatternsRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  async findAll(tenantId: string) {
-    const { data, error } = await this.supabase
+  async findAll(tenantId: string, branchId: string | null = null) {
+    let q = this.supabase
       .from('shift_patterns')
       .select(SELECT)
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q;
     if (error) throw error;
     return data ?? [];
+  }
+
+  /** Another pattern with the same name (case-insensitive) in the same branch scope. */
+  async nameTaken(
+    tenantId: string,
+    branchId: string | null,
+    name: string,
+    excludeId?: string,
+  ): Promise<boolean> {
+    let q = this.supabase
+      .from('shift_patterns')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .ilike('name', name.replace(/[\\%_]/g, (c) => `\\${c}`));
+    q = branchId ? q.eq('branch_id', branchId) : q.is('branch_id', null);
+    if (excludeId) q = q.neq('id', excludeId);
+    const { data, error } = await q.limit(1);
+    if (error) throw error;
+    return (data ?? []).length > 0;
   }
 
   async findById(id: string, tenantId: string) {

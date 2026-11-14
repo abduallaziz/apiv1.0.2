@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { TenantContext } from '../../../core/tenant/tenant-context';
+import { scopeToBranch } from '../../../core/tenant/branch-scope.util';
 
 const SELECT =
   'id, user_id, branch_id, scheduled_date, start_time, end_time, notes, created_at, users(name)';
@@ -38,6 +39,7 @@ export class SchedulesRepository {
 
     if (filters.userId) q = q.eq('user_id', filters.userId);
     if (filters.branchId) q = q.eq('branch_id', filters.branchId);
+    q = scopeToBranch(q, tenant);
     if (filters.from) q = q.gte('scheduled_date', filters.from);
     if (filters.to) q = q.lte('scheduled_date', filters.to);
 

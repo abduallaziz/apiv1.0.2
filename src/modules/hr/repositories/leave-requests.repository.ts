@@ -92,17 +92,20 @@ export class LeaveRequestsRepository {
     tenantId: string,
     status?: 'pending' | 'approved' | 'rejected',
     userId?: string,
+    branchId: string | null = null,
   ) {
     let query = this.supabase
       .from('leave_requests')
       .select(
-        'id, leave_type, date_from, date_to, days_count, status, reason, created_at, user_id, users!inner(name, job_title, department, deleted_at)',
+        'id, leave_type, date_from, date_to, days_count, status, reason, created_at, user_id, users!inner(name, job_title, department, deleted_at, branch_id)',
       )
       .eq('tenant_id', tenantId)
       .is('users.deleted_at', null)
       .order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
     if (userId) query = query.eq('user_id', userId);
+    // Leave requests follow the employee's branch (no branch column of their own).
+    if (branchId) query = query.eq('users.branch_id', branchId);
     const { data, error } = await query;
     if (error) throw error;
     return data ?? [];

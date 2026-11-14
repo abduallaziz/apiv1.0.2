@@ -6,12 +6,14 @@ import {
 import { LeaveRequestsRepository } from './repositories/leave-requests.repository';
 import { AuditService } from '../../core/audit/audit.service';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { HrBranchService } from './hr-branch.service';
 
 @Injectable()
 export class LeavesService {
   constructor(
     private readonly leaveRequestsRepo: LeaveRequestsRepository,
     private readonly audit: AuditService,
+    private readonly hrBranch: HrBranchService,
   ) {}
 
   findAll(
@@ -23,6 +25,7 @@ export class LeavesService {
       tenant.tenantId,
       status,
       userId,
+      tenant.isolated ? tenant.branchId : null,
     );
   }
 
@@ -32,6 +35,16 @@ export class LeavesService {
     status: 'approved' | 'rejected',
     meta?: { reason?: string; actorId?: string; actorRole?: string },
   ) {
+    if (tenant.isolated) {
+      // A leave request of another branch's employee does not exist from this branch.
+      const scoped = await this.leaveRequestsRepo.findById(id, tenant.tenantId);
+      if (!scoped) throw new NotFoundException('Leave request not found');
+      try {
+        await this.hrBranch.branchOfEmployee(tenant, scoped.user_id);
+      } catch {
+        throw new NotFoundException('Leave request not found');
+      }
+    }
     if (status === 'approved') {
       const current = await this.leaveRequestsRepo.findById(
         id,

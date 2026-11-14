@@ -2,10 +2,12 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { ShiftPatternsRepository } from './repositories/shift-patterns.repository';
 import { SchedulesRepository } from './repositories/schedules.repository';
 import { SchedulesService } from './schedules.service';
+import { HrBranchService } from './hr-branch.service';
 import {
   CreateShiftPatternDto,
   UpdateShiftPatternDto,
@@ -38,26 +40,59 @@ export class ShiftPatternsService {
     private readonly repo: ShiftPatternsRepository,
     private readonly schedulesRepo: SchedulesRepository,
     private readonly schedulesService: SchedulesService,
+    private readonly hrBranch: HrBranchService,
   ) {}
 
   findAll(tenant: TenantContext) {
-    return this.repo.findAll(tenant.tenantId);
+    return this.repo.findAll(
+      tenant.tenantId,
+      tenant.isolated ? tenant.branchId : null,
+    );
   }
 
   async findOne(id: string, tenant: TenantContext) {
     const pattern = await this.repo.findById(id, tenant.tenantId);
-    if (!pattern) throw new NotFoundException('Shift pattern not found');
+    if (
+      !pattern ||
+      (tenant.isolated && pattern.branch_id !== tenant.branchId)
+    ) {
+      throw new NotFoundException('Shift pattern not found');
+    }
     return pattern;
   }
 
-  create(tenant: TenantContext, dto: CreateShiftPatternDto) {
+  private async assertNameFree(
+    tenant: TenantContext,
+    name: string | undefined,
+    excludeId?: string,
+  ) {
+    if (!tenant.isolated || !name) return;
+    const taken = await this.repo.nameTaken(
+      tenant.tenantId as string,
+      tenant.branchId,
+      name,
+      excludeId,
+    );
+    if (taken) {
+      throw new ConflictException(
+        'A shift pattern with this name already exists in this branch',
+      );
+    }
+  }
+
+  async create(tenant: TenantContext, dto: CreateShiftPatternDto) {
     assertValidShifts(dto.shifts);
-    return this.repo.create(tenant.tenantId, dto);
+    await this.assertNameFree(tenant, dto.name);
+    return this.repo.create(tenant.tenantId, {
+      ...dto,
+      ...(tenant.isolated ? { branch_id: tenant.branchId } : {}),
+    });
   }
 
   async update(id: string, tenant: TenantContext, dto: UpdateShiftPatternDto) {
     assertValidShifts(dto.shifts);
     await this.findOne(id, tenant);
+    await this.assertNameFree(tenant, dto.name, id);
     const updated = await this.repo.update(id, tenant.tenantId, dto);
 
     // Propagate the change to everyone assigned to this pattern — this is
@@ -98,6 +133,7 @@ export class ShiftPatternsService {
       );
     }
 
+    await this.hrBranch.assertEmployeesInScope(tenant, dto.user_ids);
     for (const userId of dto.user_ids) {
       const ok = await this.schedulesRepo.userBelongsToTenant(
         userId,

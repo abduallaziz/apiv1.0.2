@@ -8,10 +8,14 @@ import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { BulkCreateScheduleDto } from './dto/bulk-create-schedule.dto';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { HrBranchService } from './hr-branch.service';
 
 @Injectable()
 export class SchedulesService {
-  constructor(private readonly repo: SchedulesRepository) {}
+  constructor(
+    private readonly repo: SchedulesRepository,
+    private readonly hrBranch: HrBranchService,
+  ) {}
 
   findAll(
     tenant: TenantContext,
@@ -22,11 +26,17 @@ export class SchedulesService {
 
   async findOne(id: string, tenant: TenantContext) {
     const schedule = await this.repo.findById(id, tenant.tenantId);
-    if (!schedule) throw new NotFoundException('Schedule not found');
+    if (
+      !schedule ||
+      (tenant.isolated && schedule.branch_id !== tenant.branchId)
+    ) {
+      throw new NotFoundException('Schedule not found');
+    }
     return schedule;
   }
 
   async create(tenant: TenantContext, dto: CreateScheduleDto) {
+    await this.hrBranch.assertEmployeesInScope(tenant, [dto.user_id]);
     const userOk = await this.repo.userBelongsToTenant(
       dto.user_id,
       tenant.tenantId,
@@ -41,12 +51,18 @@ export class SchedulesService {
       if (!branchOk) throw new BadRequestException('Branch not found');
     }
 
-    return this.repo.create(tenant.tenantId, dto);
+    return this.repo.create(tenant.tenantId, {
+      ...dto,
+      ...(tenant.isolated ? { branch_id: tenant.branchId } : {}),
+    });
   }
 
   async update(id: string, tenant: TenantContext, dto: UpdateScheduleDto) {
     await this.findOne(id, tenant);
 
+    if (tenant.isolated && dto.branch_id && dto.branch_id !== tenant.branchId) {
+      throw new BadRequestException('Branch not found');
+    }
     if (dto.branch_id) {
       const branchOk = await this.repo.branchBelongsToTenant(
         dto.branch_id,
@@ -64,6 +80,7 @@ export class SchedulesService {
   }
 
   async bulkCreate(tenant: TenantContext, dto: BulkCreateScheduleDto) {
+    await this.hrBranch.assertEmployeesInScope(tenant, dto.user_ids);
     for (const userId of dto.user_ids) {
       const ok = await this.repo.userBelongsToTenant(userId, tenant.tenantId);
       if (!ok) throw new BadRequestException(`User not found: ${userId}`);
@@ -118,7 +135,9 @@ export class SchedulesService {
     const rows = dto.user_ids.flatMap((user_id) =>
       dateShifts.map((d) => ({
         user_id,
-        branch_id: dto.branch_id,
+        branch_id: tenant.isolated
+          ? (tenant.branchId ?? undefined)
+          : dto.branch_id,
         scheduled_date: d.scheduled_date,
         start_time: d.start_time,
         end_time: d.end_time,
