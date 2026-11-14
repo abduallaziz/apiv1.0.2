@@ -7,6 +7,9 @@ import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
 import {
+  currentBranchId,
+} from '../../../core/branch-scope/branch-warehouse-scope';
+import {
   isUniqueViolation,
   isForeignKeyViolation,
 } from '../../../shared/supabase/postgrest-error.util';
@@ -47,21 +50,20 @@ export class WarehousesRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string): Promise<Warehouse[]> {
-    const { data, error } = await this.scopedQuery(
-      'warehouses',
-      this.ctx(tenantId),
-    ).order('name');
+    let q = this.scopedQuery('warehouses', this.ctx(tenantId));
+    // Branch isolation: only the working branch's warehouses.
+    const branchId = currentBranchId(tenantId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.order('name');
     if (error) throw error;
     return (data ?? []) as Warehouse[];
   }
 
   async findById(id: string, tenantId: string): Promise<Warehouse | null> {
-    const { data, error } = await this.scopedQuery(
-      'warehouses',
-      this.ctx(tenantId),
-    )
-      .eq('id', id)
-      .maybeSingle();
+    let q = this.scopedQuery('warehouses', this.ctx(tenantId)).eq('id', id);
+    const branchId = currentBranchId(tenantId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle();
     if (error) throw error;
     return data as Warehouse | null;
   }

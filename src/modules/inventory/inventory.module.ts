@@ -8,6 +8,7 @@ import { TenantSessionService } from '../../core/tenant/tenant-session.service';
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { ApprovalEngineModule } from '../../engines/approval-engine/approval-engine.module';
 import { ItemsModule } from '../items/items.module';
+import { BranchScopeModule } from '../../core/branch-scope/branch-scope.module';
 
 import { WarehousesController } from './warehouses.controller';
 import { WarehousesService } from './warehouses.service';
@@ -92,6 +93,7 @@ import { ReplenishmentRepository } from './repositories/replenishment.repository
     PermissionsModule,
     ApprovalEngineModule,
     ItemsModule,
+    BranchScopeModule,
   ],
   controllers: [
     WarehousesController,

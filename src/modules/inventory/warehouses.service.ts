@@ -7,6 +7,8 @@ import {
   WarehousesRepository,
   Warehouse,
 } from './repositories/warehouses.repository';
+import { ForbiddenException } from '@nestjs/common';
+import { currentBranchId } from '../../core/branch-scope/branch-warehouse-scope';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 
@@ -25,11 +27,25 @@ export class WarehousesService {
   }
 
   create(tenantId: string, dto: CreateWarehouseDto) {
-    return this.warehousesRepo.create(tenantId, { ...dto });
+    // Isolation: a warehouse is always created in the working branch (a foreign branch is rejected).
+    const branchId = currentBranchId(tenantId);
+    if (branchId && dto.branch_id && dto.branch_id !== branchId) {
+      throw new ForbiddenException(
+        'Warehouses can only be created in the current branch',
+      );
+    }
+    return this.warehousesRepo.create(tenantId, {
+      ...dto,
+      ...(branchId ? { branch_id: branchId } : {}),
+    });
   }
 
   async update(id: string, tenantId: string, dto: UpdateWarehouseDto) {
     await this.findById(id, tenantId);
+    const branchId = currentBranchId(tenantId);
+    if (branchId && dto.branch_id && dto.branch_id !== branchId) {
+      throw new ForbiddenException('A warehouse cannot be moved to another branch');
+    }
     // Deactivating the default warehouse of a branch would silently stop its
     // sales from deducting stock / posting COGS.
     if (dto.is_active === false) {
