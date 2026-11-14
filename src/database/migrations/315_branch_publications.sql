@@ -24,3 +24,8 @@ CREATE INDEX IF NOT EXISTS idx_branch_publications_target
   ON branch_publications (tenant_id, target_branch_id, entity_type);
 
 GRANT ALL PRIVILEGES ON public.branch_publications TO service_role;
+
+-- Not readable/writable through the public API roles (review lesson M-1): only the backend (service_role).
+ALTER TABLE branch_publications ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.branch_publications FROM anon, authenticated, PUBLIC;
+GRANT ALL PRIVILEGES ON public.branch_publications TO service_role;
