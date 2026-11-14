@@ -34,10 +34,7 @@ export class NotePresetsService {
     text: string,
     exceptId?: string,
   ) {
-    const all = (await this.repo.findAll(tenant)) as {
-      id: string;
-      text: string;
-    }[];
+    const all = await this.repo.findAll(tenant);
     const key = text.toLowerCase();
     if (all.some((p) => p.id !== exceptId && p.text.toLowerCase() === key)) {
       throw new ConflictException(
@@ -76,7 +73,7 @@ export class NotePresetsService {
 
   async reorder(tenant: TenantContext, dto: ReorderNotePresetsDto) {
     const all = await this.repo.findAll(tenant);
-    const validIds = new Set(all.map((p: { id: string }) => p.id));
+    const validIds = new Set(all.map((p) => p.id));
     const allBelongToTenant = dto.ids.every((id) => validIds.has(id));
     if (!allBelongToTenant || dto.ids.length !== all.length) {
       throw new BadRequestException(

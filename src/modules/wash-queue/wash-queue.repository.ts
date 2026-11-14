@@ -41,17 +41,19 @@ export class WashQueueRepository {
     workerId: string | null;
     notes: string | null;
   }): Promise<WashJob> {
-    const { data, error } = await this.supabase.rpc('fn_create_wash_job', {
-      p_tenant_id: p.tenantId,
-      p_branch_id: p.branchId,
-      p_actor_id: p.actorId,
-      p_plate: p.plate,
-      p_vehicle_size: p.vehicleSize,
-      p_order_id: p.orderId,
-      p_customer_id: p.customerId,
-      p_worker_id: p.workerId,
-      p_notes: p.notes,
-    });
+    const { data, error } = await this.supabase
+      .rpc('fn_create_wash_job', {
+        p_tenant_id: p.tenantId,
+        p_branch_id: p.branchId,
+        p_actor_id: p.actorId,
+        p_plate: p.plate,
+        p_vehicle_size: p.vehicleSize,
+        p_order_id: p.orderId,
+        p_customer_id: p.customerId,
+        p_worker_id: p.workerId,
+        p_notes: p.notes,
+      })
+      .returns<WashJob>();
     if (error) throw error;
     return data as WashJob;
   }
@@ -63,13 +65,15 @@ export class WashQueueRepository {
     actorId: string,
     allowRewash: boolean,
   ): Promise<WashJob> {
-    const { data, error } = await this.supabase.rpc('fn_wash_job_transition', {
-      p_tenant_id: tenantId,
-      p_job_id: jobId,
-      p_to: to,
-      p_actor_id: actorId,
-      p_allow_rewash: allowRewash,
-    });
+    const { data, error } = await this.supabase
+      .rpc('fn_wash_job_transition', {
+        p_tenant_id: tenantId,
+        p_job_id: jobId,
+        p_to: to,
+        p_actor_id: actorId,
+        p_allow_rewash: allowRewash,
+      })
+      .returns<WashJob>();
     if (error) throw error;
     return data as WashJob;
   }
@@ -80,12 +84,14 @@ export class WashQueueRepository {
     workerId: string | null,
     actorId: string,
   ): Promise<WashJob> {
-    const { data, error } = await this.supabase.rpc('fn_wash_job_assign', {
-      p_tenant_id: tenantId,
-      p_job_id: jobId,
-      p_worker_id: workerId,
-      p_actor_id: actorId,
-    });
+    const { data, error } = await this.supabase
+      .rpc('fn_wash_job_assign', {
+        p_tenant_id: tenantId,
+        p_job_id: jobId,
+        p_worker_id: workerId,
+        p_actor_id: actorId,
+      })
+      .returns<WashJob>();
     if (error) throw error;
     return data as WashJob;
   }
@@ -169,9 +175,9 @@ export class WashQueueRepository {
       .eq('id', jobId)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
-      .maybeSingle();
+      .maybeSingle<WashJob>();
     if (error) throw error;
-    return (data as WashJob | null) ?? null;
+    return data;
   }
 
   async listEvents(tenantId: string, jobId: string) {
@@ -181,7 +187,8 @@ export class WashQueueRepository {
       .eq('tenant_id', tenantId)
       .eq('job_id', jobId)
       .is('deleted_at', null)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
+      .returns<Record<string, unknown>[]>();
     if (error) throw error;
     return data ?? [];
   }

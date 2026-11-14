@@ -44,6 +44,8 @@ describe('DineInService.checkout customer ownership (P1 isolation)', () => {
       svc.checkout(tenant, 'tbl', dto, 'u', 'cashier', 'ip', 'dev'),
     ).rejects.toThrow(/already checked out/);
     expect(dineInRepo.checkoutAtomic).toHaveBeenCalled();
-    expect(dineInRepo.checkoutAtomic.mock.calls[0][6]).toBe('shift-1');
+    expect((dineInRepo.checkoutAtomic.mock.calls[0] as unknown[])[6]).toBe(
+      'shift-1',
+    );
   });
 });

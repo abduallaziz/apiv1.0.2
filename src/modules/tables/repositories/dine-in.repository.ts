@@ -117,7 +117,7 @@ export class DineInRepository {
       .eq('status', 'open')
       .is('deleted_at', null)
       .limit(1)
-      .maybeSingle();
+      .maybeSingle<{ id: string }>();
     return data?.id ?? null;
   }
 
