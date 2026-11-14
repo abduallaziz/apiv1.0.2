@@ -10,7 +10,9 @@ describe('DineInService.checkout customer ownership (P1 isolation)', () => {
       checkoutAtomic: jest.fn().mockResolvedValue(null),
     };
     const svc = new DineInService(
-      {} as never, dineInRepo as never, {} as never, {} as never,
+      {} as never, dineInRepo as never,
+      { getInvoiceNumberFormat: jest.fn().mockResolvedValue({ prefix: 'INV-', padding: 6 }) } as never,
+      {} as never,
       {} as never, {} as never, {} as never, {} as never,
     );
     return { svc, dineInRepo };

@@ -157,6 +157,42 @@ export class DineInService {
     };
   }
 
+  /** Frees a table opened by mistake (only while its order has no items). */
+  async releaseTable(
+    tenant: TenantContext,
+    tableId: string,
+    userId: string,
+    actorRole: string,
+  ) {
+    const table = await this.tablesRepo.findById(tableId, tenant.tenantId);
+    if (!table) throw new NotFoundException('Table not found');
+    const result = await this.dineInRepo.releaseEmptyTable(
+      tenant,
+      tableId,
+      userId,
+    );
+    if (result === 'no_open_order') {
+      throw new NotFoundException('No open order for this table');
+    }
+    if (result === 'has_items') {
+      throw new BadRequestException(
+        'Table has items ordered — check it out instead of releasing it',
+      );
+    }
+    await this.auditService.log({
+      tenant_id: tenant.tenantId,
+      actor_id: userId,
+      actor_role: actorRole,
+      action: 'dine_in.release',
+      resource_type: 'table',
+      resource_id: tableId,
+      branch_id: table.branch_id,
+      ip_address: '',
+      device: '',
+    });
+    return { table_id: tableId, status: 'available' };
+  }
+
   async getCurrentOrder(tenant: TenantContext, tableId: string) {
     const order = await this.dineInRepo.findOpenOrderByTable(
       tenant.tenantId,
@@ -221,12 +257,17 @@ export class DineInService {
 
     // ذرّي عبر fn_checkout_dine_in_table — إنهاء الطلب وتحرير الطاولة بمعاملة واحدة،
     // بدل خطوتين منفصلتين قد تتباعدان لو فشلت الثانية بعد نجاح الأولى.
-    const finalized = await this.dineInRepo.checkoutAtomic(
+    const numberFormat = await this.invoicesRepo.getInvoiceNumberFormat(
       tenant.tenantId,
+      order.branch_id,
+    );
+    const finalized = await this.dineInRepo.checkoutAtomic(
+      tenant,
       order.id,
       tableId,
       dto.payment_method,
       dto.customer_id ?? null,
+      numberFormat,
     );
     if (!finalized) {
       throw new BadRequestException(
@@ -276,6 +317,11 @@ export class DineInService {
         });
     }
 
-    return { id: order.id, total: order.total, status: 'completed' };
+    return {
+      id: order.id,
+      invoice_no: finalized.invoice_no,
+      total: order.total,
+      status: 'completed',
+    };
   }
 }

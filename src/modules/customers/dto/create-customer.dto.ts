@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
 } from 'class-validator';
 
@@ -16,6 +17,9 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @Matches(/^(\+?\d[\d\s-]{5,18}\d)?$/, {
+    message: 'phone must be a valid phone number (7-20 digits)',
+  })
   phone?: string;
 
   @IsOptional()

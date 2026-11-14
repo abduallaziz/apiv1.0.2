@@ -1,11 +1,14 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
+import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
+import { TenantContext } from '../../../core/tenant/tenant-context';
 
 @Injectable()
 export class DineInRepository {
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly tenantSession: TenantSessionService,
   ) {}
 
   async findOpenOrderByTable(tenantId: string, tableId: string) {
@@ -47,7 +50,6 @@ export class DineInRepository {
     return data?.[0] ?? null;
   }
 
-  /** Atomic via fn_checkout_dine_in_table — finalizes the order and frees the table in one transaction. */
   /** True only if the customer exists in this tenant (not soft-deleted). */
   async customerBelongsToTenant(
     tenantId: string,
@@ -64,25 +66,75 @@ export class DineInRepository {
     return !!data;
   }
 
+  /**
+   * Finalizes the order + frees the table via fn_checkout_dine_in_table AND takes
+   * the sequential legal invoice number (fn_next_invoice_no) in ONE transaction,
+   * exactly like the POS path: a failure rolls the counter back (no gaps) and
+   * concurrent checkouts are serialised by the counter's row lock (no duplicates).
+   */
   async checkoutAtomic(
-    tenantId: string,
+    tenant: TenantContext,
     orderId: string,
     tableId: string,
     paymentMethod: string,
     customerId: string | null,
-  ) {
-    const { data, error } = await this.supabase.rpc(
-      'fn_checkout_dine_in_table',
-      {
-        p_tenant_id: tenantId,
-        p_order_id: orderId,
-        p_table_id: tableId,
-        p_payment_method: paymentMethod,
-        p_customer_id: customerId,
-      },
-    );
-    if (error) throw error;
-    return data?.[0] ?? null;
+    invoiceNumber: { prefix: string; padding: number },
+  ): Promise<{ id: string; invoice_no: string } | null> {
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const done = await client.query<{ id: string }>(
+        'SELECT id FROM fn_checkout_dine_in_table($1, $2, $3, $4, $5)',
+        [tenant.tenantId, orderId, tableId, paymentMethod, customerId],
+      );
+      if (done.rows.length === 0) return null;
+      const n = await client.query<{ no: string }>(
+        'SELECT fn_next_invoice_no($1, $2, $3) AS no',
+        [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding],
+      );
+      const invoiceNo = n.rows[0].no;
+      await client.query(
+        'UPDATE orders SET invoice_no = $3 WHERE id = $1 AND tenant_id = $2',
+        [orderId, tenant.tenantId, invoiceNo],
+      );
+      return { id: orderId, invoice_no: invoiceNo };
+    });
+  }
+
+  /**
+   * Releases a table that was opened by mistake: cancels its still-EMPTY pending
+   * order and frees the table in one transaction. Returns false if there is no
+   * open order, or the order already has items (then it must be checked out).
+   */
+  async releaseEmptyTable(
+    tenant: TenantContext,
+    tableId: string,
+    cancelledBy: string,
+  ): Promise<'released' | 'no_open_order' | 'has_items'> {
+    return this.tenantSession.runInTenantContext(tenant, async (client) => {
+      const o = await client.query<{ id: string }>(
+        `SELECT id FROM orders
+          WHERE tenant_id = $1 AND table_id = $2 AND status = 'pending'
+          FOR UPDATE`,
+        [tenant.tenantId, tableId],
+      );
+      if (o.rows.length === 0) return 'no_open_order';
+      const orderId = o.rows[0].id;
+      const items = await client.query(
+        'SELECT 1 FROM order_items WHERE order_id = $1 AND deleted_at IS NULL LIMIT 1',
+        [orderId],
+      );
+      if (items.rows.length > 0) return 'has_items';
+      await client.query(
+        `UPDATE orders SET status = 'cancelled', cancelled_at = now(),
+                cancelled_by = $3, cancel_reason = 'Table released (opened by mistake)'
+          WHERE id = $1 AND tenant_id = $2`,
+        [orderId, tenant.tenantId, cancelledBy],
+      );
+      await client.query(
+        `UPDATE tables SET status = 'available' WHERE id = $1 AND tenant_id = $2`,
+        [tableId, tenant.tenantId],
+      );
+      return 'released';
+    });
   }
 
   async insertItems(

@@ -3,6 +3,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   IsBoolean,
 } from 'class-validator';
@@ -16,6 +17,9 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @Matches(/^(\+?\d[\d\s-]{5,18}\d)?$/, {
+    message: 'phone must be a valid phone number (7-20 digits)',
+  })
   phone?: string;
 
   @IsOptional()

@@ -36,6 +36,17 @@ export class DineInController {
     return this.service.openTable(tenant, id, user.sub);
   }
 
+  @Post('release')
+  @RequirePermission('tables.manage')
+  release(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+    @Req() req: Request,
+  ) {
+    const user = req.user as { sub: string; role: string };
+    return this.service.releaseTable(tenant, id, user.sub, user.role);
+  }
+
   @Post('items')
   @RequirePermission('tables.manage')
   addItems(
