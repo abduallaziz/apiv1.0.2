@@ -50,7 +50,7 @@ export class PdfRendererService implements OnModuleDestroy {
 
   private async getBrowser(): Promise<Browser> {
     if (this.browser?.connected) return this.browser;
-    if (!this.launching) {
+    if (this.launching === null) {
       const executablePath = this.resolveExecutable();
       if (!executablePath) {
         throw new ServiceUnavailableException(
