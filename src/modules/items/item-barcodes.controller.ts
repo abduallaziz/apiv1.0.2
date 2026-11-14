@@ -26,6 +26,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { isolatedBranchId } from '../../core/tenant/branch-scope-id.util';
 import type { Express } from 'express';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
@@ -40,7 +41,12 @@ export class ItemBarcodesController {
     @Query('item_id') itemId?: string,
     @Query('variant_id') variantId?: string,
   ) {
-    return this.barcodesService.findAll(tenant.tenantId, itemId, variantId);
+    return this.barcodesService.findAll(
+      tenant.tenantId,
+      itemId,
+      variantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   // Must be registered before ':id' — otherwise Nest would route
@@ -51,13 +57,21 @@ export class ItemBarcodesController {
     @Param('barcode') barcode: string,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.barcodesService.lookup(barcode, tenant.tenantId);
+    return this.barcodesService.lookup(
+      barcode,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Get(':id')
   @RequirePermission('items.view')
   findOne(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.barcodesService.findById(id, tenant.tenantId);
+    return this.barcodesService.findById(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   // Printable barcode label — item name (+ variant, if any), the barcode
@@ -69,7 +83,11 @@ export class ItemBarcodesController {
     @GetTenant() tenant: TenantContext,
     @Res() res: Response,
   ) {
-    const svg = await this.barcodesService.renderLabel(id, tenant.tenantId);
+    const svg = await this.barcodesService.renderLabel(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
     res.setHeader('Content-Type', 'image/svg+xml');
     res.setHeader(
       'Content-Disposition',
@@ -84,7 +102,11 @@ export class ItemBarcodesController {
     @Body() dto: CreateItemBarcodeDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.barcodesService.create(tenant.tenantId, dto);
+    return this.barcodesService.create(
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   // CSV only — parsing real .xlsx binary would need a new dependency
@@ -104,6 +126,7 @@ export class ItemBarcodesController {
     return this.barcodesService.importFromCsv(
       tenant.tenantId,
       file.buffer.toString('utf-8'),
+      isolatedBranchId(tenant),
     );
   }
 
@@ -114,13 +137,22 @@ export class ItemBarcodesController {
     @Body() dto: UpdateItemBarcodeDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.barcodesService.update(id, tenant.tenantId, dto);
+    return this.barcodesService.update(
+      id,
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Delete(':id')
   @RequirePermission('items.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.barcodesService.remove(id, tenant.tenantId);
+    return this.barcodesService.remove(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 }

@@ -19,6 +19,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { isolatedBranchId } from '../../core/tenant/branch-scope-id.util';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('brands')
@@ -28,19 +29,30 @@ export class BrandsController {
   @Get()
   @RequirePermission('items.view')
   findAll(@GetTenant() tenant: TenantContext) {
-    return this.brandsService.findAll(tenant.tenantId);
+    return this.brandsService.findAll(
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Get(':id')
   @RequirePermission('items.view')
   findOne(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.brandsService.findById(id, tenant.tenantId);
+    return this.brandsService.findById(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Post()
   @RequirePermission('items.manage')
   create(@Body() dto: CreateBrandDto, @GetTenant() tenant: TenantContext) {
-    return this.brandsService.create(tenant.tenantId, dto);
+    return this.brandsService.create(
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Patch(':id')
@@ -50,13 +62,22 @@ export class BrandsController {
     @Body() dto: UpdateBrandDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.brandsService.update(id, tenant.tenantId, dto);
+    return this.brandsService.update(
+      id,
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Delete(':id')
   @RequirePermission('items.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.brandsService.remove(id, tenant.tenantId);
+    return this.brandsService.remove(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 }

@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
+import {
+  branchStamp,
+  withBranch,
+} from '../../../core/tenant/branch-scope-id.util';
 
 @Injectable()
 export class ItemAttributesRepository extends ScopedRepository {
@@ -15,10 +19,10 @@ export class ItemAttributesRepository extends ScopedRepository {
 
   // -- Attribute definitions ------------------------------------------------
 
-  async findAllAttributes(tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'item_attributes',
-      this.ctx(tenantId),
+  async findAllAttributes(tenantId: string, branchId?: string | null) {
+    const { data, error } = await withBranch(
+      this.scopedQuery('item_attributes', this.ctx(tenantId)),
+      branchId,
     )
       .select('id, name, is_active, created_at')
       .is('deleted_at', null)
@@ -27,10 +31,14 @@ export class ItemAttributesRepository extends ScopedRepository {
     return data;
   }
 
-  async findAttributeById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'item_attributes',
-      this.ctx(tenantId),
+  async findAttributeById(
+    id: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    const { data, error } = await withBranch(
+      this.scopedQuery('item_attributes', this.ctx(tenantId)),
+      branchId,
     )
       .select('id, name, is_active, created_at')
       .eq('id', id)
@@ -40,10 +48,14 @@ export class ItemAttributesRepository extends ScopedRepository {
     return data;
   }
 
-  async createAttribute(tenantId: string, payload: Record<string, unknown>) {
+  async createAttribute(
+    tenantId: string,
+    payload: Record<string, unknown>,
+    branchId?: string | null,
+  ) {
     const { data, error } = await this.supabase
       .from('item_attributes')
-      .insert({ ...payload, tenant_id: tenantId })
+      .insert({ ...payload, tenant_id: tenantId, ...branchStamp(branchId) })
       .select()
       .single();
     if (error) throw error;
@@ -150,6 +162,35 @@ export class ItemAttributesRepository extends ScopedRepository {
   }
 
   // -- Variant assignments ----------------------------------------------------
+
+  /** True when the variant exists in the tenant (and, under isolation, in the branch). */
+  async variantInScope(
+    variantId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ): Promise<boolean> {
+    const { data, error } = await withBranch(
+      this.supabase
+        .from('item_variants')
+        .select('id')
+        .eq('id', variantId)
+        .eq('tenant_id', tenantId),
+      branchId,
+    ).maybeSingle();
+    if (error) throw error;
+    return !!data;
+  }
+
+  async findAssignmentById(id: string, tenantId: string) {
+    const { data, error } = await this.supabase
+      .from('item_variant_attribute_values')
+      .select('id, item_variant_id')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error) throw error;
+    return data as { id: string; item_variant_id: string } | null;
+  }
 
   async findAssignmentsForVariant(variantId: string, tenantId: string) {
     const { data, error } = await this.supabase

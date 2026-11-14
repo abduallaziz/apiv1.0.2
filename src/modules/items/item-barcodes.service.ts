@@ -65,12 +65,17 @@ export class ItemBarcodesService {
     }
   }
 
-  async findAll(tenantId: string, itemId?: string, variantId?: string) {
-    return this.barcodesRepo.findAll(tenantId, itemId, variantId);
+  async findAll(
+    tenantId: string,
+    itemId?: string,
+    variantId?: string,
+    branchId?: string | null,
+  ) {
+    return this.barcodesRepo.findAll(tenantId, itemId, variantId, branchId);
   }
 
-  async findById(id: string, tenantId: string) {
-    const barcode = await this.barcodesRepo.findById(id, tenantId);
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    const barcode = await this.barcodesRepo.findById(id, tenantId, branchId);
     if (!barcode) throw new NotFoundException('Barcode not found');
     return barcode;
   }
@@ -78,10 +83,18 @@ export class ItemBarcodesService {
   // Read/render only — no writes, no new validation rules. Reuses the same
   // item/variant lookups already used by create()/update() rather than a
   // new joined query.
-  async renderLabel(id: string, tenantId: string): Promise<string> {
-    const barcode = await this.findById(id, tenantId); // 404s if not found or wrong tenant
+  async renderLabel(
+    id: string,
+    tenantId: string,
+    branchId?: string | null,
+  ): Promise<string> {
+    const barcode = await this.findById(id, tenantId, branchId); // 404s if not found, wrong tenant or other branch
 
-    const item = await this.itemsRepo.findById(barcode.item_id, tenantId);
+    const item = await this.itemsRepo.findById(
+      barcode.item_id,
+      tenantId,
+      branchId,
+    );
     if (!item) throw new NotFoundException('Item not found for this barcode');
 
     let variantName: string | null = null;
@@ -104,15 +117,24 @@ export class ItemBarcodesService {
     });
   }
 
-  async lookup(barcode: string, tenantId: string) {
-    const result = await this.barcodesRepo.lookupByBarcode(barcode, tenantId);
+  async lookup(barcode: string, tenantId: string, branchId?: string | null) {
+    const result = await this.barcodesRepo.lookupByBarcode(
+      barcode,
+      tenantId,
+      branchId,
+    );
     if (!result)
       throw new NotFoundException('No item is linked to this barcode');
     return result;
   }
 
-  async create(tenantId: string, dto: CreateItemBarcodeDto) {
-    const item = await this.itemsRepo.findById(dto.item_id, tenantId);
+  async create(
+    tenantId: string,
+    dto: CreateItemBarcodeDto,
+    branchId?: string | null,
+  ) {
+    // Under isolation findById(.., branchId) 404s for another branch's item.
+    const item = await this.itemsRepo.findById(dto.item_id, tenantId, branchId);
     if (!item) throw new NotFoundException('Item not found');
 
     if (dto.variant_id) {
@@ -142,7 +164,7 @@ export class ItemBarcodesService {
     }
 
     try {
-      return await this.barcodesRepo.create(tenantId, { ...dto });
+      return await this.barcodesRepo.create(tenantId, { ...dto }, branchId);
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConflictException(
@@ -153,8 +175,13 @@ export class ItemBarcodesService {
     }
   }
 
-  async update(id: string, tenantId: string, dto: UpdateItemBarcodeDto) {
-    const existing = await this.findById(id, tenantId);
+  async update(
+    id: string,
+    tenantId: string,
+    dto: UpdateItemBarcodeDto,
+    branchId?: string | null,
+  ) {
+    const existing = await this.findById(id, tenantId, branchId);
 
     if (dto.variant_id !== undefined && dto.variant_id !== null) {
       const variants = await this.itemsRepo.findVariants(
@@ -197,8 +224,8 @@ export class ItemBarcodesService {
     }
   }
 
-  async remove(id: string, tenantId: string) {
-    await this.findById(id, tenantId);
+  async remove(id: string, tenantId: string, branchId?: string | null) {
+    await this.findById(id, tenantId, branchId);
     await this.barcodesRepo.delete(id, tenantId);
   }
 
@@ -214,6 +241,7 @@ export class ItemBarcodesService {
     tenantId: string,
     itemId: string,
     variantId: string | null,
+    branchId?: string | null,
   ) {
     const alreadyHasPrimary = await this.barcodesRepo.hasPrimaryForItem(
       tenantId,
@@ -222,16 +250,20 @@ export class ItemBarcodesService {
     );
 
     for (let attempt = 0; attempt < MAX_GENERATE_ATTEMPTS; attempt++) {
-      const seq = await this.barcodesRepo.nextSequence(tenantId);
+      const seq = await this.barcodesRepo.nextSequence(tenantId, branchId);
       const barcode = generateEan13ForTenant(tenantId, seq);
       try {
-        return await this.barcodesRepo.create(tenantId, {
-          item_id: itemId,
-          variant_id: variantId,
-          barcode,
-          barcode_type: 'EAN',
-          is_primary: !alreadyHasPrimary,
-        });
+        return await this.barcodesRepo.create(
+          tenantId,
+          {
+            item_id: itemId,
+            variant_id: variantId,
+            barcode,
+            barcode_type: 'EAN',
+            is_primary: !alreadyHasPrimary,
+          },
+          branchId,
+        );
       } catch (error) {
         if (isUniqueViolation(error)) {
           continue; // extremely rare tenant-hash/sequence collision — retry with next seq
@@ -252,6 +284,7 @@ export class ItemBarcodesService {
   async importFromCsv(
     tenantId: string,
     fileContent: string,
+    branchId?: string | null,
   ): Promise<{ results: ImportRowResult[]; created: number; errors: number }> {
     const rows = parseCsv(fileContent);
     const results: ImportRowResult[] = [];
@@ -286,13 +319,17 @@ export class ItemBarcodesService {
       }
 
       try {
-        const created = await this.create(tenantId, {
-          item_id: itemId,
-          variant_id: row['variant_id'] || undefined,
-          barcode,
-          barcode_type: (barcodeType as BarcodeType) || undefined,
-          is_primary: row['is_primary']?.toLowerCase() === 'true',
-        });
+        const created = await this.create(
+          tenantId,
+          {
+            item_id: itemId,
+            variant_id: row['variant_id'] || undefined,
+            barcode,
+            barcode_type: (barcodeType as BarcodeType) || undefined,
+            is_primary: row['is_primary']?.toLowerCase() === 'true',
+          },
+          branchId,
+        );
         results.push({
           row: rowNum,
           status: 'created',

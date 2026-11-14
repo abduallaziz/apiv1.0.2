@@ -22,6 +22,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { isolatedBranchId } from '../../core/tenant/branch-scope-id.util';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('item-attributes')
@@ -31,13 +32,20 @@ export class ItemAttributesController {
   @Get()
   @RequirePermission('items.view')
   findAll(@GetTenant() tenant: TenantContext) {
-    return this.attributesService.findAllAttributes(tenant.tenantId);
+    return this.attributesService.findAllAttributes(
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Get(':id')
   @RequirePermission('items.view')
   findOne(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.attributesService.findAttributeById(id, tenant.tenantId);
+    return this.attributesService.findAttributeById(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   // Must be registered before the value-scoped route below to avoid a
@@ -46,7 +54,11 @@ export class ItemAttributesController {
   @Get(':id/values')
   @RequirePermission('items.view')
   findValues(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.attributesService.findValues(id, tenant.tenantId);
+    return this.attributesService.findValues(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Post()
@@ -55,7 +67,11 @@ export class ItemAttributesController {
     @Body() dto: CreateItemAttributeDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.attributesService.createAttribute(tenant.tenantId, dto);
+    return this.attributesService.createAttribute(
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Patch(':id')
@@ -65,14 +81,23 @@ export class ItemAttributesController {
     @Body() dto: UpdateItemAttributeDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.attributesService.updateAttribute(id, tenant.tenantId, dto);
+    return this.attributesService.updateAttribute(
+      id,
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Delete(':id')
   @RequirePermission('items.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.attributesService.removeAttribute(id, tenant.tenantId);
+    return this.attributesService.removeAttribute(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   // -- Values (top-level, not nested under /item-attributes/:id) --------------
@@ -85,7 +110,11 @@ export class ItemAttributesController {
     @Body() dto: CreateItemAttributeValueDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.attributesService.createValue(tenant.tenantId, dto);
+    return this.attributesService.createValue(
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Patch('values/:id')
@@ -95,14 +124,23 @@ export class ItemAttributesController {
     @Body() dto: UpdateItemAttributeValueDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.attributesService.updateValue(id, tenant.tenantId, dto);
+    return this.attributesService.updateValue(
+      id,
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Delete('values/:id')
   @RequirePermission('items.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   removeValue(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.attributesService.removeValue(id, tenant.tenantId);
+    return this.attributesService.removeValue(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   // -- Variant assignments ------------------------------------------------------
@@ -116,6 +154,7 @@ export class ItemAttributesController {
     return this.attributesService.findAssignmentsForVariant(
       variantId,
       tenant.tenantId,
+      isolatedBranchId(tenant),
     );
   }
 
@@ -125,7 +164,11 @@ export class ItemAttributesController {
     @Body() dto: AssignVariantAttributeDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.attributesService.assignToVariant(tenant.tenantId, dto);
+    return this.attributesService.assignToVariant(
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Delete('variant-assignments/:id')
@@ -135,6 +178,10 @@ export class ItemAttributesController {
     @Param('id') id: string,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.attributesService.removeAssignment(id, tenant.tenantId);
+    return this.attributesService.removeAssignment(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 }

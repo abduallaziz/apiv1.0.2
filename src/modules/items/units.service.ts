@@ -7,27 +7,32 @@ import { UpdateUnitDto } from './dto/update-unit.dto';
 export class UnitsService {
   constructor(private readonly unitsRepo: UnitsRepository) {}
 
-  async findAll(tenantId: string) {
-    return this.unitsRepo.findAll(tenantId);
+  async findAll(tenantId: string, branchId?: string | null) {
+    return this.unitsRepo.findAll(tenantId, branchId);
   }
 
-  async findById(id: string, tenantId: string) {
-    const unit = await this.unitsRepo.findById(id, tenantId);
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    const unit = await this.unitsRepo.findById(id, tenantId, branchId);
     if (!unit) throw new NotFoundException('Unit not found');
     return unit;
   }
 
-  async create(tenantId: string, dto: CreateUnitDto) {
-    return this.unitsRepo.create(tenantId, { ...dto });
+  async create(tenantId: string, dto: CreateUnitDto, branchId?: string | null) {
+    return this.unitsRepo.create(tenantId, { ...dto }, branchId);
   }
 
-  async update(id: string, tenantId: string, dto: UpdateUnitDto) {
-    await this.findById(id, tenantId);
+  async update(
+    id: string,
+    tenantId: string,
+    dto: UpdateUnitDto,
+    branchId?: string | null,
+  ) {
+    await this.findById(id, tenantId, branchId);
     return this.unitsRepo.update(id, tenantId, { ...dto });
   }
 
-  async remove(id: string, tenantId: string) {
-    await this.findById(id, tenantId);
+  async remove(id: string, tenantId: string, branchId?: string | null) {
+    await this.findById(id, tenantId, branchId);
     // No FK from `items` to `units` yet (deliberate — see migration 093 note),
     // so there's nothing to guard against being linked yet.
     await this.unitsRepo.softDelete(id, tenantId);

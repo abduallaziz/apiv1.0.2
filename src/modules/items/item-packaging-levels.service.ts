@@ -17,20 +17,38 @@ export class ItemPackagingLevelsService {
     private readonly itemsRepo: ItemsRepository,
   ) {}
 
-  async findAllForItem(itemId: string, tenantId: string) {
-    const item = await this.itemsRepo.findById(itemId, tenantId);
+  // Packaging levels have no branch column: they inherit it from their item, so under
+  // isolation every access first proves the item belongs to the branch (404 otherwise).
+  async findAllForItem(
+    itemId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    const item = await this.itemsRepo.findById(itemId, tenantId, branchId);
     if (!item) throw new NotFoundException('Item not found');
     return this.packagingRepo.findAllForItem(itemId, tenantId);
   }
 
-  async findById(id: string, tenantId: string) {
+  async findById(id: string, tenantId: string, branchId?: string | null) {
     const level = await this.packagingRepo.findById(id, tenantId);
     if (!level) throw new NotFoundException('Packaging level not found');
+    if (branchId) {
+      const item = await this.itemsRepo.findById(
+        level.item_id,
+        tenantId,
+        branchId,
+      );
+      if (!item) throw new NotFoundException('Packaging level not found');
+    }
     return level;
   }
 
-  async create(tenantId: string, dto: CreatePackagingLevelDto) {
-    const item = await this.itemsRepo.findById(dto.item_id, tenantId);
+  async create(
+    tenantId: string,
+    dto: CreatePackagingLevelDto,
+    branchId?: string | null,
+  ) {
+    const item = await this.itemsRepo.findById(dto.item_id, tenantId, branchId);
     if (!item) throw new NotFoundException('Item not found');
 
     if (dto.parent_level_id) {
@@ -91,8 +109,13 @@ export class ItemPackagingLevelsService {
     }
   }
 
-  async update(id: string, tenantId: string, dto: UpdatePackagingLevelDto) {
-    const existing = await this.findById(id, tenantId);
+  async update(
+    id: string,
+    tenantId: string,
+    dto: UpdatePackagingLevelDto,
+    branchId?: string | null,
+  ) {
+    const existing = await this.findById(id, tenantId, branchId);
 
     if (dto.quantity_in_parent !== undefined) {
       if (existing.parent_level_id === null) {
@@ -124,8 +147,8 @@ export class ItemPackagingLevelsService {
   // silent multi-row cascade from a single DELETE is exactly the kind of
   // surprise this service layer exists to prevent for a user-triggered
   // action).
-  async remove(id: string, tenantId: string) {
-    await this.findById(id, tenantId);
+  async remove(id: string, tenantId: string, branchId?: string | null) {
+    await this.findById(id, tenantId, branchId);
 
     const [hasChildren, hasBarcodes] = await Promise.all([
       this.packagingRepo.hasChildren(id, tenantId),

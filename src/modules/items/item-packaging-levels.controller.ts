@@ -21,6 +21,7 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { isolatedBranchId } from '../../core/tenant/branch-scope-id.util';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('item-packaging-levels')
@@ -36,13 +37,21 @@ export class ItemPackagingLevelsController {
     if (!itemId) {
       throw new BadRequestException('item_id query parameter is required');
     }
-    return this.packagingService.findAllForItem(itemId, tenant.tenantId);
+    return this.packagingService.findAllForItem(
+      itemId,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Get(':id')
   @RequirePermission('items.view')
   findOne(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.packagingService.findById(id, tenant.tenantId);
+    return this.packagingService.findById(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 
   // Preview endpoint the UI calls while a user is defining a hierarchy — no
@@ -70,7 +79,11 @@ export class ItemPackagingLevelsController {
     @Body() dto: CreatePackagingLevelDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.packagingService.create(tenant.tenantId, dto);
+    return this.packagingService.create(
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Patch(':id')
@@ -80,13 +93,22 @@ export class ItemPackagingLevelsController {
     @Body() dto: UpdatePackagingLevelDto,
     @GetTenant() tenant: TenantContext,
   ) {
-    return this.packagingService.update(id, tenant.tenantId, dto);
+    return this.packagingService.update(
+      id,
+      tenant.tenantId,
+      dto,
+      isolatedBranchId(tenant),
+    );
   }
 
   @Delete(':id')
   @RequirePermission('items.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @GetTenant() tenant: TenantContext) {
-    return this.packagingService.remove(id, tenant.tenantId);
+    return this.packagingService.remove(
+      id,
+      tenant.tenantId,
+      isolatedBranchId(tenant),
+    );
   }
 }

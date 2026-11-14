@@ -4,6 +4,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 import { QueryItemsDto, ITEM_SORT_COLUMNS } from '../dto/query-items.dto';
+import {
+  branchStamp,
+  withBranch,
+} from '../../../core/tenant/branch-scope-id.util';
 
 /** Escapes LIKE wildcards (and the escape char itself) in user input. */
 export function escapeLike(value: string): string {
@@ -42,6 +46,7 @@ export class ItemsRepository extends ScopedRepository {
     tenantId: string,
     pagination: PaginationDto = new PaginationDto(),
     query: QueryItemsDto = new QueryItemsDto(),
+    branchId?: string | null,
   ): Promise<{ data: unknown[]; total: number }> {
     const [from, to] = pagination.range;
     // Built directly from .from() (not scopedQuery) — chaining a second
@@ -57,6 +62,7 @@ export class ItemsRepository extends ScopedRepository {
       )
       .is('deleted_at', null)
       .eq('tenant_id', tenantId);
+    q = withBranch(q, branchId);
 
     // Tri-state, default 'true' — matches the previously-hardcoded
     // .eq('is_active', true), so a caller sending nothing keeps the exact
@@ -72,7 +78,11 @@ export class ItemsRepository extends ScopedRepository {
       // Name or SKU or (exact-ish) barcode. LIKE wildcards typed by the user
       // are escaped so "%" / "_" are searched literally.
       const pattern = quoteForOrFilter(`%${escapeLike(term)}%`);
-      const barcodeItemIds = await this.findItemIdsByBarcode(tenantId, term);
+      const barcodeItemIds = await this.findItemIdsByBarcode(
+        tenantId,
+        term,
+        branchId,
+      );
       const clauses = [`name.ilike.${pattern}`, `sku.ilike.${pattern}`];
       if (barcodeItemIds.length > 0) {
         clauses.push(`id.in.(${barcodeItemIds.join(',')})`);
@@ -109,12 +119,16 @@ export class ItemsRepository extends ScopedRepository {
   private async findItemIdsByBarcode(
     tenantId: string,
     term: string,
+    branchId?: string | null,
   ): Promise<string[]> {
-    const { data, error } = await this.supabase
-      .from('item_barcodes')
-      .select('item_id')
-      .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
+    const { data, error } = await withBranch(
+      this.supabase
+        .from('item_barcodes')
+        .select('item_id')
+        .eq('tenant_id', tenantId)
+        .is('deleted_at', null),
+      branchId,
+    )
       .ilike('barcode', `%${escapeLike(term)}%`)
       .limit(200);
     if (error) throw error;
@@ -126,13 +140,16 @@ export class ItemsRepository extends ScopedRepository {
   // Tenant-wide counts for the KPI cards — deliberately independent of the
   // paginated list's filters (a caller viewing a filtered/paged view should
   // still see the true tenant totals, not counts scoped to the current page).
-  async getStats(tenantId: string) {
+  async getStats(tenantId: string, branchId?: string | null) {
     const base = () =>
-      this.supabase
-        .from('items')
-        .select('id', { count: 'exact', head: true })
-        .is('deleted_at', null)
-        .eq('tenant_id', tenantId);
+      withBranch(
+        this.supabase
+          .from('items')
+          .select('id', { count: 'exact', head: true })
+          .is('deleted_at', null)
+          .eq('tenant_id', tenantId),
+        branchId,
+      );
 
     const [
       { count: total, error: totalErr },
@@ -154,8 +171,11 @@ export class ItemsRepository extends ScopedRepository {
     };
   }
 
-  async findById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery('items', this.ctx(tenantId))
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    const { data, error } = await withBranch(
+      this.scopedQuery('items', this.ctx(tenantId)),
+      branchId,
+    )
       .select(
         `id, name, type, operation_type, price, has_inventory, has_variants, is_active, created_at, sku, sku_source, image_url,
          costing_method, standard_cost,
@@ -219,10 +239,19 @@ export class ItemsRepository extends ScopedRepository {
   // item-barcodes.repository.ts#nextSequence (concurrency-safe under
   // Postgres row locking), but a fully separate sequence table — SKU and
   // barcode are independent identity systems.
-  async nextSkuSequence(tenantId: string): Promise<number> {
-    const { data, error } = await this.supabase.rpc('fn_next_sku_seq', {
-      p_tenant_id: tenantId,
-    });
+  // Under isolation the counter is per branch (migration 283).
+  async nextSkuSequence(
+    tenantId: string,
+    branchId?: string | null,
+  ): Promise<number> {
+    const { data, error } = branchId
+      ? await this.supabase.rpc('fn_next_branch_sku_seq', {
+          p_tenant_id: tenantId,
+          p_branch_id: branchId,
+        })
+      : await this.supabase.rpc('fn_next_sku_seq', {
+          p_tenant_id: tenantId,
+        });
     if (error) throw error;
     return data as number;
   }
@@ -241,10 +270,37 @@ export class ItemsRepository extends ScopedRepository {
     return data as number;
   }
 
-  async create(tenantId: string, payload: Record<string, unknown>) {
+  /** True when the category exists in the tenant (and, under isolation, in the branch). */
+  async categoryInScope(
+    categoryId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ): Promise<boolean> {
+    const { data, error } = await withBranch(
+      this.supabase
+        .from('categories')
+        .select('id')
+        .eq('id', categoryId)
+        .eq('tenant_id', tenantId),
+      branchId,
+    ).maybeSingle();
+    if (error) throw error;
+    return !!data;
+  }
+
+  async create(
+    tenantId: string,
+    payload: Record<string, unknown>,
+    branchId?: string | null,
+  ) {
     const { data, error } = await this.supabase
       .from('items')
-      .insert({ ...payload, tenant_id: tenantId, is_active: true })
+      .insert({
+        ...payload,
+        tenant_id: tenantId,
+        ...branchStamp(branchId),
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -287,6 +343,7 @@ export class ItemsRepository extends ScopedRepository {
     itemId: string,
     tenantId: string,
     payload: Record<string, unknown>,
+    branchId?: string | null,
   ) {
     const { data, error } = await this.supabase
       .from('item_variants')
@@ -294,6 +351,7 @@ export class ItemsRepository extends ScopedRepository {
         ...payload,
         item_id: itemId,
         tenant_id: tenantId,
+        ...branchStamp(branchId),
         is_active: true,
       })
       .select()

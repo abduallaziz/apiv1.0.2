@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
+import {
+  branchStamp,
+  withBranch,
+} from '../../../core/tenant/branch-scope-id.util';
 
 @Injectable()
 export class ItemBarcodesRepository extends ScopedRepository {
@@ -13,8 +17,16 @@ export class ItemBarcodesRepository extends ScopedRepository {
     return { tenantId } as TenantContext;
   }
 
-  async findAll(tenantId: string, itemId?: string, variantId?: string) {
-    let query = this.scopedQuery('item_barcodes', this.ctx(tenantId))
+  async findAll(
+    tenantId: string,
+    itemId?: string,
+    variantId?: string,
+    branchId?: string | null,
+  ) {
+    let query = withBranch(
+      this.scopedQuery('item_barcodes', this.ctx(tenantId)),
+      branchId,
+    )
       .select(
         'id, item_id, variant_id, barcode, barcode_type, is_primary, packaging_level_id, created_at, updated_at',
       )
@@ -28,10 +40,10 @@ export class ItemBarcodesRepository extends ScopedRepository {
     return data;
   }
 
-  async findById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'item_barcodes',
-      this.ctx(tenantId),
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    const { data, error } = await withBranch(
+      this.scopedQuery('item_barcodes', this.ctx(tenantId)),
+      branchId,
     )
       .select(
         'id, item_id, variant_id, barcode, barcode_type, is_primary, packaging_level_id, created_at, updated_at',
@@ -42,10 +54,14 @@ export class ItemBarcodesRepository extends ScopedRepository {
     return data;
   }
 
-  async findByBarcode(barcode: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'item_barcodes',
-      this.ctx(tenantId),
+  async findByBarcode(
+    barcode: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    const { data, error } = await withBranch(
+      this.scopedQuery('item_barcodes', this.ctx(tenantId)),
+      branchId,
     )
       .select('id, item_id, variant_id, barcode, barcode_type, is_primary')
       .eq('barcode', barcode)
@@ -58,10 +74,14 @@ export class ItemBarcodesRepository extends ScopedRepository {
   // sellable item (+ variant, if the barcode is variant-specific), joined
   // via Supabase's nested select — same pattern already used by
   // ItemsRepository.findById for categories/item_variants joins.
-  async lookupByBarcode(barcode: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'item_barcodes',
-      this.ctx(tenantId),
+  async lookupByBarcode(
+    barcode: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    const { data, error } = await withBranch(
+      this.scopedQuery('item_barcodes', this.ctx(tenantId)),
+      branchId,
     )
       .select(
         `id, barcode, barcode_type, is_primary, item_id, variant_id, packaging_level_id,
@@ -74,10 +94,14 @@ export class ItemBarcodesRepository extends ScopedRepository {
     return data;
   }
 
-  async create(tenantId: string, payload: Record<string, unknown>) {
+  async create(
+    tenantId: string,
+    payload: Record<string, unknown>,
+    branchId?: string | null,
+  ) {
     const { data, error } = await this.supabase
       .from('item_barcodes')
-      .insert({ ...payload, tenant_id: tenantId })
+      .insert({ ...payload, tenant_id: tenantId, ...branchStamp(branchId) })
       .select()
       .single();
     if (error) throw error;
@@ -109,10 +133,19 @@ export class ItemBarcodesRepository extends ScopedRepository {
   // migration 101. A single UPSERT...RETURNING under the hood, so
   // concurrent callers for the same tenant (e.g. two POS terminals
   // creating items simultaneously) never receive the same value.
-  async nextSequence(tenantId: string): Promise<number> {
-    const { data, error } = await this.supabase.rpc('fn_next_barcode_seq', {
-      p_tenant_id: tenantId,
-    });
+  // Under isolation the counter is per branch (migration 283).
+  async nextSequence(
+    tenantId: string,
+    branchId?: string | null,
+  ): Promise<number> {
+    const { data, error } = branchId
+      ? await this.supabase.rpc('fn_next_branch_barcode_seq', {
+          p_tenant_id: tenantId,
+          p_branch_id: branchId,
+        })
+      : await this.supabase.rpc('fn_next_barcode_seq', {
+          p_tenant_id: tenantId,
+        });
     if (error) throw error;
     return data as number;
   }

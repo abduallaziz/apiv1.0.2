@@ -18,19 +18,35 @@ export class ItemAttributesService {
 
   // -- Attribute definitions ------------------------------------------------
 
-  findAllAttributes(tenantId: string) {
-    return this.attributesRepo.findAllAttributes(tenantId);
+  findAllAttributes(tenantId: string, branchId?: string | null) {
+    return this.attributesRepo.findAllAttributes(tenantId, branchId);
   }
 
-  async findAttributeById(id: string, tenantId: string) {
-    const attr = await this.attributesRepo.findAttributeById(id, tenantId);
+  async findAttributeById(
+    id: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    const attr = await this.attributesRepo.findAttributeById(
+      id,
+      tenantId,
+      branchId,
+    );
     if (!attr) throw new NotFoundException('Attribute not found');
     return attr;
   }
 
-  async createAttribute(tenantId: string, dto: CreateItemAttributeDto) {
+  async createAttribute(
+    tenantId: string,
+    dto: CreateItemAttributeDto,
+    branchId?: string | null,
+  ) {
     try {
-      return await this.attributesRepo.createAttribute(tenantId, { ...dto });
+      return await this.attributesRepo.createAttribute(
+        tenantId,
+        { ...dto },
+        branchId,
+      );
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConflictException(
@@ -45,8 +61,9 @@ export class ItemAttributesService {
     id: string,
     tenantId: string,
     dto: UpdateItemAttributeDto,
+    branchId?: string | null,
   ) {
-    await this.findAttributeById(id, tenantId);
+    await this.findAttributeById(id, tenantId, branchId);
     try {
       return await this.attributesRepo.updateAttribute(id, tenantId, {
         ...dto,
@@ -61,8 +78,12 @@ export class ItemAttributesService {
     }
   }
 
-  async removeAttribute(id: string, tenantId: string) {
-    await this.findAttributeById(id, tenantId);
+  async removeAttribute(
+    id: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    await this.findAttributeById(id, tenantId, branchId);
     const inUse = await this.attributesRepo.countValuesInUse(id, tenantId);
     if (inUse > 0) {
       throw new ConflictException(
@@ -74,13 +95,21 @@ export class ItemAttributesService {
 
   // -- Attribute values -------------------------------------------------------
 
-  async findValues(attributeId: string, tenantId: string) {
-    await this.findAttributeById(attributeId, tenantId);
+  async findValues(
+    attributeId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    await this.findAttributeById(attributeId, tenantId, branchId);
     return this.attributesRepo.findValuesByAttribute(attributeId, tenantId);
   }
 
-  async createValue(tenantId: string, dto: CreateItemAttributeValueDto) {
-    await this.findAttributeById(dto.item_attribute_id, tenantId);
+  async createValue(
+    tenantId: string,
+    dto: CreateItemAttributeValueDto,
+    branchId?: string | null,
+  ) {
+    await this.findAttributeById(dto.item_attribute_id, tenantId, branchId);
     try {
       return await this.attributesRepo.createValue(tenantId, { ...dto });
     } catch (error) {
@@ -97,9 +126,17 @@ export class ItemAttributesService {
     id: string,
     tenantId: string,
     dto: UpdateItemAttributeValueDto,
+    branchId?: string | null,
   ) {
     const existing = await this.attributesRepo.findValueById(id, tenantId);
     if (!existing) throw new NotFoundException('Attribute value not found');
+    if (branchId) {
+      await this.findAttributeById(
+        existing.item_attribute_id,
+        tenantId,
+        branchId,
+      );
+    }
     try {
       return await this.attributesRepo.updateValue(id, tenantId, { ...dto });
     } catch (error) {
@@ -112,19 +149,50 @@ export class ItemAttributesService {
     }
   }
 
-  async removeValue(id: string, tenantId: string) {
+  async removeValue(id: string, tenantId: string, branchId?: string | null) {
     const existing = await this.attributesRepo.findValueById(id, tenantId);
     if (!existing) throw new NotFoundException('Attribute value not found');
+    if (branchId) {
+      await this.findAttributeById(
+        existing.item_attribute_id,
+        tenantId,
+        branchId,
+      );
+    }
     await this.attributesRepo.deleteValue(id, tenantId);
   }
 
   // -- Variant assignments ----------------------------------------------------
 
-  async findAssignmentsForVariant(variantId: string, tenantId: string) {
+  private async assertVariantInScope(
+    variantId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    if (!branchId) return;
+    if (
+      !(await this.attributesRepo.variantInScope(variantId, tenantId, branchId))
+    ) {
+      throw new NotFoundException('Variant not found');
+    }
+  }
+
+  async findAssignmentsForVariant(
+    variantId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    await this.assertVariantInScope(variantId, tenantId, branchId);
     return this.attributesRepo.findAssignmentsForVariant(variantId, tenantId);
   }
 
-  async assignToVariant(tenantId: string, dto: AssignVariantAttributeDto) {
+  async assignToVariant(
+    tenantId: string,
+    dto: AssignVariantAttributeDto,
+    branchId?: string | null,
+  ) {
+    await this.assertVariantInScope(dto.item_variant_id, tenantId, branchId);
+    await this.findAttributeById(dto.item_attribute_id, tenantId, branchId);
     const value = await this.attributesRepo.findValueById(
       dto.item_attribute_value_id,
       tenantId,
@@ -137,7 +205,16 @@ export class ItemAttributesService {
     return this.attributesRepo.upsertAssignment(tenantId, { ...dto });
   }
 
-  async removeAssignment(id: string, tenantId: string) {
+  async removeAssignment(
+    id: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    if (branchId) {
+      const row = await this.attributesRepo.findAssignmentById(id, tenantId);
+      if (!row) throw new NotFoundException('Assignment not found');
+      await this.assertVariantInScope(row.item_variant_id, tenantId, branchId);
+    }
     await this.attributesRepo.removeAssignment(id, tenantId);
   }
 }

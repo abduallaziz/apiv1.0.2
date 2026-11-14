@@ -28,8 +28,14 @@ function skuConflict(error: unknown): never {
 }
 
 const ITEMS_LIST_TTL = 300; // 5 minutes
-const itemsListCacheKey = (tenantId: string, query: QueryItemsDto) =>
-  `items:list:tenant:${tenantId}:page:${query.page}:perPage:${query.per_page}:search:${query.search ?? ''}:type:${query.type ?? ''}:category:${query.category_id ?? ''}:active:${query.is_active}:sort:${query.sort}:dir:${query.dir}`;
+// Branch is part of the key (isolated tenants list one branch's catalog); 'all' = legacy tenant-wide.
+// The tenant prefix is unchanged so invalidateList() still clears every branch's entries.
+const itemsListCacheKey = (
+  tenantId: string,
+  query: QueryItemsDto,
+  branchId?: string | null,
+) =>
+  `items:list:tenant:${tenantId}:branch:${branchId ?? 'all'}:page:${query.page}:perPage:${query.per_page}:search:${query.search ?? ''}:type:${query.type ?? ''}:category:${query.category_id ?? ''}:active:${query.is_active}:sort:${query.sort}:dir:${query.dir}`;
 
 @Injectable()
 export class ItemsService {
@@ -41,9 +47,13 @@ export class ItemsService {
     private readonly barcodesService: ItemBarcodesService,
   ) {}
 
-  async findAll(tenantId: string, query: QueryItemsDto) {
+  async findAll(
+    tenantId: string,
+    query: QueryItemsDto,
+    branchId?: string | null,
+  ) {
     const pagination = new PaginationDto(query.page, query.per_page);
-    const cacheKey = itemsListCacheKey(tenantId, query);
+    const cacheKey = itemsListCacheKey(tenantId, query, branchId);
 
     const cached = await this.cache.get<{
       data: unknown[];
@@ -57,6 +67,7 @@ export class ItemsService {
       tenantId,
       pagination,
       query,
+      branchId,
     );
     const envelope = {
       data,
@@ -99,12 +110,12 @@ export class ItemsService {
     };
   }
 
-  async getStats(tenantId: string) {
-    return this.itemsRepo.getStats(tenantId);
+  async getStats(tenantId: string, branchId?: string | null) {
+    return this.itemsRepo.getStats(tenantId, branchId);
   }
 
-  async findById(id: string, tenantId: string) {
-    const item = await this.itemsRepo.findById(id, tenantId);
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    const item = await this.itemsRepo.findById(id, tenantId, branchId);
     if (!item) throw new NotFoundException('Item not found');
     // Only meaningful for a sellable-on-its-own item — one with variants is
     // never sold at the parent level, so its own stock_levels rows (if any
@@ -136,20 +147,43 @@ export class ItemsService {
     }
   }
 
-  async create(tenantId: string, dto: CreateItemDto) {
+  // Under isolation an item may only reference a category of its own branch.
+  private async assertCategoryInScope(
+    categoryId: string | null | undefined,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    if (!categoryId || !branchId) return;
+    if (
+      !(await this.itemsRepo.categoryInScope(categoryId, tenantId, branchId))
+    ) {
+      throw new BadRequestException('Category not found in this branch');
+    }
+  }
+
+  async create(tenantId: string, dto: CreateItemDto, branchId?: string | null) {
     this.assertStandardCostPresent(dto.costing_method, dto.standard_cost);
+    await this.assertCategoryInScope(
+      (dto as { category_id?: string }).category_id,
+      tenantId,
+      branchId,
+    );
     const { sku: manualSku, ...rest } = dto;
 
     if (manualSku) {
       const item = await this.itemsRepo
-        .create(tenantId, {
-          ...rest,
-          sku: manualSku,
-          sku_source: 'manual',
-        })
+        .create(
+          tenantId,
+          {
+            ...rest,
+            sku: manualSku,
+            sku_source: 'manual',
+          },
+          branchId,
+        )
         .catch(skuConflict);
       await this.invalidateList(tenantId);
-      return this.attachAutoBarcode(tenantId, item);
+      return this.attachAutoBarcode(tenantId, item, branchId);
     }
 
     // Auto path: the underlying sequence (fn_next_sku_seq) is atomic and
@@ -159,16 +193,20 @@ export class ItemsService {
     // not-yet-issued auto value, same defensive pattern as barcode
     // generation (item-barcodes.service.ts#generateForItem).
     for (let attempt = 0; attempt < MAX_SKU_GENERATE_ATTEMPTS; attempt++) {
-      const seq = await this.itemsRepo.nextSkuSequence(tenantId);
+      const seq = await this.itemsRepo.nextSkuSequence(tenantId, branchId);
       const sku = formatProductSku(seq);
       try {
-        const item = await this.itemsRepo.create(tenantId, {
-          ...rest,
-          sku,
-          sku_source: 'auto',
-        });
+        const item = await this.itemsRepo.create(
+          tenantId,
+          {
+            ...rest,
+            sku,
+            sku_source: 'auto',
+          },
+          branchId,
+        );
         await this.invalidateList(tenantId);
-        return this.attachAutoBarcode(tenantId, item);
+        return this.attachAutoBarcode(tenantId, item, branchId);
       } catch (error) {
         if (isUniqueViolation(error)) continue;
         throw error;
@@ -182,6 +220,7 @@ export class ItemsService {
   private attachAutoBarcode(
     tenantId: string,
     item: { id: string; has_variants: boolean },
+    branchId?: string | null,
   ) {
     // Best-effort: a new item gets an auto-generated primary barcode
     // (create-item DTO has no barcode field, so this always applies) —
@@ -193,7 +232,7 @@ export class ItemsService {
     // A generation failure must never block item creation itself.
     if (!item.has_variants) {
       this.barcodesService
-        .generateForItem(tenantId, item.id, null)
+        .generateForItem(tenantId, item.id, null, branchId)
         .catch((err) => {
           this.logger.warn(
             `Auto barcode generation failed for item ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -203,8 +242,18 @@ export class ItemsService {
     return item;
   }
 
-  async update(id: string, tenantId: string, dto: UpdateItemDto) {
-    const existing: any = await this.findById(id, tenantId);
+  async update(
+    id: string,
+    tenantId: string,
+    dto: UpdateItemDto,
+    branchId?: string | null,
+  ) {
+    const existing: any = await this.findById(id, tenantId, branchId);
+    await this.assertCategoryInScope(
+      (dto as { category_id?: string }).category_id,
+      tenantId,
+      branchId,
+    );
     const effectiveCostingMethod =
       dto.costing_method ?? existing.costing_method;
     const effectiveStandardCost =
@@ -228,8 +277,8 @@ export class ItemsService {
     return item;
   }
 
-  async remove(id: string, tenantId: string) {
-    await this.findById(id, tenantId);
+  async remove(id: string, tenantId: string, branchId?: string | null) {
+    await this.findById(id, tenantId, branchId);
     await this.itemsRepo.softDelete(id, tenantId);
     await this.invalidateList(tenantId);
   }
@@ -239,32 +288,49 @@ export class ItemsService {
   }
 
   // Variants
-  async findVariants(itemId: string, tenantId: string) {
-    await this.findById(itemId, tenantId); // verify item belongs to tenant
+  async findVariants(
+    itemId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    await this.findById(itemId, tenantId, branchId); // verify item belongs to tenant (and branch)
     return this.itemsRepo.findVariants(itemId, tenantId);
   }
 
-  async createVariant(itemId: string, tenantId: string, dto: CreateVariantDto) {
-    const parent = await this.findById(itemId, tenantId);
+  async createVariant(
+    itemId: string,
+    tenantId: string,
+    dto: CreateVariantDto,
+    branchId?: string | null,
+  ) {
+    const parent = await this.findById(itemId, tenantId, branchId);
     const { sku: manualSku, ...rest } = dto;
 
     let variant: { id: string; [key: string]: unknown };
     if (manualSku) {
       variant = await this.itemsRepo
-        .createVariant(itemId, tenantId, {
-          ...rest,
-          sku: manualSku,
-          sku_source: 'manual',
-        })
+        .createVariant(
+          itemId,
+          tenantId,
+          {
+            ...rest,
+            sku: manualSku,
+            sku_source: 'manual',
+          },
+          branchId,
+        )
         .catch(skuConflict);
     } else if (!(parent as { sku?: string }).sku) {
       // Defensive only — every item now gets a SKU at creation time (auto or
       // manual), so this should not happen in practice. Falling back to no
       // SKU rather than throwing keeps variant creation from being blocked
       // by an inconsistency in unrelated, pre-existing data.
-      variant = await this.itemsRepo.createVariant(itemId, tenantId, {
-        ...rest,
-      });
+      variant = await this.itemsRepo.createVariant(
+        itemId,
+        tenantId,
+        { ...rest },
+        branchId,
+      );
     } else {
       let created: { id: string; [key: string]: unknown } | null = null;
       for (let attempt = 0; attempt < MAX_SKU_GENERATE_ATTEMPTS; attempt++) {
@@ -274,11 +340,16 @@ export class ItemsService {
         );
         const sku = formatVariantSku((parent as { sku: string }).sku, seq);
         try {
-          created = await this.itemsRepo.createVariant(itemId, tenantId, {
-            ...rest,
-            sku,
-            sku_source: 'auto',
-          });
+          created = await this.itemsRepo.createVariant(
+            itemId,
+            tenantId,
+            {
+              ...rest,
+              sku,
+              sku_source: 'auto',
+            },
+            branchId,
+          );
           break;
         } catch (error) {
           if (isUniqueViolation(error)) continue;
@@ -294,7 +365,7 @@ export class ItemsService {
     }
 
     this.barcodesService
-      .generateForItem(tenantId, itemId, variant.id)
+      .generateForItem(tenantId, itemId, variant.id, branchId)
       .catch((err) => {
         this.logger.warn(
           `Auto barcode generation failed for variant ${variant.id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -310,8 +381,9 @@ export class ItemsService {
     itemId: string,
     tenantId: string,
     dto: UpdateVariantDto,
+    branchId?: string | null,
   ) {
-    await this.findById(itemId, tenantId);
+    await this.findById(itemId, tenantId, branchId);
     const payload: Record<string, unknown> = { ...dto };
     if (dto.sku !== undefined) payload.sku_source = 'manual';
     const updated = await this.itemsRepo
@@ -321,8 +393,13 @@ export class ItemsService {
     return updated;
   }
 
-  async removeVariant(variantId: string, itemId: string, tenantId: string) {
-    await this.findById(itemId, tenantId);
+  async removeVariant(
+    variantId: string,
+    itemId: string,
+    tenantId: string,
+    branchId?: string | null,
+  ) {
+    await this.findById(itemId, tenantId, branchId);
     await this.itemsRepo.softDeleteVariant(variantId, itemId, tenantId);
     await this.invalidateList(tenantId);
   }

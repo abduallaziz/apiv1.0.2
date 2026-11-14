@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
+import {
+  branchStamp,
+  withBranch,
+} from '../../../core/tenant/branch-scope-id.util';
 
 @Injectable()
 export class CategoriesRepository extends ScopedRepository {
@@ -9,12 +13,17 @@ export class CategoriesRepository extends ScopedRepository {
     super(supabase);
   }
 
+  /** Select builder scoped to the tenant and (under isolation) to the branch. */
+  private scoped(table: string, tenantId: string, branchId?: string | null) {
+    return withBranch(this.scopedQuery(table, this.ctx(tenantId)), branchId);
+  }
+
   private ctx(tenantId: string): TenantContext {
     return { tenantId } as TenantContext;
   }
 
-  async findAll(tenantId: string, type?: string) {
-    let query = this.scopedQuery('categories', this.ctx(tenantId))
+  async findAll(tenantId: string, type?: string, branchId?: string | null) {
+    let query = this.scoped('categories', tenantId, branchId)
       .select('id, name, type, is_active, created_at')
       .eq('is_active', true)
       .order('name');
@@ -28,11 +37,8 @@ export class CategoriesRepository extends ScopedRepository {
     return data;
   }
 
-  async findById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'categories',
-      this.ctx(tenantId),
-    )
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    const { data, error } = await this.scoped('categories', tenantId, branchId)
       .select('id, name, type, is_active, created_at')
       .eq('id', id)
       .maybeSingle();
@@ -40,10 +46,19 @@ export class CategoriesRepository extends ScopedRepository {
     return data;
   }
 
-  async create(tenantId: string, payload: Record<string, unknown>) {
+  async create(
+    tenantId: string,
+    payload: Record<string, unknown>,
+    branchId?: string | null,
+  ) {
     const { data, error } = await this.supabase
       .from('categories')
-      .insert({ ...payload, tenant_id: tenantId, is_active: true })
+      .insert({
+        ...payload,
+        tenant_id: tenantId,
+        ...branchStamp(branchId),
+        is_active: true,
+      })
       .select()
       .single();
     if (error) throw error;
