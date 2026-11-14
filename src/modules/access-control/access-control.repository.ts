@@ -169,6 +169,7 @@ export class AccessControlRepository {
   async getUsersByRole(
     roleId: string,
     tenantId: string,
+    roleName?: string,
   ): Promise<
     {
       id: string;
@@ -188,13 +189,39 @@ export class AccessControlRepository {
       .is('user.deleted_at', null);
 
     if (error) throw error;
-    return (data ?? []).map((row: any) => ({
-      id: row.user.id,
-      name: row.user.name,
-      email: row.user.email,
-      is_active: row.user.is_active,
-      is_primary: row.is_primary,
+    const rows = (data ?? []).map((row: any) => ({
+      id: row.user.id as string,
+      name: row.user.name as string,
+      email: row.user.email as string,
+      is_active: row.user.is_active as boolean,
+      is_primary: row.is_primary as boolean,
     }));
+
+    // Mirror countUsersForRole(): legacy users whose role lives only on
+    // users.role / users.role_id must be listed too (disabled ones included),
+    // otherwise the card count and this list disagree.
+    let legacy = this.supabase
+      .from('users')
+      .select('id, name, email, is_active')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null);
+    legacy = roleName
+      ? legacy.or(`role_id.eq.${roleId},role.eq.${roleName}`)
+      : legacy.eq('role_id', roleId);
+    const { data: legacyRows, error: legacyErr } = await legacy;
+    if (legacyErr) throw legacyErr;
+    const seen = new Set(rows.map((r) => r.id));
+    for (const u of (legacyRows ?? []) as any[]) {
+      if (seen.has(u.id)) continue;
+      rows.push({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        is_active: u.is_active,
+        is_primary: true,
+      });
+    }
+    return rows;
   }
 
   // Deliberately reads user_roles — the exact same table getUsersByRole()
