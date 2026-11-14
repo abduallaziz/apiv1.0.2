@@ -102,6 +102,18 @@ export class RewardInstancesRepository extends ScopedRepository {
     customerId: string,
     status?: string,
   ) {
+    // Branch isolation: a customer (and therefore its reward instances) lives in one branch only.
+    if (tenant.isolated && tenant.branchId) {
+      const { data: owner, error: ownerError } = await this.supabase
+        .from('customers')
+        .select('id')
+        .eq('id', customerId)
+        .eq('tenant_id', tenant.tenantId)
+        .eq('branch_id', tenant.branchId)
+        .maybeSingle();
+      if (ownerError) throw ownerError;
+      if (!owner) return [];
+    }
     let query = this.supabase
       .from('customer_reward_instances')
       .select('*, reward_definitions(*)')

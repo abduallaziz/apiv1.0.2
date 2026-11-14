@@ -3,6 +3,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import {
+  branchForWrite,
+  scopeToBranch,
+} from '../../core/tenant/branch-scope.util';
 import { CreateFieldDefinitionDto } from './dto/create-field-definition.dto';
 import { UpdateFieldDefinitionDto } from './dto/update-field-definition.dto';
 import { CustomerFieldDefinitionRow } from './customers.types';
@@ -15,7 +19,10 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
   }
 
   async findAll(tenant: TenantContext, activeOnly = false) {
-    let query = this.scopedQuery('customer_field_definitions', tenant)
+    let query = scopeToBranch(
+      this.scopedQuery('customer_field_definitions', tenant),
+      tenant,
+    )
       .select(
         'id, field_key, label_ar, label_en, field_type, options, required, is_active, sort_order, contact_role, created_at',
       )
@@ -29,8 +36,8 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
   }
 
   async findByKey(tenant: TenantContext, fieldKey: string) {
-    const { data } = await this.scopedQuery(
-      'customer_field_definitions',
+    const { data } = await scopeToBranch(
+      this.scopedQuery('customer_field_definitions', tenant),
       tenant,
     )
       .select('id')
@@ -40,8 +47,8 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
   }
 
   async findById(tenant: TenantContext, id: string) {
-    const { data, error } = await this.scopedQuery(
-      'customer_field_definitions',
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('customer_field_definitions', tenant),
       tenant,
     )
       .select('*')
@@ -57,6 +64,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
       .insert({
         ...dto,
         tenant_id: tenant.tenantId,
+        branch_id: branchForWrite(tenant),
         is_active: true,
       })
       .select()
@@ -77,11 +85,14 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
     id: string,
     dto: UpdateFieldDefinitionDto,
   ) {
-    const { data, error } = await this.supabase
-      .from('customer_field_definitions')
-      .update({ ...dto, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('tenant_id', tenant.tenantId)
+    const { data, error } = await scopeToBranch(
+      this.supabase
+        .from('customer_field_definitions')
+        .update({ ...dto, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('tenant_id', tenant.tenantId),
+      tenant,
+    )
       .select()
       .single<CustomerFieldDefinitionRow>();
     if (error) throw error;
@@ -89,11 +100,14 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
   }
 
   async softDelete(tenant: TenantContext, id: string) {
-    const { error } = await this.supabase
-      .from('customer_field_definitions')
-      .update({ deleted_at: new Date().toISOString(), is_active: false })
-      .eq('id', id)
-      .eq('tenant_id', tenant.tenantId);
+    const { error } = await scopeToBranch(
+      this.supabase
+        .from('customer_field_definitions')
+        .update({ deleted_at: new Date().toISOString(), is_active: false })
+        .eq('id', id)
+        .eq('tenant_id', tenant.tenantId),
+      tenant,
+    );
     if (error) throw error;
   }
 }

@@ -21,6 +21,12 @@ export interface LoyaltySettings {
 // system-initiated mutation if one is ever added.
 export interface LoyaltyMutationContext {
   branchId?: string | null;
+  /**
+   * Branch isolation (D10): set by the caller when the tenant runs isolated. The customer must then
+   * belong to `branchId` (points never cross branches) and the redemption balance is the customer's
+   * own pooled balance, since a customer belongs to exactly one branch.
+   */
+  isolated?: boolean;
   orderId?: string | null;
   createdBy?: string | null;
 }
@@ -71,13 +77,17 @@ export class LoyaltyService {
   private async assertCustomerInTenant(
     tenantId: string,
     customerId: string,
+    context: LoyaltyMutationContext = {},
   ): Promise<void> {
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('customers')
       .select('id')
       .eq('id', customerId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
+      .eq('tenant_id', tenantId);
+    if (context.isolated && context.branchId) {
+      query = query.eq('branch_id', context.branchId);
+    }
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new BadRequestException('Customer not found');
   }
@@ -137,6 +147,9 @@ export class LoyaltyService {
     points: number,
     context: LoyaltyMutationContext,
   ): Promise<void> {
+    // Isolated tenant: the customer belongs to one branch (checked in assertCustomerInTenant), so the
+    // pooled balance IS the branch balance.
+    if (context.isolated) return;
     const scope = await this.getLoyaltyScope(tenantId);
     if (scope === 'shared') return;
 
@@ -164,7 +177,7 @@ export class LoyaltyService {
     context: LoyaltyMutationContext = {},
   ): Promise<void> {
     if (points <= 0) return;
-    await this.assertCustomerInTenant(tenantId, customerId);
+    await this.assertCustomerInTenant(tenantId, customerId, context);
     await this.supabase.rpc('fn_adjust_loyalty_points', {
       p_customer_id: customerId,
       p_delta: points,
@@ -230,7 +243,7 @@ export class LoyaltyService {
     context: LoyaltyMutationContext = {},
   ): Promise<void> {
     if (points <= 0) return;
-    await this.assertCustomerInTenant(tenantId, customerId);
+    await this.assertCustomerInTenant(tenantId, customerId, context);
     await this.assertSufficientBranchBalance(
       tenantId,
       customerId,
@@ -317,10 +330,16 @@ export class LoyaltyService {
     client: PoolClient,
     tenantId: string,
     customerId: string,
+    context: LoyaltyMutationContext = {},
   ): Promise<void> {
+    const branchScoped = !!(context.isolated && context.branchId);
     const result = await client.query(
-      'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2',
-      [customerId, tenantId],
+      branchScoped
+        ? 'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2 AND branch_id = $3'
+        : 'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2',
+      branchScoped
+        ? [customerId, tenantId, context.branchId]
+        : [customerId, tenantId],
     );
     if (result.rows.length === 0)
       throw new BadRequestException('Customer not found');
@@ -349,7 +368,12 @@ export class LoyaltyService {
     if (points <= 0) return;
     const tenant = new TenantContext(tenantId);
     await this.tenantSession.runInTenantContext(tenant, async (client) => {
-      await this.assertCustomerInTenantPooled(client, tenantId, customerId);
+      await this.assertCustomerInTenantPooled(
+        client,
+        tenantId,
+        customerId,
+        context,
+      );
       await client.query(
         'SELECT * FROM fn_adjust_loyalty_points($1, $2, $3, $4, $5, $6)',
         [
@@ -379,7 +403,12 @@ export class LoyaltyService {
     );
     const tenant = new TenantContext(tenantId);
     await this.tenantSession.runInTenantContext(tenant, async (client) => {
-      await this.assertCustomerInTenantPooled(client, tenantId, customerId);
+      await this.assertCustomerInTenantPooled(
+        client,
+        tenantId,
+        customerId,
+        context,
+      );
       const result = await client.query(
         'SELECT * FROM fn_adjust_loyalty_points($1, $2, $3, $4, $5, $6)',
         [
@@ -412,7 +441,7 @@ export class LoyaltyService {
     delta: number,
     context: LoyaltyMutationContext = {},
   ): Promise<{ loyalty_points: number; lifetime_points_earned: number }> {
-    await this.assertCustomerInTenant(tenantId, customerId);
+    await this.assertCustomerInTenant(tenantId, customerId, context);
     const { data, error } = await this.supabase.rpc(
       'fn_adjust_loyalty_points',
       {

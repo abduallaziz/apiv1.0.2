@@ -10,6 +10,7 @@ import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
+import { branchForWrite } from '../../core/tenant/branch-scope.util';
 import { TenantsService } from '../tenants/tenants.service';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
@@ -176,6 +177,9 @@ export class CustomersService {
     user: JwtPayload,
   ): Promise<string | null> {
     if (!tenant.tenantId) return null; // superadmin cross-tenant caller
+    // Branch isolation: visibility is enforced by the repository (customers.branch_id = context
+    // branch); the relationship/identity-scope model is superseded.
+    if (tenant.isolated) return null;
     if (user.branch_id === null || user.branch_id === undefined) return null; // Central
     const scope = await this.repo.getCustomerIdentityScope(tenant.tenantId);
     if (scope === 'shared') return null;
@@ -315,7 +319,8 @@ export class CustomersService {
     // request body. A Central actor (user.branch_id === null) may
     // explicitly select a branch via dto.created_branch_id, or omit it
     // entirely — NULL is a valid, non-error state.
-    const created_branch_id = user.branch_id ?? dto.created_branch_id ?? null;
+    const created_branch_id =
+      branchForWrite(tenant) ?? user.branch_id ?? dto.created_branch_id ?? null;
 
     const customer = await this.repo.create(tenant, {
       ...dto,

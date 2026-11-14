@@ -3,6 +3,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import {
+  branchForWrite,
+  scopeToBranch,
+} from '../../core/tenant/branch-scope.util';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
@@ -71,6 +75,8 @@ export class CustomersRepository extends ScopedRepository {
       .is('deleted_at', null)
       .order(orderColumn, { ascending: sortOrder === 'asc' })
       .range((page - 1) * limit, page * limit - 1);
+    // Branch isolation: a customer belongs to exactly one branch.
+    query = scopeToBranch(query, tenant);
 
     // Row-count twin of the query above, `head: true` so Postgrest returns
     // only the Content-Range total and no rows. Built directly off
@@ -83,6 +89,7 @@ export class CustomersRepository extends ScopedRepository {
       .is('deleted_at', null);
     if (tenant.tenantId)
       countQuery = countQuery.eq('tenant_id', tenant.tenantId);
+    countQuery = scopeToBranch(countQuery, tenant);
 
     // Customer Domain Phase 4 (Owner-approved) — BRANCH-scope visibility.
     // Applied here, not as a post-filter, so pagination/range stays correct.
@@ -171,6 +178,7 @@ export class CustomersRepository extends ScopedRepository {
       p_ascending: sortOrder === 'asc',
       p_limit: limit,
       p_offset: (page - 1) * limit,
+      ...(tenant.isolated && { p_branch_id: tenant.branchId }),
     });
     if (spendRes.error) throw spendRes.error;
 
@@ -191,7 +199,10 @@ export class CustomersRepository extends ScopedRepository {
     // maybeSingle(), not single() — single() throws a raw PGRST116 Postgrest error when 0 rows
     // match (e.g. a nonexistent or cross-tenant id), which bubbled up as an unhandled 500 instead
     // of letting CustomersService.findById's own `if (!customer) throw NotFoundException` run.
-    const { data, error } = await this.scopedQuery('customers', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('customers', tenant),
+      tenant,
+    )
       .select('*')
       .eq('id', id)
       .is('deleted_at', null)
@@ -205,7 +216,7 @@ export class CustomersRepository extends ScopedRepository {
   // exact match on the raw value when the input has no digits.
   async findByPhone(tenant: TenantContext, phone: string) {
     const normalized = normalizePhone(phone);
-    let query = this.scopedQuery('customers', tenant)
+    let query = scopeToBranch(this.scopedQuery('customers', tenant), tenant)
       .select('id')
       .is('deleted_at', null);
     query = normalized
@@ -217,7 +228,10 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async findByPhoneNormalized(tenant: TenantContext, normalized: string) {
-    const { data, error } = await this.scopedQuery('customers', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('customers', tenant),
+      tenant,
+    )
       .select('*')
       .eq('phone_normalized', normalized)
       .is('deleted_at', null)
@@ -228,7 +242,10 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async findVehicleByPlate(tenant: TenantContext, plateNormalized: string) {
-    const { data, error } = await this.scopedQuery('customer_vehicles', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('customer_vehicles', tenant),
+      tenant,
+    )
       .select('*')
       .eq('plate_normalized', plateNormalized)
       .is('deleted_at', null)
@@ -238,7 +255,10 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async listVehicles(tenant: TenantContext, customerId: string) {
-    const { data, error } = await this.scopedQuery('customer_vehicles', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('customer_vehicles', tenant),
+      tenant,
+    )
       .select('*')
       .eq('customer_id', customerId)
       .is('deleted_at', null)
@@ -260,7 +280,12 @@ export class CustomersRepository extends ScopedRepository {
   ) {
     const { data, error } = await this.supabase
       .from('customer_vehicles')
-      .insert({ ...payload, tenant_id: tenant.tenantId })
+      .insert({
+        ...payload,
+        tenant_id: tenant.tenantId,
+        // NULL with isolation off: the DB trigger inherits the customer's branch
+        branch_id: branchForWrite(tenant),
+      })
       .select()
       .single<CustomerVehicleRow>();
     if (error) throw error;
@@ -272,7 +297,10 @@ export class CustomersRepository extends ScopedRepository {
     customerId: string,
     vehicleId: string,
   ) {
-    const { data, error } = await this.scopedQuery('customer_vehicles', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('customer_vehicles', tenant),
+      tenant,
+    )
       .select('*')
       .eq('id', vehicleId)
       .eq('customer_id', customerId)
@@ -288,12 +316,15 @@ export class CustomersRepository extends ScopedRepository {
     id: string,
     payload: { plate?: string; size?: string | null },
   ) {
-    const { data, error } = await this.supabase
-      .from('customer_vehicles')
-      .update({ ...payload, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('tenant_id', tenant.tenantId)
-      .is('deleted_at', null)
+    const { data, error } = await scopeToBranch(
+      this.supabase
+        .from('customer_vehicles')
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('tenant_id', tenant.tenantId)
+        .is('deleted_at', null),
+      tenant,
+    )
       .select()
       .single<CustomerVehicleRow>();
     if (error) throw error;
@@ -301,28 +332,38 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async softDeleteVehicle(tenant: TenantContext, id: string) {
-    const { error } = await this.supabase
-      .from('customer_vehicles')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('tenant_id', tenant.tenantId);
+    const { error } = await scopeToBranch(
+      this.supabase
+        .from('customer_vehicles')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('tenant_id', tenant.tenantId),
+      tenant,
+    );
     if (error) throw error;
   }
 
   async updateVehicleSize(tenant: TenantContext, id: string, size: string) {
-    const { error } = await this.supabase
-      .from('customer_vehicles')
-      .update({ size, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('tenant_id', tenant.tenantId);
+    const { error } = await scopeToBranch(
+      this.supabase
+        .from('customer_vehicles')
+        .update({ size, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('tenant_id', tenant.tenantId),
+      tenant,
+    );
     if (error) throw error;
   }
 
   async countAll(tenant: TenantContext): Promise<number> {
-    const { count, error } = await this.supabase
+    let query = this.supabase
       .from('customers')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenant.tenantId);
+    if (tenant.isolated && tenant.branchId) {
+      query = query.eq('branch_id', tenant.branchId);
+    }
+    const { count, error } = await query;
     if (error) throw error;
     return count ?? 0;
   }
@@ -333,6 +374,8 @@ export class CustomersRepository extends ScopedRepository {
       .insert({
         ...payload,
         tenant_id: tenant.tenantId,
+        // NULL with isolation off: the DB trigger falls back to created_branch_id
+        branch_id: branchForWrite(tenant),
         loyalty_points: 0,
         is_active: true,
       })
@@ -343,12 +386,15 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async update(tenant: TenantContext, id: string, payload: UpdateCustomerDto) {
-    const { data, error } = await this.supabase
-      .from('customers')
-      .update({ ...payload, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('tenant_id', tenant.tenantId)
-      .is('deleted_at', null)
+    const { data, error } = await scopeToBranch(
+      this.supabase
+        .from('customers')
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('tenant_id', tenant.tenantId)
+        .is('deleted_at', null),
+      tenant,
+    )
       .select()
       .single<CustomerRow>();
     if (error) throw error;
@@ -356,11 +402,14 @@ export class CustomersRepository extends ScopedRepository {
   }
 
   async softDelete(tenant: TenantContext, id: string) {
-    const { error } = await this.supabase
-      .from('customers')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('tenant_id', tenant.tenantId);
+    const { error } = await scopeToBranch(
+      this.supabase
+        .from('customers')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('tenant_id', tenant.tenantId),
+      tenant,
+    );
     if (error) throw error;
   }
 
@@ -380,13 +429,17 @@ export class CustomersRepository extends ScopedRepository {
       const tz = safeTimezone(
         (tzRow as { timezone?: string } | null)?.timezone,
       );
-      const { count, error } = await this.supabase
+      let rangeQuery = this.supabase
         .from('customers')
         .select('id', { count: 'exact', head: true })
         .eq('tenant_id', tenant.tenantId)
         .is('deleted_at', null)
         .gte('created_at', localDayBoundIso(range.from, 'start', tz))
         .lte('created_at', localDayBoundIso(range.to, 'end', tz));
+      if (tenant.isolated && tenant.branchId) {
+        rangeQuery = rangeQuery.eq('branch_id', tenant.branchId);
+      }
+      const { count, error } = await rangeQuery;
       if (error) throw error;
       newInRange = count ?? 0;
     }
@@ -414,6 +467,8 @@ export class CustomersRepository extends ScopedRepository {
       totalQuery = totalQuery.eq('tenant_id', tenant.tenantId);
       monthQuery = monthQuery.eq('tenant_id', tenant.tenantId);
     }
+    totalQuery = scopeToBranch(totalQuery, tenant);
+    monthQuery = scopeToBranch(monthQuery, tenant);
 
     // DB-side SUM via fn_customer_loyalty_points_total — never fetches
     // customer rows to compute this, so it's unaffected by pagination and
@@ -424,6 +479,7 @@ export class CustomersRepository extends ScopedRepository {
     const loyaltyQuery = tenant.tenantId
       ? this.supabase.rpc('fn_customer_loyalty_points_total', {
           p_tenant_id: tenant.tenantId,
+          ...(tenant.isolated && { p_branch_id: tenant.branchId }),
         })
       : this.supabase
           .from('customers')
