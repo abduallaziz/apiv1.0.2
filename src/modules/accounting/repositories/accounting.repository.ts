@@ -150,7 +150,8 @@ export class AccountingRepository extends ScopedRepository {
 
     const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map(
       (r) => {
-        const { journal_lines: _lines, ...entry } = r;
+        const entry = { ...r };
+        delete entry.journal_lines;
         return entry;
       },
     );
