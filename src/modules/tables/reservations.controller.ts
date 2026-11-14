@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
@@ -66,5 +67,14 @@ export class ReservationsController {
   ) {
     const user = req.user as { sub: string };
     return this.service.update(id, tenant, dto, user.sub);
+  }
+
+  @Delete(':id')
+  @RequirePermission('tables.manage')
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.service.remove(id, tenant);
   }
 }

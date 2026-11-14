@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { toEnglishDigits } from '../customers/customer-normalize';
 import { NotePresetsRepository } from './note-presets.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateNotePresetDto } from './dto/create-note-preset.dto';
@@ -21,15 +23,47 @@ export class NotePresetsService {
     return this.repo.findActive(tenant);
   }
 
-  async create(tenant: TenantContext, dto: CreateNotePresetDto) {
+  /** English digits, trimmed, collapsed spaces (the stored form). */
+  private clean(text: string): string {
+    return toEnglishDigits(text).replace(/\s+/g, ' ').trim();
+  }
+
+  /** B-24: the same text (case-insensitive) cannot exist twice. */
+  private async assertNotDuplicate(
+    tenant: TenantContext,
+    text: string,
+    exceptId?: string,
+  ) {
+    const all = (await this.repo.findAll(tenant)) as {
+      id: string;
+      text: string;
+    }[];
+    const key = text.toLowerCase();
+    if (all.some((p) => p.id !== exceptId && p.text.toLowerCase() === key)) {
+      throw new ConflictException(
+        'A note preset with this text already exists',
+      );
+    }
+  }
+
+  async create(tenant: TenantContext, rawDto: CreateNotePresetDto) {
+    const dto = { ...rawDto, text: this.clean(rawDto.text) };
+    if (!dto.text) throw new BadRequestException('text must not be empty');
+    await this.assertNotDuplicate(tenant, dto.text);
     const sort_order =
       dto.sort_order ?? (await this.repo.maxSortOrder(tenant)) + 1;
     return this.repo.create(tenant, { ...dto, sort_order });
   }
 
-  async update(tenant: TenantContext, id: string, dto: UpdateNotePresetDto) {
+  async update(tenant: TenantContext, id: string, rawDto: UpdateNotePresetDto) {
     const existing = await this.repo.findById(tenant, id);
     if (!existing) throw new NotFoundException('Note preset not found');
+    const dto = { ...rawDto };
+    if (dto.text !== undefined) {
+      dto.text = this.clean(dto.text);
+      if (!dto.text) throw new BadRequestException('text must not be empty');
+      await this.assertNotDuplicate(tenant, dto.text, id);
+    }
     return this.repo.update(tenant, id, dto);
   }
 

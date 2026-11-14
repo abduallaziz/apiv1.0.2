@@ -6,6 +6,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateIf,
@@ -28,6 +30,7 @@ export type RewardType =
 export class CreateRewardDefinitionDto {
   @IsString()
   @MinLength(2)
+  @MaxLength(120)
   name: string;
 
   @IsEnum([
@@ -69,6 +72,7 @@ export class CreateRewardDefinitionDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(3650)
   expiration_days?: number;
 
   @IsOptional()

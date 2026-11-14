@@ -1,7 +1,8 @@
-import { IsString, IsOptional, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsNotEmpty, MaxLength } from 'class-validator';
 
 export class CreateBranchDto {
   @IsString()
+  @IsNotEmpty()
   @MaxLength(100)
   name: string;
 

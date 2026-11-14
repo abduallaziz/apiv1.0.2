@@ -6,8 +6,15 @@ import {
   IsBoolean,
   IsOptional,
   IsUUID,
+  IsUrl,
+  Max,
+  MaxLength,
   Min,
 } from 'class-validator';
+
+// Upper bound for any money field. The numeric columns overflow (HTTP 500) well
+// above this, so reject early with a clean 400.
+export const MAX_MONEY_VALUE = 99_999_999;
 
 // Mirrors items.costing_method's CHECK constraint exactly (migration 111).
 // The consumption/add-layer engine itself is untouched by this migration —
@@ -41,6 +48,7 @@ export enum OperationType {
 export class CreateItemDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(200)
   name: string;
 
   @IsEnum(ItemType)
@@ -49,8 +57,9 @@ export class CreateItemDto {
   @IsEnum(OperationType)
   operation_type: OperationType;
 
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
+  @Max(MAX_MONEY_VALUE)
   price: number;
 
   @IsUUID()
@@ -91,7 +100,14 @@ export class CreateItemDto {
   // A value here is stored as a manual override (sku_source='manual').
   @IsString()
   @IsOptional()
+  @MaxLength(64)
   sku?: string;
+
+  // Product image link. Upload is not supported yet; a plain https URL is.
+  @IsOptional()
+  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] })
+  @MaxLength(2000)
+  image_url?: string;
 
   // Omitted = DB default 'fifo' (unchanged existing behavior). Cross-field
   // "standard_cost required when standard" validation happens in
@@ -103,8 +119,9 @@ export class CreateItemDto {
   @IsOptional()
   costing_method?: CostingMethod;
 
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
+  @Max(MAX_MONEY_VALUE)
   @IsOptional()
   standard_cost?: number;
 }

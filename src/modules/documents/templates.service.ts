@@ -192,6 +192,8 @@ export class TemplatesService {
 
   async create(tenant: TenantContext, userId: string, dto: CreateTemplateDto) {
     const tenantId = this.tid(tenant);
+    const name = (dto.name ?? '').trim();
+    if (!name) throw new BadRequestException('name should not be empty');
     const paper = dto.paper ?? 'A4';
     const orientation = dto.orientation ?? 'portrait';
     const initialBody = dto.body ? sanitizeBody(dto.body) : null;
@@ -205,7 +207,7 @@ export class TemplatesService {
         [
           tenantId,
           dto.doc_type,
-          dto.name,
+          name,
           dto.description ?? null,
           paper,
           orientation,
@@ -236,6 +238,9 @@ export class TemplatesService {
       if (t.status === 'archived') {
         throw new ConflictException('Archived templates cannot be edited');
       }
+      if (dto.name !== undefined && !dto.name.trim()) {
+        throw new BadRequestException('name should not be empty');
+      }
       await client.query(
         `UPDATE document_templates SET
            name = COALESCE($3, name),
@@ -247,7 +252,7 @@ export class TemplatesService {
         [
           id,
           tenantId,
-          dto.name ?? null,
+          dto.name?.trim() ?? null,
           dto.description ?? null,
           dto.paper ?? null,
           dto.orientation ?? null,
@@ -350,7 +355,15 @@ export class TemplatesService {
          SELECT tenant_id, doc_type, $3, description, paper, orientation, $4
            FROM document_templates WHERE id = $1 AND tenant_id = $2
          RETURNING *`,
-        [id, tenantId, `${src.name} (copy)`.slice(0, 120), userId],
+        [
+          id,
+          tenantId,
+          `${src.name} ${/[\u0600-\u06FF]/.test(src.name) ? '(نسخة)' : '(copy)'}`.slice(
+            0,
+            120,
+          ),
+          userId,
+        ],
       );
       const v = await this.insertVersion(
         client,

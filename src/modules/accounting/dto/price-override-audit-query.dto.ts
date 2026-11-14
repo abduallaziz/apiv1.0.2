@@ -5,6 +5,7 @@ import {
   IsISO8601,
   IsOptional,
   IsString,
+  Matches,
   IsUUID,
   Max,
   Min,
@@ -39,8 +40,11 @@ export class PriceOverrideAuditQueryDto {
   @IsUUID()
   branch_id?: string;
 
+  // Order UUID or invoice number (e.g. INV-000123).
   @IsOptional()
-  @IsUUID()
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9_\-/]{0,39}$/, {
+    message: 'order_id must be an order UUID or an invoice number',
+  })
   order_id?: string;
 
   @IsOptional()

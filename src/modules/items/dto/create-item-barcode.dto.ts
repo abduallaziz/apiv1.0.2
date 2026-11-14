@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsBoolean,
   IsOptional,
+  MaxLength,
 } from 'class-validator';
 
 export enum BarcodeType {
@@ -24,6 +25,7 @@ export class CreateItemBarcodeDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   barcode: string;
 
   @IsEnum(BarcodeType)

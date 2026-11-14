@@ -55,6 +55,39 @@ export class LeaveRequestsRepository {
     return row;
   }
 
+  // Pending/approved requests of the same employee that overlap [from, to].
+  async findOverlapping(
+    tenantId: string,
+    userId: string,
+    from: string,
+    to: string,
+    excludeId?: string,
+  ) {
+    let query = this.supabase
+      .from('leave_requests')
+      .select('id, date_from, date_to, status')
+      .eq('tenant_id', tenantId)
+      .eq('user_id', userId)
+      .in('status', ['pending', 'approved'])
+      .lte('date_from', to)
+      .gte('date_to', from);
+    if (excludeId) query = query.neq('id', excludeId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  async findById(id: string, tenantId: string) {
+    const { data, error } = await this.supabase
+      .from('leave_requests')
+      .select('id, user_id, date_from, date_to, status')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
   async findAllForTenant(
     tenantId: string,
     status?: 'pending' | 'approved' | 'rejected',

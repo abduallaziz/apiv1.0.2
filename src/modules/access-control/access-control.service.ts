@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -49,7 +50,7 @@ export class AccessControlService {
     return Promise.all(
       roles.map(async (role) => {
         const [userCount, grantedKeys, customizedCount] = await Promise.all([
-          this.repo.countUsersForRole(role.id, tenantId),
+          this.repo.countUsersForRole(role.id, tenantId, role.name),
           this.permissionsService.getRolePermissions(role.name, tenantId),
           this.repo.countCustomizedPermissions(tenantId, role.id),
         ]);
@@ -91,7 +92,7 @@ export class AccessControlService {
       role = await this.repo.createRole(tenantId, trimmed, description);
     } catch (err) {
       if (err instanceof Error && err.message === 'DUPLICATE_ROLE_NAME') {
-        throw new ForbiddenException(
+        throw new ConflictException(
           `A role named "${trimmed}" already exists for this tenant`,
         );
       }
@@ -136,13 +137,18 @@ export class AccessControlService {
       throw new ForbiddenException('System roles cannot be deleted');
     }
 
-    const userCount = await this.repo.countUsersForRole(roleId, tenantId);
+    const userCount = await this.repo.countUsersForRole(
+      roleId,
+      tenantId,
+      role.name,
+    );
     if (userCount > 0) {
-      throw new ForbiddenException(
+      throw new ConflictException(
         `Cannot delete role "${role.name}" — ${userCount} user(s) are still assigned to it`,
       );
     }
 
+    await this.repo.detachDeletedUsersFromRole(tenantId, roleId);
     await this.repo.deleteAllOverridesForRole(tenantId, roleId);
     await this.repo.deleteRole(tenantId, roleId);
     await this.permissionsService.invalidateRole(role.name, tenantId);

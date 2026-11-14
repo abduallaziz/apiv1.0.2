@@ -80,6 +80,7 @@ export class DineInRepository {
     paymentMethod: string,
     customerId: string | null,
     invoiceNumber: { prefix: string; padding: number },
+    shiftId: string | null = null,
   ): Promise<{ id: string; invoice_no: string } | null> {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
       const done = await client.query<{ id: string }>(
@@ -93,11 +94,31 @@ export class DineInRepository {
       );
       const invoiceNo = n.rows[0].no;
       await client.query(
-        'UPDATE orders SET invoice_no = $3 WHERE id = $1 AND tenant_id = $2',
-        [orderId, tenant.tenantId, invoiceNo],
+        'UPDATE orders SET invoice_no = $3, shift_id = COALESCE(shift_id, $4) WHERE id = $1 AND tenant_id = $2',
+        [orderId, tenant.tenantId, invoiceNo, shiftId],
       );
       return { id: orderId, invoice_no: invoiceNo };
     });
+  }
+
+  /** The cashier's open register at a branch (so dine-in sales count in the shift summary). */
+  async findOpenShiftId(
+    tenantId: string,
+    cashierId: string,
+    branchId: string | null | undefined,
+  ): Promise<string | null> {
+    if (!branchId) return null;
+    const { data } = await this.supabase
+      .from('shifts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('cashier_id', cashierId)
+      .eq('branch_id', branchId)
+      .eq('status', 'open')
+      .is('deleted_at', null)
+      .limit(1)
+      .maybeSingle();
+    return data?.id ?? null;
   }
 
   /**
@@ -124,12 +145,28 @@ export class DineInRepository {
         [orderId],
       );
       if (items.rows.length > 0) return 'has_items';
-      await client.query(
-        `UPDATE orders SET status = 'cancelled', cancelled_at = now(),
-                cancelled_by = $3, cancel_reason = 'Table released (opened by mistake)'
-          WHERE id = $1 AND tenant_id = $2`,
-        [orderId, tenant.tenantId, cancelledBy],
-      );
+      // B-15: an empty order opened by mistake leaves no trace: delete it (and its
+      // soft-deleted lines) so Orders shows no cancelled 0-total invoice. If some FK
+      // refuses the delete, fall back to the old cancel inside a savepoint.
+      await client.query('SAVEPOINT release_empty');
+      try {
+        await client.query('DELETE FROM order_items WHERE order_id = $1', [
+          orderId,
+        ]);
+        await client.query(
+          'DELETE FROM orders WHERE id = $1 AND tenant_id = $2',
+          [orderId, tenant.tenantId],
+        );
+        await client.query('RELEASE SAVEPOINT release_empty');
+      } catch {
+        await client.query('ROLLBACK TO SAVEPOINT release_empty');
+        await client.query(
+          `UPDATE orders SET status = 'cancelled', cancelled_at = now(),
+                  cancelled_by = $3, cancel_reason = 'Table released (opened by mistake)'
+            WHERE id = $1 AND tenant_id = $2`,
+          [orderId, tenant.tenantId, cancelledBy],
+        );
+      }
       await client.query(
         `UPDATE tables SET status = 'available' WHERE id = $1 AND tenant_id = $2`,
         [tableId, tenant.tenantId],
@@ -226,12 +263,13 @@ export class DineInRepository {
     // order_items has no tenant_id column — scope via the parent order's tenant_id instead.
     const { data: item, error: findErr } = await this.supabase
       .from('order_items')
-      .select('id, order_id, orders!inner(tenant_id)')
+      .select('id, order_id, deleted_at, orders!inner(tenant_id)')
       .eq('id', itemId)
       .eq('orders.tenant_id', tenantId)
       .maybeSingle();
     if (findErr) throw findErr;
-    if (!item) return null;
+    // a removed item has no kitchen ticket any more (B-9)
+    if (!item || item.deleted_at) return null;
 
     const { data, error } = await this.supabase
       .from('order_items')

@@ -3,6 +3,7 @@ import { RewardDefinitionsRepository } from './reward-definitions.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateRewardDefinitionDto } from './dto/create-reward-definition.dto';
 import { UpdateRewardDefinitionDto } from './dto/update-reward-definition.dto';
+import { validateRewardDefinition } from './reward-definition.validation';
 
 @Injectable()
 export class RewardDefinitionsService {
@@ -19,6 +20,7 @@ export class RewardDefinitionsService {
   }
 
   create(tenant: TenantContext, dto: CreateRewardDefinitionDto) {
+    validateRewardDefinition(dto);
     return this.repo.create(tenant, dto);
   }
 
@@ -27,7 +29,24 @@ export class RewardDefinitionsService {
     id: string,
     dto: UpdateRewardDefinitionDto,
   ) {
-    await this.findOne(tenant, id);
+    const existing = await this.findOne(tenant, id);
+    // Only re-validate when the semantic config is being changed, so toggling
+    // is_active on a legacy row is never blocked.
+    if (
+      dto.trigger_type !== undefined ||
+      dto.trigger_config !== undefined ||
+      dto.reward_type !== undefined ||
+      dto.reward_config !== undefined ||
+      dto.usage_conditions !== undefined
+    ) {
+      validateRewardDefinition({
+        trigger_type: dto.trigger_type ?? existing.trigger_type,
+        trigger_config: dto.trigger_config ?? existing.trigger_config,
+        reward_type: dto.reward_type ?? existing.reward_type,
+        reward_config: dto.reward_config ?? existing.reward_config,
+        usage_conditions: dto.usage_conditions ?? existing.usage_conditions,
+      });
+    }
     return this.repo.update(tenant, id, dto);
   }
 

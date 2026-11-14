@@ -3,6 +3,7 @@ import {
   IsString,
   IsInt,
   Min,
+  Max,
   MaxLength,
   IsOptional,
 } from 'class-validator';
@@ -23,10 +24,12 @@ export class CreateWaitlistEntryDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(1000)
   party_size?: number;
 
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(1440)
   quoted_wait_minutes?: number;
 }

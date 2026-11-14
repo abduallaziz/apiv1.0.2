@@ -67,7 +67,9 @@ export class PdfRendererService implements OnModuleDestroy {
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
+            '--no-zygote',
           ],
+          timeout: 30000,
         })
         .then((b) => {
           this.browser = b;
@@ -75,6 +77,14 @@ export class PdfRendererService implements OnModuleDestroy {
             this.browser = null;
           });
           return b;
+        })
+        .catch((e: unknown) => {
+          // A browser that cannot start is a server-environment problem, not
+          // a bug in the request: report it as 503 (not an opaque 500).
+          this.logger.error(`Chrome launch failed: ${(e as Error).message}`);
+          throw new ServiceUnavailableException(
+            'PDF engine failed to start on this server',
+          );
         })
         .finally(() => {
           this.launching = null;
@@ -104,7 +114,8 @@ export class PdfRendererService implements OnModuleDestroy {
       return Buffer.from(pdf);
     } catch (e) {
       this.logger.error(`PDF render failed: ${(e as Error).message}`);
-      throw e;
+      if (e instanceof ServiceUnavailableException) throw e;
+      throw new ServiceUnavailableException('PDF rendering failed');
     } finally {
       await page.close().catch(() => undefined);
     }

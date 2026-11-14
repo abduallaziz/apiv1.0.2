@@ -6,6 +6,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  Max,
   ValidateNested,
 } from 'class-validator';
 
@@ -26,10 +27,12 @@ export class DineInItemDto {
 
   @IsNumber()
   @Min(1)
+  @Max(10000)
   quantity: number;
 
   @IsNumber()
   @Min(0)
+  @Max(10000000)
   unit_price: number;
 }
 

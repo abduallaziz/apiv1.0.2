@@ -78,6 +78,17 @@ export class WashQueueController {
     return this.service.changeStatus(tenant, id, dto, actorOf(req));
   }
 
+  @Patch(':id/order')
+  @RequirePermission('invoice.create')
+  linkOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('order_id', ParseUUIDPipe) orderId: string,
+    @GetTenant() tenant: TenantContext,
+    @Req() req: Request,
+  ) {
+    return this.service.linkOrder(tenant, id, orderId, actorOf(req));
+  }
+
   @Patch(':id/worker')
   @RequirePermission('invoice.create')
   assign(

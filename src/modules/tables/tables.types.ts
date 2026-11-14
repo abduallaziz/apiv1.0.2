@@ -66,5 +66,6 @@ export interface KitchenOrderRow {
     qty: number;
     kitchen_status: string | null;
     created_at: string;
+    deleted_at: string | null;
   }[];
 }

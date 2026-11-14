@@ -205,19 +205,64 @@ export class AccessControlRepository {
   // that only touched users.role, not role_id/user_roles (see migration 088).
   // Counting from user_roles here guarantees the card's number and the
   // sheet's list can never disagree again, by construction.
-  async countUsersForRole(roleId: string, tenantId: string): Promise<number> {
-    const { count, error } = await this.supabase
+  async countUsersForRole(
+    roleId: string,
+    tenantId: string,
+    roleName?: string,
+  ): Promise<number> {
+    const { data, error } = await this.supabase
       .from('user_roles')
-      .select('id, user:users!user_roles_user_id_fkey!inner(id)', {
-        count: 'exact',
-        head: true,
-      })
+      .select('user_id, user:users!user_roles_user_id_fkey!inner(id)')
       .eq('role_id', roleId)
       .eq('user.tenant_id', tenantId)
       .is('user.deleted_at', null);
 
     if (error) throw error;
-    return count ?? 0;
+    const ids = new Set<string>((data ?? []).map((r: any) => r.user_id));
+
+    // Legacy users whose primary role was written only to users.role / users.role_id
+    // (no user_roles row) must still be counted, otherwise the card disagrees with
+    // the Users list.
+    let legacy = this.supabase
+      .from('users')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null);
+    legacy = roleName
+      ? legacy.or(`role_id.eq.${roleId},role.eq.${roleName}`)
+      : legacy.eq('role_id', roleId);
+    const { data: legacyRows, error: legacyErr } = await legacy;
+    if (legacyErr) throw legacyErr;
+    for (const u of legacyRows ?? []) ids.add((u as any).id);
+    return ids.size;
+  }
+
+  // Soft-deleted users keep their user_roles / role_id rows, which blocks the FK on
+  // role deletion (500). Detach them so the role can be deleted.
+  async detachDeletedUsersFromRole(
+    tenantId: string,
+    roleId: string,
+  ): Promise<void> {
+    const { data: deleted, error } = await this.supabase
+      .from('users')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .not('deleted_at', 'is', null);
+    if (error) throw error;
+    const ids = (deleted ?? []).map((u: any) => u.id);
+    if (ids.length === 0) return;
+    const { error: urErr } = await this.supabase
+      .from('user_roles')
+      .delete()
+      .eq('role_id', roleId)
+      .in('user_id', ids);
+    if (urErr) throw urErr;
+    const { error: uErr } = await this.supabase
+      .from('users')
+      .update({ role_id: null })
+      .eq('role_id', roleId)
+      .in('id', ids);
+    if (uErr) throw uErr;
   }
 
   async countCustomizedPermissions(

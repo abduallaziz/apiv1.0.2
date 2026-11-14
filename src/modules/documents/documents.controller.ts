@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Logger,
+  ServiceUnavailableException,
   Delete,
   Get,
   Param,
@@ -45,6 +47,8 @@ import {
 @Controller('documents/templates')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard, DocumentsEnabledGuard)
 export class DocumentsController {
+  private readonly logger = new Logger(DocumentsController.name);
+
   constructor(
     private readonly templates: TemplatesService,
     private readonly defaults: DefaultTemplateService,
@@ -139,7 +143,19 @@ export class DocumentsController {
     @Query('lang') lang?: string,
   ) {
     const { html } = await this.renderSample(tenant, id, lang);
-    return new StreamableFile(await this.pdf.renderDocument(html), {
+    let buffer: Buffer;
+    try {
+      buffer = await this.pdf.renderDocument(html);
+    } catch (e) {
+      // The PDF engine (headless Chrome) can fail or time out on its own; that is an
+      // engine-availability problem, not an opaque server bug: answer 503 and log the cause.
+      if (e instanceof ServiceUnavailableException) throw e;
+      this.logger.error(
+        `Template test print failed (${id}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+      throw new ServiceUnavailableException('PDF rendering failed');
+    }
+    return new StreamableFile(buffer, {
       type: 'application/pdf',
       disposition: 'inline; filename="template-preview.pdf"',
     });
@@ -177,6 +193,18 @@ export class DocumentsController {
     // first visit: the tenant gets the ready-made quotation templates (Arabic + English)
     await this.defaults.ensure(tenant, this.userId(req));
     return this.templates.list(tenant, { docType, status });
+  }
+
+  // Re-creates the ready-made quotation templates (Arabic + English) for a tenant that has
+  // none left (e.g. it deleted them). Does nothing when the tenant already has a template.
+  @Post('defaults')
+  @RequirePermission('documents.manage')
+  async restoreDefaults(
+    @GetTenant() tenant: TenantContext,
+    @Req() req: Request,
+  ) {
+    const created = await this.defaults.restore(tenant, this.userId(req));
+    return { created };
   }
 
   @Post()

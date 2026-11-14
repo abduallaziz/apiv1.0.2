@@ -59,6 +59,68 @@ export class BranchesRepository {
     return count ?? 0;
   }
 
+  /** Case-insensitive, per-tenant name clash among live branches. */
+  async nameExists(
+    tenant: TenantContext,
+    name: string,
+    excludeId?: string,
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('branches')
+      .select('id, name')
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null);
+    if (error) throw error;
+    const wanted = name.trim().toLowerCase();
+    return (data ?? []).some(
+      (b: { id: string; name: string }) =>
+        b.id !== excludeId && String(b.name).trim().toLowerCase() === wanted,
+    );
+  }
+
+  async hasOpenShift(id: string, tenant: TenantContext): Promise<boolean> {
+    const { count, error } = await this.supabase
+      .from('shifts')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.tenantId)
+      .eq('branch_id', id)
+      .eq('status', 'open')
+      .is('deleted_at', null);
+    if (error) throw error;
+    return (count ?? 0) > 0;
+  }
+
+  /** True when the branch already has shifts or invoices (real history). */
+  async hasHistory(id: string, tenant: TenantContext): Promise<boolean> {
+    for (const table of ['shifts', 'invoices']) {
+      const { count, error } = await this.supabase
+        .from(table)
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.tenantId)
+        .eq('branch_id', id);
+      if (error) throw error;
+      if ((count ?? 0) > 0) return true;
+    }
+    return false;
+  }
+
+  /** Keeps the auto-created "Warehouse - <name>" label in step with a rename. */
+  async renameAutoWarehouse(
+    tenant: TenantContext,
+    warehouseId: string | null,
+    oldName: string,
+    newName: string,
+  ) {
+    if (!warehouseId) return;
+    const { error } = await this.supabase
+      .from('warehouses')
+      .update({ name: `Warehouse - ${newName}`.slice(0, 120) })
+      .eq('id', warehouseId)
+      .eq('tenant_id', tenant.tenantId)
+      .eq('name', `Warehouse - ${oldName}`.slice(0, 120));
+    if (error) this.logger.warn(`Warehouse rename failed: ${error.message}`);
+  }
+
   async create(
     tenant: TenantContext,
     data: { name: string; address?: string },

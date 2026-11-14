@@ -277,6 +277,19 @@ export class AttendanceLinkService {
       throw new BadRequestException('date_to must not be before date_from');
     }
 
+    const overlapping = await this.leaveRequestsRepo.findOverlapping(
+      user.tenant_id,
+      user.id,
+      dto.date_from,
+      dto.date_to,
+    );
+    if (overlapping.length > 0) {
+      throw new BadRequestException({
+        error: 'LEAVE_OVERLAP',
+        message: 'Leave request overlaps an existing request',
+      });
+    }
+
     const requestedDays = calculateLeaveDays(dto.date_from, dto.date_to);
     await this.validateLeaveBalanceBeforeCreation(
       user.tenant_id,

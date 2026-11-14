@@ -277,7 +277,11 @@ export class UsersRepository extends ScopedRepository {
   async revokeAttendanceAccess(id: string, tenantId: string) {
     const { error } = await this.supabase
       .from('users')
-      .update({ attendance_token: null, attendance_device_fingerprint: null })
+      .update({
+        attendance_token: null,
+        attendance_device_fingerprint: null,
+        attendance_enabled: false,
+      })
       .eq('id', id)
       .eq('tenant_id', tenantId);
     if (error) throw error;

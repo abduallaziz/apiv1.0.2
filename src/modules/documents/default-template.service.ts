@@ -44,6 +44,7 @@ export class DefaultTemplateService {
     const running = this.inFlight.get(tenantId);
     if (running !== undefined) return running;
     const job = this.run(tenant, userId)
+      .then(() => undefined)
       .catch((e: unknown) => {
         // never block the builder: the tenant can still make its own templates
         this.logger.warn(
@@ -55,18 +56,50 @@ export class DefaultTemplateService {
     return job;
   }
 
-  private async run(tenant: TenantContext, userId: string): Promise<void> {
+  /**
+   * Explicit "create the default templates" action. Unlike the lazy ensure() it also works for a
+   * tenant that once had templates, but only while it has NO live template at all, so it can never
+   * duplicate or override templates the tenant is using. Returns whether anything was created.
+   */
+  async restore(tenant: TenantContext, userId: string): Promise<boolean> {
+    const tenantId = tenant.tenantId;
+    const running = this.inFlight.get(tenantId);
+    if (running !== undefined) {
+      await running;
+      return false;
+    }
+    const job = this.run(tenant, userId, true);
+    this.inFlight.set(
+      tenantId,
+      job.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    try {
+      return await job;
+    } finally {
+      this.inFlight.delete(tenantId);
+    }
+  }
+
+  private async run(
+    tenant: TenantContext,
+    userId: string,
+    onlyIfNoLiveTemplates = false,
+  ): Promise<boolean> {
     const seen = await this.tenantSession.runInTenantContext(
       tenant,
       async (client) => {
         const r = await client.query(
-          'SELECT 1 FROM document_templates WHERE tenant_id = $1 LIMIT 1',
+          `SELECT 1 FROM document_templates WHERE tenant_id = $1
+            ${onlyIfNoLiveTemplates ? 'AND deleted_at IS NULL' : ''} LIMIT 1`,
           [tenant.tenantId],
         );
         return r.rows.length > 0;
       },
     );
-    if (seen) return;
+    if (seen) return false;
 
     const up = async (name: string, category: 'image' | 'logo', file: string) =>
       (await this.assets.create(
@@ -81,7 +114,11 @@ export class DefaultTemplateService {
       deco: await up('زخرفة العنوان', 'image', 'deco.png'),
       frame: await up('إطار QR', 'image', 'frame.png'),
       logo: await up('ضع شعارك هنا', 'logo', 'logo-placeholder.png'),
-      logoEn: await up('Place your logo here', 'logo', 'logo-placeholder-en.png'),
+      logoEn: await up(
+        'Place your logo here',
+        'logo',
+        'logo-placeholder-en.png',
+      ),
     };
 
     // one template per language: Arabic (the default) and English
@@ -109,6 +146,7 @@ export class DefaultTemplateService {
       await this.templates.publish(tenant, created.id);
       if (lang === 'ar') await this.templates.setDefault(tenant, created.id);
     }
+    return true;
   }
 }
 

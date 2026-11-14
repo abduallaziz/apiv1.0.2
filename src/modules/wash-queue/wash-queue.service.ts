@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -11,6 +12,10 @@ import { AuditService } from '../../core/audit/audit.service';
 import { WashJob, WashQueueRepository } from './wash-queue.repository';
 import { CreateWashJobDto } from './dto/create-wash-job.dto';
 import { ChangeWashStatusDto } from './dto/change-status.dto';
+import {
+  toEnglishDigits,
+  normalizePlate,
+} from '../customers/customer-normalize';
 import { CAR_READY_NOTIFIER, CarReadyNotifier } from './car-ready-notifier';
 import {
   canRewash,
@@ -53,12 +58,24 @@ export class WashQueueService {
   ) {}
 
   async create(tenant: TenantContext, dto: CreateWashJobDto, actor: Actor) {
+    // English digits only, collapsed whitespace (B-22).
+    const plate = toEnglishDigits(dto.plate).replace(/\s+/g, ' ').trim();
+    if (!plate) throw new BadRequestException('plate must not be empty');
+    // One live ticket per plate per branch (B-22).
+    const key = normalizePlate(plate);
+    const active = await this.repo.listActiveByBranch(
+      tenant.tenantId,
+      dto.branch_id,
+    );
+    if (active.some((j) => normalizePlate(j.plate) === key)) {
+      throw new ConflictException('This vehicle is already in the wash queue');
+    }
     try {
       const job = await this.repo.create({
         tenantId: tenant.tenantId,
         branchId: dto.branch_id,
         actorId: actor.id,
-        plate: dto.plate,
+        plate,
         vehicleSize: dto.vehicle_size ?? null,
         orderId: dto.order_id ?? null,
         customerId: dto.customer_id ?? null,
@@ -128,6 +145,29 @@ export class WashQueueService {
       job = await this.notifyReady(tenant, job);
     }
     return job;
+  }
+
+  /** Links the invoice that billed this job (B-21). Only once, only a live sale. */
+  async linkOrder(
+    tenant: TenantContext,
+    jobId: string,
+    orderId: string,
+    actor: Actor,
+  ) {
+    const job = await this.repo.findOne(tenant.tenantId, jobId);
+    if (!job) throw new NotFoundException('Wash job not found');
+    if (job.status === 'cancelled') {
+      throw new BadRequestException('Cannot bill a cancelled job');
+    }
+    if (job.order_id) {
+      throw new ConflictException('This job is already billed');
+    }
+    if (!(await this.repo.orderIsBillable(tenant.tenantId, orderId))) {
+      throw new BadRequestException('Order not found');
+    }
+    const updated = await this.repo.setOrder(tenant.tenantId, jobId, orderId);
+    await this.auditLog(tenant, actor, 'wash_job.bill', updated, null);
+    return updated;
   }
 
   async assign(

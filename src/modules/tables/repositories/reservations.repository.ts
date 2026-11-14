@@ -48,6 +48,53 @@ export class ReservationsRepository {
     return data ? this.map(data as unknown as ReservationRow) : null;
   }
 
+  /** Capacity of a live table of this tenant, or null when it does not exist. */
+  async findTable(
+    tableId: string,
+    tenantId: string,
+  ): Promise<{ id: string; capacity: number | null } | null> {
+    const { data, error } = await this.supabase
+      .from('tables')
+      .select('id, capacity')
+      .eq('id', tableId)
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .maybeSingle<{ id: string; capacity: number | null }>();
+    if (error) throw error;
+    return data;
+  }
+
+  /** Confirmed/seated bookings of a table inside [from, to] (double-booking check). */
+  async countActiveInWindow(
+    tenantId: string,
+    tableId: string,
+    from: string,
+    to: string,
+    excludeId?: string,
+  ): Promise<number> {
+    let q = this.supabase
+      .from('table_reservations')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('table_id', tableId)
+      .in('status', ['confirmed', 'seated'])
+      .gte('reservation_time', from)
+      .lte('reservation_time', to);
+    if (excludeId) q = q.neq('id', excludeId);
+    const { count, error } = await q;
+    if (error) throw error;
+    return count ?? 0;
+  }
+
+  async remove(id: string, tenantId: string) {
+    const { error } = await this.supabase
+      .from('table_reservations')
+      .delete()
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+    if (error) throw error;
+  }
+
   async tableBelongsToTenant(
     tableId: string,
     tenantId: string,

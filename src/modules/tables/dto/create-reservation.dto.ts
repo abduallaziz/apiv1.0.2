@@ -3,6 +3,7 @@ import {
   IsString,
   IsInt,
   Min,
+  Max,
   MaxLength,
   IsOptional,
   IsDateString,
@@ -24,6 +25,7 @@ export class CreateReservationDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(1000)
   party_size?: number;
 
   @IsDateString()

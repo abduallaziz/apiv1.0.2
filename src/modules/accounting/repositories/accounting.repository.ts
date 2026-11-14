@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { BadRequestException, Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
@@ -17,6 +17,10 @@ import { AssignBranchAccountingOwnerDto } from '../dto/assign-branch-accounting-
 // same plain service-role client every other read-only repository in
 // this codebase already uses (per the approved RLS decision: no one-off
 // pooled reads for this module).
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+
 @Injectable()
 export class AccountingRepository extends ScopedRepository {
   constructor(@Inject(SUPABASE_CLIENT) supabase: SupabaseClient) {
@@ -52,17 +56,68 @@ export class AccountingRepository extends ScopedRepository {
     tenant: TenantContext,
     query: JournalEntriesQueryDto,
   ) {
+    const amountMin = query.amount_min;
+    const amountMax = query.amount_max;
+    if (
+      (amountMin !== undefined && amountMin < 0) ||
+      (amountMax !== undefined && amountMax < 0)
+    ) {
+      throw new BadRequestException(
+        'amount_min and amount_max must not be negative',
+      );
+    }
+    if (
+      amountMin !== undefined &&
+      amountMax !== undefined &&
+      amountMin > amountMax
+    ) {
+      throw new BadRequestException(
+        'amount_min must not be greater than amount_max',
+      );
+    }
+
+    // account/amount are line-level conditions: they are applied in the
+    // database as an inner-joined filter on journal_lines, so total, page
+    // count and the rows of every page all describe the same filtered set.
+    // (They used to be a post-filter on the already-paginated page.)
+    const lineFilter =
+      !!query.account_id || amountMin !== undefined || amountMax !== undefined;
+
     const pagination = new PaginationDto(query.page, query.per_page);
     let builder = this.supabase
       .from('journal_entries')
-      .select(this.JOURNAL_ENTRY_SELECT, { count: 'exact' })
+      .select(
+        lineFilter
+          ? `${this.JOURNAL_ENTRY_SELECT}, journal_lines!inner(id)`
+          : this.JOURNAL_ENTRY_SELECT,
+        { count: 'exact' },
+      )
       .eq('tenant_id', tenant.tenantId);
+
+    if (lineFilter) {
+      if (query.account_id)
+        builder = builder.eq('journal_lines.account_id', query.account_id);
+      // A line's amount is whichever side is non-zero.
+      if (amountMin !== undefined)
+        builder = builder.or(
+          `debit_amount.gte.${amountMin},credit_amount.gte.${amountMin}`,
+          { referencedTable: 'journal_lines' },
+        );
+      if (amountMax !== undefined) {
+        builder = builder
+          .lte('journal_lines.debit_amount', amountMax)
+          .lte('journal_lines.credit_amount', amountMax);
+      }
+    }
 
     if (query.date_from) builder = builder.gte('posting_date', query.date_from);
     if (query.date_to) builder = builder.lte('posting_date', query.date_to);
     if (query.fiscal_period_id)
       builder = builder.eq('fiscal_period_id', query.fiscal_period_id);
-    if (query.source_module)
+    // 'manual' = entries with no source module (hand-written entries).
+    if (query.source_module === 'manual')
+      builder = builder.is('source_module', null);
+    else if (query.source_module)
       builder = builder.eq('source_module', query.source_module);
     if (query.status) builder = builder.eq('status', query.status);
     if (query.created_by) builder = builder.eq('created_by', query.created_by);
@@ -74,7 +129,7 @@ export class AccountingRepository extends ScopedRepository {
     }
     if (query.branch_id) {
       // Only sales-sourced entries are branch-filterable today (the only
-      // source_module that exists) — resolved via the order's own branch,
+      // source_module that exists) - resolved via the order's own branch,
       // never assumed for any other future source_module.
       const orderIds = await this.resolveOrderBranchIds(
         tenant.tenantId,
@@ -89,47 +144,16 @@ export class AccountingRepository extends ScopedRepository {
     const [from, to] = pagination.range;
     const { data, error, count } = await builder
       .order('posting_date', { ascending: false })
+      .order('created_at', { ascending: false })
       .range(from, to);
     if (error) throw error;
 
-    let rows = data ?? [];
-    // account_id/amount filters require the journal_lines side — applied
-    // as a post-filter on the already-paginated page rather than a join,
-    // since a line-level filter changing which entries qualify would
-    // otherwise require restructuring pagination around lines, not
-    // entries. Acceptable for Phase 1's data volume (25 live entries);
-    // revisit if evidence of real page-size distortion appears later.
-    if (
-      query.account_id ||
-      query.amount_min !== undefined ||
-      query.amount_max !== undefined
-    ) {
-      const entryIds = rows.map((r) => r.id as string);
-      if (entryIds.length > 0) {
-        const { data: lines } = await this.supabase
-          .from('journal_lines')
-          .select('journal_entry_id, account_id, debit_amount, credit_amount')
-          .in('journal_entry_id', entryIds);
-        const matching = new Set(
-          (lines ?? [])
-            .filter((l) => {
-              if (query.account_id && l.account_id !== query.account_id)
-                return false;
-              const amount = Math.max(
-                Number(l.debit_amount),
-                Number(l.credit_amount),
-              );
-              if (query.amount_min !== undefined && amount < query.amount_min)
-                return false;
-              if (query.amount_max !== undefined && amount > query.amount_max)
-                return false;
-              return true;
-            })
-            .map((l) => l.journal_entry_id as string),
-        );
-        rows = rows.filter((r) => matching.has(r.id as string));
-      }
-    }
+    const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map(
+      (r) => {
+        const { journal_lines: _lines, ...entry } = r;
+        return entry;
+      },
+    );
 
     return {
       data: rows,
@@ -166,7 +190,7 @@ export class AccountingRepository extends ScopedRepository {
       const { data: orderRow } = await this.supabase
         .from('orders')
         .select(
-          'id, branch_id, payment_method, subtotal, discount, tax, total, cash_amount, card_amount, customer_id, status',
+          'id, invoice_no, branch_id, payment_method, subtotal, discount, tax, total, cash_amount, card_amount, customer_id, status',
         )
         .eq('id', entry.source_entity_id)
         .maybeSingle();
@@ -185,7 +209,7 @@ export class AccountingRepository extends ScopedRepository {
     if (entry.reversal_of_id === null) {
       const { data: rev } = await this.supabase
         .from('journal_entries')
-        .select('id, status, created_at')
+        .select('id, reference, status, created_at')
         .eq('reversal_of_id', id)
         .maybeSingle();
       reversalEntry = rev ?? null;
@@ -216,7 +240,20 @@ export class AccountingRepository extends ScopedRepository {
     if (query.date_from) builder = builder.gte('created_at', query.date_from);
     if (query.date_to) builder = builder.lte('created_at', query.date_to);
     if (query.branch_id) builder = builder.eq('branch_id', query.branch_id);
-    if (query.order_id) builder = builder.eq('order_id', query.order_id);
+    if (query.order_id) {
+      // Accepts the order UUID or its invoice number (INV-xxxxxx).
+      let orderId = query.order_id;
+      if (!UUID_RE.test(orderId)) {
+        const { data: ord } = await this.supabase
+          .from('orders')
+          .select('id')
+          .eq('tenant_id', tenant.tenantId)
+          .eq('invoice_no', orderId)
+          .maybeSingle();
+        orderId = (ord?.id as string | undefined) ?? NIL_UUID;
+      }
+      builder = builder.eq('order_id', orderId);
+    }
     if (query.item_id) builder = builder.eq('item_id', query.item_id);
     if (query.actor_id) builder = builder.eq('actor_id', query.actor_id);
     if (query.actor_role_id)
@@ -386,11 +423,14 @@ export class AccountingRepository extends ScopedRepository {
       this.supabase
         .from('branches')
         .select('id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId),
+        .eq('tenant_id', tenant.tenantId)
+        .eq('is_active', true)
+        .is('deleted_at', null),
       this.supabase
         .from('branch_accounting_assignments')
         .select('branch_id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId),
+        .eq('tenant_id', tenant.tenantId)
+        .is('effective_to', null),
     ]);
 
     return {

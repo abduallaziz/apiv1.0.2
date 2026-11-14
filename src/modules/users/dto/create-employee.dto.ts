@@ -5,10 +5,17 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
 } from 'class-validator';
+import {
+  IsIdentityDigits,
+  IsPhoneNumber7to20,
+  NormalizeDigits,
+  NormalizePhone,
+} from './digits';
 
 // Employee Core creation — deliberately has NO email/password/role requirement.
 // This is what the "create employee without a login account" architecture rule
@@ -27,6 +34,8 @@ export class CreateEmployeeDto {
   @IsOptional()
   employee_number?: string;
 
+  @NormalizePhone()
+  @IsPhoneNumber7to20()
   @IsString()
   @IsOptional()
   phone?: string;
@@ -35,6 +44,8 @@ export class CreateEmployeeDto {
   @IsOptional()
   email?: string;
 
+  @NormalizeDigits()
+  @IsIdentityDigits()
   @IsString()
   @IsOptional()
   identity_number?: string;
@@ -78,4 +89,24 @@ export class CreateEmployeeDto {
   @IsBoolean()
   @IsOptional()
   enable_attendance?: boolean;
+
+  // Payroll policy at creation time (same columns/rules as UpdateEmployeeDto).
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  base_salary?: number;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  grace_period_minutes?: number;
+
+  @IsIn(['fixed', 'per_minute', 'percentage_of_daily_rate'])
+  @IsOptional()
+  late_deduction_mode?: 'fixed' | 'per_minute' | 'percentage_of_daily_rate';
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  late_deduction_value?: number;
 }

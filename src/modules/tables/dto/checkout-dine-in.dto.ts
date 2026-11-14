@@ -1,4 +1,11 @@
-import { IsEnum, IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class CheckoutDineInDto {
   @IsEnum([
@@ -26,16 +33,19 @@ export class CheckoutDineInDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(10000000)
   cash_tendered?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(10000000)
   cash_amount?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(10000000)
   card_amount?: number;
 
   @IsOptional()

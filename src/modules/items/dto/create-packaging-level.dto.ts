@@ -4,6 +4,8 @@ import {
   IsUUID,
   IsOptional,
   IsNumber,
+  Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -13,6 +15,7 @@ export class CreatePackagingLevelDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   level_name: string;
 
   // Omit for the root/base level (the item's existing storage unit).
@@ -25,6 +28,7 @@ export class CreatePackagingLevelDto {
 
   @IsNumber()
   @Min(0.0001)
+  @Max(1_000_000)
   @IsOptional()
   quantity_in_parent?: number;
 }

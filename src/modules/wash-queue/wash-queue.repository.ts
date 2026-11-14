@@ -118,6 +118,50 @@ export class WashQueueRepository {
     return (data ?? []) as WashJob[];
   }
 
+  /** Jobs of a branch that are still on the board (any queue day). */
+  async listActiveByBranch(
+    tenantId: string,
+    branchId: string,
+  ): Promise<Pick<WashJob, 'id' | 'plate' | 'status'>[]> {
+    const { data, error } = await this.supabase
+      .from('wash_jobs')
+      .select('id, plate, status')
+      .eq('tenant_id', tenantId)
+      .eq('branch_id', branchId)
+      .in('status', ['waiting', 'washing', 'ready'])
+      .is('deleted_at', null);
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  /** True if the order exists in this tenant and is a finished sale. */
+  async orderIsBillable(tenantId: string, orderId: string): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('orders')
+      .select('id, status')
+      .eq('id', orderId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle<{ id: string; status: string }>();
+    if (error) throw error;
+    return !!data && data.status !== 'cancelled';
+  }
+
+  async setOrder(
+    tenantId: string,
+    jobId: string,
+    orderId: string,
+  ): Promise<WashJob> {
+    const { data, error } = await this.supabase
+      .from('wash_jobs')
+      .update({ order_id: orderId, updated_at: new Date().toISOString() })
+      .eq('id', jobId)
+      .eq('tenant_id', tenantId)
+      .select('*')
+      .single<WashJob>();
+    if (error) throw error;
+    return data;
+  }
+
   async findOne(tenantId: string, jobId: string): Promise<WashJob | null> {
     const { data, error } = await this.supabase
       .from('wash_jobs')

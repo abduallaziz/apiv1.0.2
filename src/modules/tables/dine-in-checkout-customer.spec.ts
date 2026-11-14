@@ -10,6 +10,7 @@ describe('DineInService.checkout customer ownership (P1 isolation)', () => {
         .mockResolvedValue({ id: 'o1', total: 50, branch_id: 'b1' }),
       customerBelongsToTenant: jest.fn().mockResolvedValue(customerOk),
       checkoutAtomic: jest.fn().mockResolvedValue(null),
+      findOpenShiftId: jest.fn().mockResolvedValue('shift-1'),
     };
     const svc = new DineInService(
       {} as never,
@@ -43,5 +44,6 @@ describe('DineInService.checkout customer ownership (P1 isolation)', () => {
       svc.checkout(tenant, 'tbl', dto, 'u', 'cashier', 'ip', 'dev'),
     ).rejects.toThrow(/already checked out/);
     expect(dineInRepo.checkoutAtomic).toHaveBeenCalled();
+    expect(dineInRepo.checkoutAtomic.mock.calls[0][6]).toBe('shift-1');
   });
 });

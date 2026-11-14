@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { AccessControlRepository, RoleRow } from './access-control.repository';
 import { PermissionsService } from '../../core/permissions/permissions.service';
@@ -92,6 +92,7 @@ function buildService(
     upsertOverride: jest.fn().mockResolvedValue(undefined),
     deleteOverride: jest.fn().mockResolvedValue(undefined),
     deleteAllOverridesForRole: jest.fn().mockResolvedValue(undefined),
+    detachDeletedUsersFromRole: jest.fn().mockResolvedValue(undefined),
   } as unknown as AccessControlRepository;
 
   const permissionsService = {
@@ -303,6 +304,31 @@ describe('AccessControlService — S5 Stage C', () => {
       );
       expect(repo.upsertOverride).not.toHaveBeenCalled();
       expect(result.reset_count).toBe(2);
+    });
+  });
+
+  describe('deleteRole', () => {
+    const CUSTOM: RoleRow = {
+      id: 'role-custom-a',
+      name: 'Custom A',
+      description: null,
+      tenant_id: TENANT_A,
+      is_system: false,
+      ...TIMESTAMPS,
+    };
+
+    it('detaches soft-deleted users before deleting the role', async () => {
+      const { service, repo } = buildService({ roles: { [CUSTOM.id]: CUSTOM } });
+      (repo as any).deleteRole = jest.fn().mockResolvedValue(undefined);
+      await service.deleteRole(CUSTOM.id, tenantCtx(), actor());
+      expect(repo.detachDeletedUsersFromRole).toHaveBeenCalledWith(TENANT_A, CUSTOM.id);
+      expect((repo as any).deleteRole).toHaveBeenCalled();
+    });
+
+    it('rejects with 409 when active users are still assigned', async () => {
+      const { service, repo } = buildService({ roles: { [CUSTOM.id]: CUSTOM } });
+      (repo.countUsersForRole as jest.Mock).mockResolvedValue(2);
+      await expect(service.deleteRole(CUSTOM.id, tenantCtx(), actor())).rejects.toThrow(ConflictException);
     });
   });
 

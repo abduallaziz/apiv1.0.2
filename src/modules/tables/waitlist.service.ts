@@ -4,6 +4,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { WaitlistRepository } from './repositories/waitlist.repository';
+import { TablesRepository } from './repositories/tables.repository';
+import { assertPartyFits } from './reservation-rules';
 import { DineInService } from './dine-in.service';
 import { CreateWaitlistEntryDto } from './dto/create-waitlist-entry.dto';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -13,6 +15,7 @@ export class WaitlistService {
   constructor(
     private readonly repo: WaitlistRepository,
     private readonly dineInService: DineInService,
+    private readonly tablesRepo: TablesRepository,
   ) {}
 
   findAll(tenant: TenantContext, branchId?: string, status?: string) {
@@ -42,6 +45,11 @@ export class WaitlistService {
       );
     }
 
+    // Capacity check: the party must fit the chosen table (B-20).
+    const table = await this.tablesRepo.findById(tableId, tenant.tenantId);
+    if (!table) throw new NotFoundException('Table not found');
+    assertPartyFits(entry.party_size as number, table.capacity);
+
     // كان يضبط حالة الطاولة "مشغولة" مباشرة (بعد تحقق يدوي مكرَّر) بدون إنشاء أي طلب —
     // نفس خلل الحجوزات أعلاه بالضبط. openTable() يفعل التحقق + الإنشاء + ضبط الحالة
     // كعملية واحدة متسقة، فأزلنا التكرار هنا بدل نسخه.
@@ -52,6 +60,11 @@ export class WaitlistService {
   async cancel(tenant: TenantContext, id: string) {
     const entry = await this.repo.findById(id, tenant.tenantId);
     if (!entry) throw new NotFoundException('Waitlist entry not found');
+    if (entry.status !== 'waiting') {
+      throw new BadRequestException(
+        `Cannot cancel an entry with status: ${entry.status}`,
+      );
+    }
     return this.repo.cancel(id, tenant.tenantId);
   }
 }

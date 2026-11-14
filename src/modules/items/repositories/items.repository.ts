@@ -5,6 +5,16 @@ import { TenantContext } from '../../../core/tenant/tenant.context';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 import { QueryItemsDto, ITEM_SORT_COLUMNS } from '../dto/query-items.dto';
 
+/** Escapes LIKE wildcards (and the escape char itself) in user input. */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/** Wraps a LIKE pattern as a quoted PostgREST or()-filter value. */
+export function quoteForOrFilter(pattern: string): string {
+  return `"${pattern.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
+}
+
 @Injectable()
 export class ItemsRepository extends ScopedRepository {
   constructor(supabase: SupabaseClient) {
@@ -55,7 +65,18 @@ export class ItemsRepository extends ScopedRepository {
       q = q.eq('is_active', false);
     } // 'all' → no filter
 
-    if (query.search) q = q.ilike('name', `%${query.search}%`);
+    const term = query.search?.trim();
+    if (term) {
+      // Name or SKU or (exact-ish) barcode. LIKE wildcards typed by the user
+      // are escaped so "%" / "_" are searched literally.
+      const pattern = quoteForOrFilter(`%${escapeLike(term)}%`);
+      const barcodeItemIds = await this.findItemIdsByBarcode(tenantId, term);
+      const clauses = [`name.ilike.${pattern}`, `sku.ilike.${pattern}`];
+      if (barcodeItemIds.length > 0) {
+        clauses.push(`id.in.(${barcodeItemIds.join(',')})`);
+      }
+      q = q.or(clauses.join(','));
+    }
     if (query.type) q = q.eq('type', query.type);
     if (query.category_id) q = q.eq('category_id', query.category_id);
 
@@ -81,6 +102,23 @@ export class ItemsRepository extends ScopedRepository {
       data: (data ?? []).map(this.flattenItem.bind(this)),
       total: count ?? 0,
     };
+  }
+
+  private async findItemIdsByBarcode(
+    tenantId: string,
+    term: string,
+  ): Promise<string[]> {
+    const { data, error } = await this.supabase
+      .from('item_barcodes')
+      .select('item_id')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .ilike('barcode', `%${escapeLike(term)}%`)
+      .limit(200);
+    if (error) throw error;
+    return [
+      ...new Set((data ?? []).map((r: { item_id: string }) => r.item_id)),
+    ];
   }
 
   // Tenant-wide counts for the KPI cards — deliberately independent of the
@@ -117,7 +155,7 @@ export class ItemsRepository extends ScopedRepository {
   async findById(id: string, tenantId: string) {
     const { data, error } = await this.scopedQuery('items', this.ctx(tenantId))
       .select(
-        `id, name, type, operation_type, price, has_inventory, has_variants, is_active, created_at, sku, sku_source,
+        `id, name, type, operation_type, price, has_inventory, has_variants, is_active, created_at, sku, sku_source, image_url,
          costing_method, standard_cost,
          categories(id, name, type),
          item_variants(id, name, price_adjustment, sku, stock_quantity, is_active)`,

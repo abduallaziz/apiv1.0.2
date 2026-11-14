@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { isDayEvaluable } from './payroll.util';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantContext } from '../../core/tenant/tenant-context';
@@ -164,6 +165,7 @@ export class ReportsService {
         'id, total, subtotal, discount, tax, payment_method, cash_amount, card_amount, created_at, branch_id',
       )
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -192,6 +194,7 @@ export class ReportsService {
       .from('orders')
       .select('id, total')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'cancelled')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -447,6 +450,7 @@ export class ReportsService {
         'id, total, payment_method, cash_amount, card_amount, branch_id, created_at, cashier_id',
       )
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -639,6 +643,7 @@ export class ReportsService {
         'item_id, item_name, qty, total_price, orders!inner(tenant_id, status, created_at, branch_id)',
       )
       .eq('orders.tenant_id', tenant.tenantId)
+      .is('orders.deleted_at', null)
       .eq('orders.status', 'completed')
       .gte('orders.created_at', from)
       .lte('orders.created_at', to);
@@ -691,6 +696,7 @@ export class ReportsService {
       .from('orders')
       .select('id, total, payment_method, status, created_at')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .in('status', ['completed', 'cancelled']);
 
     if (effectiveBranchId) q = q.eq('branch_id', effectiveBranchId);
@@ -767,6 +773,7 @@ export class ReportsService {
       .from('orders')
       .select('total, created_at')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -853,6 +860,7 @@ export class ReportsService {
       .from('orders')
       .select('id, total, cashier_id, branch_id, created_at')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -926,6 +934,7 @@ export class ReportsService {
       .from('orders')
       .select('id, total, customer_id, branch_id, created_at')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to)
@@ -1002,6 +1011,7 @@ export class ReportsService {
       .from('orders')
       .select('id, total, payment_method, cash_amount, card_amount, branch_id')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -1038,6 +1048,7 @@ export class ReportsService {
       .from('orders')
       .select('id, total')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'cancelled')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -1140,6 +1151,7 @@ export class ReportsService {
       .from('orders')
       .select('id, subtotal, discount, tax, total, branch_id, created_at')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -1282,6 +1294,7 @@ export class ReportsService {
       .from('orders')
       .select('subtotal, discount, total')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -1450,6 +1463,7 @@ export class ReportsService {
       .from('orders')
       .select('id, total, customer_id, branch_id, created_at')
       .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
@@ -1684,6 +1698,7 @@ export class ReportsService {
     for (const e of exceptions ?? [])
       (excusedByUser[e.user_id] ??= new Set()).add(e.date);
 
+    const todayIso = new Date().toISOString().substring(0, 10);
     const results = employees.map((emp) => {
       const scheduledDates =
         schedulesByUser[emp.id] ?? new Map<string, string>();
@@ -1702,6 +1717,11 @@ export class ReportsService {
       let leaveDeduction = 0;
 
       for (const [scheduledDate, earliestStartTime] of scheduledDates) {
+        // Only elapsed days count: future days (and today without a check-in yet) are skipped.
+        if (
+          !isDayEvaluable(scheduledDate, todayIso, !!attendanceDates[scheduledDate])
+        )
+          continue;
         const leaveType = leaveDates.get(scheduledDate);
         if (leaveType) {
           if (leaveType === 'unpaid') {
@@ -1932,6 +1952,7 @@ export class ReportsService {
       .from('orders')
       .select('customer_id')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to)
@@ -1943,6 +1964,7 @@ export class ReportsService {
       .from('orders')
       .select('customer_id')
       .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null)
       .eq('status', 'completed')
       .gte('created_at', previousFrom)
       .lte('created_at', previousTo)

@@ -1,3 +1,4 @@
+import { DefaultTemplateService } from './default-template.service';
 import { defaultQuotationBody } from './default-template.service';
 import { sanitizeBody } from './template-body.util';
 
@@ -38,5 +39,44 @@ describe('default quotation templates', () => {
       body.elements as Array<{ id: string; layout?: { place?: string } }>
     ).find((e) => e.id === 'contact');
     expect(contact?.layout?.place).toBe('start');
+  });
+});
+
+describe('DefaultTemplateService.restore', () => {
+  const make = (liveRows: number) => {
+    const query = jest
+      .fn()
+      .mockResolvedValue({ rows: Array(liveRows).fill({}) });
+    const tenantSession = {
+      runInTenantContext: jest.fn((_t: unknown, fn: (c: unknown) => unknown) =>
+        fn({ query }),
+      ),
+    };
+    const assets = { create: jest.fn().mockResolvedValue({ id: 'a' }) };
+    const templates = {
+      create: jest.fn().mockResolvedValue({ id: 't' }),
+      publish: jest.fn(),
+      setDefault: jest.fn(),
+    };
+    const svc = new DefaultTemplateService(
+      tenantSession as never,
+      assets as never,
+      templates as never,
+    );
+    return { svc, query, templates };
+  };
+
+  it('does nothing while the tenant still has live templates', async () => {
+    const { svc, templates, query } = make(1);
+    expect(await svc.restore({ tenantId: 't1' } as never, 'u')).toBe(false);
+    expect(templates.create).not.toHaveBeenCalled();
+    expect(query.mock.calls[0][0]).toContain('deleted_at IS NULL');
+  });
+
+  it('re-creates the Arabic and English templates when none are left', async () => {
+    const { svc, templates } = make(0);
+    expect(await svc.restore({ tenantId: 't1' } as never, 'u')).toBe(true);
+    expect(templates.create).toHaveBeenCalledTimes(2);
+    expect(templates.setDefault).toHaveBeenCalledTimes(1);
   });
 });

@@ -7,7 +7,7 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 import { CustomerSortField } from './dto/customer-query.dto';
-import { normalizePhone } from './customer-normalize';
+import { escapeLikeTerm, normalizePhone } from './customer-normalize';
 import {
   localDayBoundIso,
   safeTimezone,
@@ -92,7 +92,7 @@ export class CustomersRepository extends ScopedRepository {
     }
 
     if (search) {
-      const escaped = search.replace(/[%,]/g, '');
+      const escaped = escapeLikeTerm(search);
       const conditions = [
         `full_name.ilike.%${escaped}%`,
         `phone.ilike.%${escaped}%`,
@@ -162,7 +162,7 @@ export class CustomersRepository extends ScopedRepository {
     restrictToCustomerIds: string[] | undefined,
     sortOrder: 'asc' | 'desc',
   ) {
-    const escapedSearch = search ? search.replace(/[%,]/g, '') : null;
+    const escapedSearch = search ? escapeLikeTerm(search) : null;
     const spendRes = await this.supabase.rpc('fn_customers_page_by_spend', {
       p_tenant_id: tenant.tenantId,
       p_search: escapedSearch,

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,7 +10,6 @@ import {
   canRewash,
   canTransition,
   WASH_STATUSES,
-  WashStatus,
 } from './wash-queue.state-machine';
 
 const tenant = { tenantId: 't1' } as never;
@@ -52,7 +52,7 @@ describe('wash queue state machine', () => {
     // the flag opens nothing else
     expect(canTransition('delivered', 'washing', true)).toBe(false);
     expect(canTransition('cancelled', 'washing', true)).toBe(false);
-    expect(canTransition('washing', 'waiting' as WashStatus, true)).toBe(false);
+    expect(canTransition('washing', 'waiting', true)).toBe(false);
   });
 
   it('re-wash roles', () => {
@@ -71,6 +71,7 @@ describe('WashQueueService', () => {
 
   beforeEach(() => {
     repo = {
+      listActiveByBranch: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       transition: jest.fn(),
       assign: jest.fn(),
@@ -118,13 +119,24 @@ describe('WashQueueService', () => {
     repo.findOne.mockResolvedValue(job('ready'));
     repo.transition.mockResolvedValue(job('washing'));
     await svc.changeStatus(tenant, 'j1', { status: 'washing' }, mgr);
-    expect(repo.transition).toHaveBeenCalledWith('t1', 'j1', 'washing', 'u1', true);
+    expect(repo.transition).toHaveBeenCalledWith(
+      't1',
+      'j1',
+      'washing',
+      'u1',
+      true,
+    );
   });
 
   it('notifies and stamps ready_notified_at when a job becomes ready', async () => {
     repo.findOne.mockResolvedValue(job('washing'));
     repo.transition.mockResolvedValue(job('ready'));
-    const out = await svc.changeStatus(tenant, 'j1', { status: 'ready' }, cashier);
+    const out = await svc.changeStatus(
+      tenant,
+      'j1',
+      { status: 'ready' },
+      cashier,
+    );
     expect(notifier.notify).toHaveBeenCalledWith(
       expect.objectContaining({ jobId: 'j1', plate: 'ABC 1', queueNumber: 3 }),
     );
@@ -143,7 +155,12 @@ describe('WashQueueService', () => {
     repo.findOne.mockResolvedValue(job('washing'));
     repo.transition.mockResolvedValue(job('ready'));
     notifier.notify.mockRejectedValue(new Error('boom'));
-    const out = await svc.changeStatus(tenant, 'j1', { status: 'ready' }, cashier);
+    const out = await svc.changeStatus(
+      tenant,
+      'j1',
+      { status: 'ready' },
+      cashier,
+    );
     expect(out.status).toBe('ready');
     expect(repo.markNotified).not.toHaveBeenCalled();
   });
@@ -182,6 +199,43 @@ describe('WashQueueService', () => {
     repo.findOne.mockResolvedValue(null);
     await expect(svc.getOne(tenant, 'x')).rejects.toBeInstanceOf(
       NotFoundException,
+    );
+  });
+});
+
+describe('WashQueueService.create guards', () => {
+  const mk = (active: { id: string; plate: string; status: string }[]) => {
+    const repo = {
+      listActiveByBranch: jest.fn().mockResolvedValue(active),
+      create: jest
+        .fn()
+        .mockImplementation((p: { plate: string }) =>
+          Promise.resolve({ id: 'j9', plate: p.plate, branch_id: 'b1' }),
+        ),
+    };
+    const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const svc = new WashQueueService(repo as never, audit as never, {
+      notify: jest.fn(),
+    });
+    return { svc, repo };
+  };
+  const dto = { branch_id: 'b1', plate: 'ABC 1234' };
+
+  it('rejects a plate that is already live (spacing/case-insensitive)', async () => {
+    const { svc, repo } = mk([
+      { id: 'x', plate: 'abc-1234', status: 'waiting' },
+    ]);
+    await expect(svc.create(tenant, dto, mgr)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  it('stores Arabic-Indic digits as English digits', async () => {
+    const { svc, repo } = mk([]);
+    await svc.create(tenant, { ...dto, plate: 'أ ب ج  ١٢٣' }, mgr);
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ plate: 'أ ب ج 123' }),
     );
   });
 });

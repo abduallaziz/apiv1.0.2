@@ -13,7 +13,11 @@ import { CustomerQueryDto } from './dto/customer-query.dto';
 import { TenantsService } from '../tenants/tenants.service';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
-import { normalizePhone, normalizePlate } from './customer-normalize';
+import {
+  checkContactValues,
+  normalizePhone,
+  normalizePlate,
+} from './customer-normalize';
 import {
   CreateVehicleDto,
   UpdateVehicleDto,
@@ -134,7 +138,16 @@ export class CustomersService {
       odometerField ? customFields[odometerField.field_key] : undefined,
     );
 
-    return { phone, email, plate_number, visit_date, odometer };
+    const checked = checkContactValues({ phone, plate: plate_number });
+    if (checked.error) throw new BadRequestException(checked.error);
+
+    return {
+      phone: checked.phone,
+      email,
+      plate_number: plate_number?.trim() || undefined,
+      visit_date,
+      odometer,
+    };
   }
 
   async getStats(tenant: TenantContext, from?: string, to?: string) {
@@ -246,9 +259,22 @@ export class CustomersService {
     tenant: TenantContext,
     user: JwtPayload,
     dto: CreateCustomerDto,
+    opts: { allowEmpty?: boolean } = {},
   ) {
     const { phone, email, plate_number, visit_date, odometer } =
       await this.syncContactColumns(tenant, dto);
+
+    if (
+      !opts.allowEmpty &&
+      !phone &&
+      !plate_number &&
+      !dto.full_name?.trim() &&
+      !email
+    ) {
+      throw new BadRequestException(
+        'A phone number or a plate number is required',
+      );
+    }
 
     if (phone) {
       const existing = await this.repo.findByPhone(tenant, phone);
@@ -510,7 +536,9 @@ export class CustomersService {
     }
     if (Object.keys(payload).length === 0) return vehicle;
     try {
-      return await this.repo.updateVehicle(tenant, vehicleId, payload);
+      const updated = await this.repo.updateVehicle(tenant, vehicleId, payload);
+      await this.syncPlateColumn(tenant, customerId);
+      return updated;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictException({
@@ -532,7 +560,25 @@ export class CustomersService {
     const vehicle = await this.repo.findVehicle(tenant, customerId, vehicleId);
     if (!vehicle) throw new NotFoundException('Vehicle not found');
     await this.repo.softDeleteVehicle(tenant, vehicleId);
+    await this.syncPlateColumn(tenant, customerId);
     return { message: 'Vehicle removed' };
+  }
+
+  /**
+   * The customers list shows customers.plate_number, a denormalised copy of
+   * the first car. Keep it in step with the cars table after any car change,
+   * otherwise an edited plate never shows in the list.
+   */
+  private async syncPlateColumn(tenant: TenantContext, customerId: string) {
+    try {
+      const vehicles = await this.repo.listVehicles(tenant, customerId);
+      const first = vehicles[0]?.plate ?? null;
+      await this.repo.update(tenant, customerId, {
+        plate_number: first as unknown as string,
+      });
+    } catch {
+      // Best-effort denormalisation: the cars table stays the source of truth.
+    }
   }
 
   private async insertVehicle(
@@ -551,13 +597,15 @@ export class CustomersService {
       });
     }
     try {
-      return await this.repo.createVehicle(tenant, {
+      const created = await this.repo.createVehicle(tenant, {
         customer_id: customerId,
         plate: dto.plate.trim(),
         size: dto.size ?? null,
         model: dto.model ?? null,
         colour: dto.colour ?? null,
       });
+      await this.syncPlateColumn(tenant, customerId);
+      return created;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictException({
@@ -650,11 +698,16 @@ export class CustomersService {
       };
       fill('phone', capture.phone);
       fill('plate_number', capture.plate);
-      const created = await this.create(tenant, user, {
-        full_name: capture.name?.trim() ?? '',
-        phone: capture.phone?.trim() || undefined,
-        custom_fields: customFields,
-      });
+      const created = await this.create(
+        tenant,
+        user,
+        {
+          full_name: capture.name?.trim() ?? '',
+          phone: capture.phone?.trim() || undefined,
+          custom_fields: customFields,
+        },
+        { allowEmpty: true },
+      );
       customerId = created.id;
     }
 

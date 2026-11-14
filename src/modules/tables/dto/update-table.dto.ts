@@ -2,6 +2,7 @@ import {
   IsString,
   IsInt,
   Min,
+  Max,
   MaxLength,
   IsOptional,
   IsIn,
@@ -16,6 +17,7 @@ export class UpdateTableDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(1000)
   capacity?: number;
 
   @IsOptional()

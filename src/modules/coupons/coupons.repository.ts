@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
@@ -55,7 +55,7 @@ export class CouponsRepository extends ScopedRepository {
       .single();
     if (error) {
       if (isUniqueViolation(error)) {
-        throw new BadRequestException('A coupon with this code already exists');
+        throw new ConflictException('A coupon with this code already exists');
       }
       throw error;
     }
@@ -72,7 +72,7 @@ export class CouponsRepository extends ScopedRepository {
       .single();
     if (error) {
       if (isUniqueViolation(error)) {
-        throw new BadRequestException('A coupon with this code already exists');
+        throw new ConflictException('A coupon with this code already exists');
       }
       throw error;
     }

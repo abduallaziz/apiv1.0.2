@@ -31,7 +31,9 @@ function fakeSupabase(plan: {
           data: { default_warehouse_id: plan.existingWarehouseId ?? null },
         }),
       single: () =>
-        Promise.resolve(plan.insertResult ?? { data: { id: 'wh-new' }, error: null }),
+        Promise.resolve(
+          plan.insertResult ?? { data: { id: 'wh-new' }, error: null },
+        ),
       then: (resolve: any) => resolve({ error: plan.linkError ?? null }),
     };
     return chain;
@@ -46,19 +48,25 @@ describe('ensureBranchWarehouse', () => {
     const { client, calls } = fakeSupabase({});
     const id = await ensureBranchWarehouse(client, 't1', branchId, 'Main');
     expect(id).toBe('wh-new');
-    const insert = calls.find((c) => c.table === 'warehouses' && c.op === 'insert')!;
+    const insert = calls.find(
+      (c) => c.table === 'warehouses' && c.op === 'insert',
+    )!;
     expect(insert.payload).toMatchObject({
       tenant_id: 't1',
       branch_id: branchId,
       code: 'WH-11111111',
       is_active: true,
     });
-    const link = calls.find((c) => c.table === 'branches' && c.op === 'update')!;
+    const link = calls.find(
+      (c) => c.table === 'branches' && c.op === 'update',
+    )!;
     expect(link.payload).toEqual({ default_warehouse_id: 'wh-new' });
   });
 
   it('does nothing when the branch already has a default warehouse', async () => {
-    const { client, calls } = fakeSupabase({ existingWarehouseId: 'wh-existing' });
+    const { client, calls } = fakeSupabase({
+      existingWarehouseId: 'wh-existing',
+    });
     const id = await ensureBranchWarehouse(client, 't1', branchId, 'Main');
     expect(id).toBe('wh-existing');
     expect(calls).toHaveLength(0);

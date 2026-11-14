@@ -270,6 +270,11 @@ export class DineInService {
       dto.payment_method,
       dto.customer_id ?? null,
       numberFormat,
+      await this.dineInRepo.findOpenShiftId(
+        tenant.tenantId,
+        cashierId,
+        order.branch_id,
+      ),
     );
     if (!finalized) {
       throw new BadRequestException(

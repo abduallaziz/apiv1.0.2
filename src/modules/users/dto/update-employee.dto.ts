@@ -9,6 +9,12 @@ import {
   IsString,
   Min,
 } from 'class-validator';
+import {
+  IsIdentityDigits,
+  IsPhoneNumber7to20,
+  NormalizeDigits,
+  NormalizePhone,
+} from './digits';
 
 // Employee Core editing — deliberately excludes email/password/role/login
 // status. Those belong to the System User side (PATCH /users/:id) even when
@@ -32,6 +38,8 @@ export class UpdateEmployeeDto {
   @IsOptional()
   employee_number?: string | null;
 
+  @NormalizePhone()
+  @IsPhoneNumber7to20()
   @IsString()
   @IsOptional()
   phone?: string | null;
@@ -40,6 +48,8 @@ export class UpdateEmployeeDto {
   @IsOptional()
   email?: string | null;
 
+  @NormalizeDigits()
+  @IsIdentityDigits()
   @IsString()
   @IsOptional()
   identity_number?: string | null;

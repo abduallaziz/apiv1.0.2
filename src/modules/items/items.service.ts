@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -17,6 +18,14 @@ import { QueryItemsDto } from './dto/query-items.dto';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 const MAX_SKU_GENERATE_ATTEMPTS = 5;
+
+/** Turns a unique-violation on a manually-entered SKU into a clean 409. */
+function skuConflict(error: unknown): never {
+  if (isUniqueViolation(error)) {
+    throw new ConflictException('This SKU is already used by another item');
+  }
+  throw error;
+}
 
 const ITEMS_LIST_TTL = 300; // 5 minutes
 const itemsListCacheKey = (tenantId: string, query: QueryItemsDto) =>
@@ -63,9 +72,10 @@ export class ItemsService {
   // cache (never cached with it). Only items that track inventory and have no
   // variants get a stock_quantity — same rule as findById; the POS uses it to
   // flag out-of-stock items.
-  private async withLiveStock<
-    T extends { data: unknown[] },
-  >(tenantId: string, envelope: T): Promise<T> {
+  private async withLiveStock<T extends { data: unknown[] }>(
+    tenantId: string,
+    envelope: T,
+  ): Promise<T> {
     type Row = {
       id: string;
       has_inventory?: boolean;
@@ -131,11 +141,13 @@ export class ItemsService {
     const { sku: manualSku, ...rest } = dto;
 
     if (manualSku) {
-      const item = await this.itemsRepo.create(tenantId, {
-        ...rest,
-        sku: manualSku,
-        sku_source: 'manual',
-      });
+      const item = await this.itemsRepo
+        .create(tenantId, {
+          ...rest,
+          sku: manualSku,
+          sku_source: 'manual',
+        })
+        .catch(skuConflict);
       await this.invalidateList(tenantId);
       return this.attachAutoBarcode(tenantId, item);
     }
@@ -209,7 +221,9 @@ export class ItemsService {
     // flips an 'auto' item back to 'manual'.
     const payload: Record<string, unknown> = { ...dto };
     if (dto.sku !== undefined) payload.sku_source = 'manual';
-    const item = await this.itemsRepo.update(id, tenantId, payload);
+    const item = await this.itemsRepo
+      .update(id, tenantId, payload)
+      .catch(skuConflict);
     await this.invalidateList(tenantId);
     return item;
   }
@@ -236,11 +250,13 @@ export class ItemsService {
 
     let variant: { id: string; [key: string]: unknown };
     if (manualSku) {
-      variant = await this.itemsRepo.createVariant(itemId, tenantId, {
-        ...rest,
-        sku: manualSku,
-        sku_source: 'manual',
-      });
+      variant = await this.itemsRepo
+        .createVariant(itemId, tenantId, {
+          ...rest,
+          sku: manualSku,
+          sku_source: 'manual',
+        })
+        .catch(skuConflict);
     } else if (!(parent as { sku?: string }).sku) {
       // Defensive only — every item now gets a SKU at creation time (auto or
       // manual), so this should not happen in practice. Falling back to no
@@ -284,6 +300,8 @@ export class ItemsService {
           `Auto barcode generation failed for variant ${variant.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
+    // The list embeds variants_count and is cached — drop it so the badge is right.
+    await this.invalidateList(tenantId);
     return variant;
   }
 
@@ -296,11 +314,16 @@ export class ItemsService {
     await this.findById(itemId, tenantId);
     const payload: Record<string, unknown> = { ...dto };
     if (dto.sku !== undefined) payload.sku_source = 'manual';
-    return this.itemsRepo.updateVariant(variantId, itemId, tenantId, payload);
+    const updated = await this.itemsRepo
+      .updateVariant(variantId, itemId, tenantId, payload)
+      .catch(skuConflict);
+    await this.invalidateList(tenantId);
+    return updated;
   }
 
   async removeVariant(variantId: string, itemId: string, tenantId: string) {
     await this.findById(itemId, tenantId);
     await this.itemsRepo.softDeleteVariant(variantId, itemId, tenantId);
+    await this.invalidateList(tenantId);
   }
 }

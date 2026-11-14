@@ -3,6 +3,7 @@ import {
   IsString,
   IsInt,
   Min,
+  Max,
   MaxLength,
   IsOptional,
 } from 'class-validator';
@@ -18,5 +19,6 @@ export class CreateTableDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(1000)
   capacity?: number;
 }

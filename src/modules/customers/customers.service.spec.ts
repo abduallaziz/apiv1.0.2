@@ -124,6 +124,7 @@ describe('CustomersService.create — created_branch_id capture (Phase 2)', () =
     const { service, createCalls } = buildService();
 
     await service.create(tenantContext(), cashierUser(BRANCH_A), {
+      phone: '0500000001',
       created_branch_id: BRANCH_B, // must be ignored — cashier's own branch always wins
     });
 
@@ -134,6 +135,7 @@ describe('CustomersService.create — created_branch_id capture (Phase 2)', () =
     const { service, createCalls } = buildService();
 
     await service.create(tenantContext(), centralUser(), {
+      phone: '0500000001',
       created_branch_id: BRANCH_A,
     });
 
@@ -143,7 +145,9 @@ describe('CustomersService.create — created_branch_id capture (Phase 2)', () =
   it('Central creation with no branch context leaves created_branch_id NULL (not an error)', async () => {
     const { service, createCalls } = buildService();
 
-    await service.create(tenantContext(), centralUser(), {});
+    await service.create(tenantContext(), centralUser(), {
+      phone: '0500000001',
+    });
 
     expect(createCalls[0].created_branch_id).toBeNull();
   });
@@ -151,7 +155,9 @@ describe('CustomersService.create — created_branch_id capture (Phase 2)', () =
   it('cashier creation with no dto branch still captures the actor own branch', async () => {
     const { service, createCalls } = buildService();
 
-    await service.create(tenantContext(), cashierUser(BRANCH_B), {});
+    await service.create(tenantContext(), cashierUser(BRANCH_B), {
+      phone: '0500000001',
+    });
 
     expect(createCalls[0].created_branch_id).toBe(BRANCH_B);
   });
@@ -161,7 +167,9 @@ describe('CustomersService.create — relationship seeding (Phase 3)', () => {
   it('seeds a relationship (source=created) when a branch context is known', async () => {
     const { service, upsertRelationshipCalls } = buildService();
 
-    await service.create(tenantContext(), cashierUser(BRANCH_A), {});
+    await service.create(tenantContext(), cashierUser(BRANCH_A), {
+      phone: '0500000001',
+    });
 
     expect(upsertRelationshipCalls).toHaveLength(1);
     expect(upsertRelationshipCalls[0][1]).toBe('new-customer-id');
@@ -172,7 +180,9 @@ describe('CustomersService.create — relationship seeding (Phase 3)', () => {
   it('does not seed a relationship when no branch context exists (Central, no explicit branch)', async () => {
     const { service, upsertRelationshipCalls } = buildService();
 
-    await service.create(tenantContext(), centralUser(), {});
+    await service.create(tenantContext(), centralUser(), {
+      phone: '0500000001',
+    });
 
     expect(upsertRelationshipCalls).toHaveLength(0);
   });

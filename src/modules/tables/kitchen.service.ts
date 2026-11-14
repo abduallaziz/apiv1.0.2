@@ -23,7 +23,7 @@ export class KitchenService {
     let q = this.supabase
       .from('orders')
       .select(
-        'id, table_id, branch_id, created_at, tables(name), order_items(id, item_name, qty, kitchen_status, created_at)',
+        'id, table_id, branch_id, created_at, tables(name), order_items(id, item_name, qty, kitchen_status, created_at, deleted_at)',
       )
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'pending')
@@ -40,7 +40,11 @@ export class KitchenService {
       table_name: o.tables?.name ?? null,
       created_at: o.created_at,
       items: o.order_items
-        .filter((i) => i.kitchen_status && i.kitchen_status !== 'served')
+        // B-9: soft-deleted (removed) items must never reach the kitchen
+        .filter(
+          (i) =>
+            !i.deleted_at && i.kitchen_status && i.kitchen_status !== 'served',
+        )
         .map((i) => ({
           id: i.id,
           item_name: i.item_name,

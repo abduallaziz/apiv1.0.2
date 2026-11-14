@@ -3,6 +3,8 @@ import {
   Get,
   Patch,
   Param,
+  Body,
+  Req,
   Query,
   UseGuards,
   ParseUUIDPipe,
@@ -14,6 +16,8 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { RejectLeaveDto } from './dto/reject-leave.dto';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { Audit } from '../../core/audit/audit.decorator';
 
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
@@ -47,7 +51,13 @@ export class LeavesController {
   reject(
     @Param('id', ParseUUIDPipe) id: string,
     @GetTenant() tenant: TenantContext,
+    @Body() dto: RejectLeaveDto,
+    @Req() req: { user: JwtPayload },
   ) {
-    return this.service.updateStatus(id, tenant, 'rejected');
+    return this.service.updateStatus(id, tenant, 'rejected', {
+      reason: dto?.reason,
+      actorId: req.user?.sub,
+      actorRole: req.user?.role,
+    });
   }
 }

@@ -11,6 +11,7 @@ import {
   UpdateShiftPatternDto,
 } from './dto/shift-pattern.dto';
 import { AssignScheduleDto } from './dto/assign-schedule.dto';
+import { assertValidShifts } from './shift-validation';
 import { TenantContext } from '../../core/tenant/tenant-context';
 
 // How far ahead schedule rows are materialized. There's no end date by
@@ -50,10 +51,12 @@ export class ShiftPatternsService {
   }
 
   create(tenant: TenantContext, dto: CreateShiftPatternDto) {
+    assertValidShifts(dto.shifts);
     return this.repo.create(tenant.tenantId, dto);
   }
 
   async update(id: string, tenant: TenantContext, dto: UpdateShiftPatternDto) {
+    assertValidShifts(dto.shifts);
     await this.findOne(id, tenant);
     const updated = await this.repo.update(id, tenant.tenantId, dto);
 
@@ -102,6 +105,8 @@ export class ShiftPatternsService {
       );
       if (!ok) throw new BadRequestException(`User not found: ${userId}`);
     }
+
+    if (dto.custom) assertValidShifts(dto.custom.shifts);
 
     let resolved: {
       days_of_week: number[];

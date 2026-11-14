@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -37,10 +38,30 @@ export class CouponsService {
     return this.repo.findAll(tenant);
   }
 
+  /** Cross-field rules the DTO decorators cannot express. */
+  private assertShape(c: {
+    discount_type?: string;
+    discount_value?: number;
+    valid_from?: string | null;
+    valid_to?: string | null;
+  }) {
+    if (c.discount_type === 'percentage' && (c.discount_value ?? 0) > 100) {
+      throw new BadRequestException('Percentage discount cannot exceed 100');
+    }
+    if (
+      c.valid_from &&
+      c.valid_to &&
+      new Date(c.valid_to) < new Date(c.valid_from)
+    ) {
+      throw new BadRequestException('valid_to must be on or after valid_from');
+    }
+  }
+
   async create(tenant: TenantContext, dto: CreateCouponDto) {
+    this.assertShape(dto);
     const existing = await this.repo.findByCode(tenant, dto.code);
     if (existing)
-      throw new BadRequestException('A coupon with this code already exists');
+      throw new ConflictException('A coupon with this code already exists');
     return this.repo.create(tenant, {
       ...dto,
       code: dto.code.toUpperCase(),
@@ -55,9 +76,24 @@ export class CouponsService {
   }
 
   async update(tenant: TenantContext, id: string, dto: UpdateCouponDto) {
-    const existing = await this.repo.findById(tenant, id);
+    const existing = (await this.repo.findById(tenant, id)) as Coupon | null;
     if (!existing) throw new NotFoundException('Coupon not found');
-    return this.repo.update(tenant, id, dto);
+    this.assertShape({
+      discount_type: dto.discount_type ?? existing.discount_type,
+      discount_value: dto.discount_value ?? existing.discount_value,
+      valid_from: dto.valid_from ?? existing.valid_from,
+      valid_to: dto.valid_to ?? existing.valid_to,
+    });
+    const payload = dto.code ? { ...dto, code: dto.code.toUpperCase() } : dto;
+    if (payload.code && payload.code !== existing.code) {
+      const dup = (await this.repo.findByCode(
+        tenant,
+        payload.code,
+      )) as Coupon | null;
+      if (dup && dup.id !== id)
+        throw new ConflictException('A coupon with this code already exists');
+    }
+    return this.repo.update(tenant, id, payload);
   }
 
   async remove(tenant: TenantContext, id: string) {

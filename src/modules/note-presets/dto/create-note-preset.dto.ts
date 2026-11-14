@@ -1,8 +1,16 @@
-import { IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreateNotePresetDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   text: string;
 
   @IsOptional()

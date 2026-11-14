@@ -12,6 +12,7 @@ import {
   Min,
   Max,
   IsUrl,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -107,6 +108,8 @@ export class UpdateTenantProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
+  // Saudi VAT number: empty (clears it) or exactly 15 digits, English numerals only.
+  @Matches(/^(\d{15})?$/, { message: 'tax_number must be 15 digits' })
   tax_number?: string;
 
   @IsOptional()

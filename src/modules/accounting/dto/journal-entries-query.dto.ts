@@ -3,6 +3,7 @@ import {
   IsIn,
   IsInt,
   IsISO8601,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -59,10 +60,12 @@ export class JournalEntriesQueryDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsNumber()
   amount_min?: number;
 
   @IsOptional()
   @Type(() => Number)
+  @IsNumber()
   amount_max?: number;
 
   @IsOptional()

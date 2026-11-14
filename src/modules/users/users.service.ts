@@ -364,6 +364,16 @@ export class UsersService {
       city: dto.city ?? null,
       address: dto.address ?? null,
       gps_radius_meters: dto.gps_radius_meters ?? null,
+      ...(dto.base_salary !== undefined && { base_salary: dto.base_salary }),
+      ...(dto.grace_period_minutes !== undefined && {
+        grace_period_minutes: dto.grace_period_minutes,
+      }),
+      ...(dto.late_deduction_mode !== undefined && {
+        late_deduction_mode: dto.late_deduction_mode,
+      }),
+      ...(dto.late_deduction_value !== undefined && {
+        late_deduction_value: dto.late_deduction_value,
+      }),
     });
 
     if (error) throw new BadRequestException(error.message);
