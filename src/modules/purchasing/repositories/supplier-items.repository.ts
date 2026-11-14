@@ -1,4 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  assertSupplierInBranch,
+} from '../../../core/branch-scope/branch-supplier';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isUniqueViolation } from '../../../shared/supabase/postgrest-error.util';
@@ -19,6 +22,7 @@ export class SupplierItemsRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string, supplierId: string) {
+    await assertSupplierInBranch(this.supabase, tenantId, supplierId);
     const { data, error } = await this.supabase
       .from('supplier_items')
       .select('*, items(name, sku), item_variants(name, sku)')
@@ -46,6 +50,7 @@ export class SupplierItemsRepository extends ScopedRepository {
     supplierId: string,
     payload: Record<string, unknown>,
   ) {
+    await assertSupplierInBranch(this.supabase, tenantId, supplierId);
     const { data, error } = await this.supabase
       .from('supplier_items')
       .insert({ ...payload, tenant_id: tenantId, supplier_id: supplierId })

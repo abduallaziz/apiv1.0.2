@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { currentBranchId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
@@ -14,21 +15,20 @@ export class SuppliersRepository extends ScopedRepository {
   }
 
   async findAll(tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'suppliers',
-      this.ctx(tenantId),
-    ).order('name');
+    let q = this.scopedQuery('suppliers', this.ctx(tenantId));
+    // Branch isolation: suppliers are branch-owned (D4).
+    const branchId = currentBranchId(tenantId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.order('name');
     if (error) throw error;
     return data;
   }
 
   async findById(id: string, tenantId: string) {
-    const { data, error } = await this.scopedQuery(
-      'suppliers',
-      this.ctx(tenantId),
-    )
-      .eq('id', id)
-      .maybeSingle();
+    let q = this.scopedQuery('suppliers', this.ctx(tenantId)).eq('id', id);
+    const branchId = currentBranchId(tenantId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle();
     if (error) throw error;
     return data;
   }
@@ -38,6 +38,9 @@ export class SuppliersRepository extends ScopedRepository {
       .from('suppliers')
       .insert({
         ...payload,
+        ...(currentBranchId(tenantId)
+          ? { branch_id: currentBranchId(tenantId) }
+          : {}),
         tenant_id: tenantId,
         is_active: payload.is_active ?? true,
       })

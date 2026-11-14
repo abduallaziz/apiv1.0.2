@@ -1,4 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import {
+  assertVisibleBranchDoc,
+  assertWarehouseInBranch,
+  branchOrWarehouseFilter,
+  currentBranchId,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
@@ -24,6 +30,8 @@ export class PurchaseRequestsRepository extends ScopedRepository {
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
+    const scopeOr = await branchOrWarehouseFilter(tenantId);
+    if (scopeOr) query = query.or(scopeOr);
 
     const [from, to] = pagination.range;
     const { data, error, count } = await query.range(from, to);
@@ -47,6 +55,7 @@ export class PurchaseRequestsRepository extends ScopedRepository {
       .is('deleted_at', null)
       .maybeSingle();
     if (error) throw error;
+    await assertVisibleBranchDoc(tenantId, data, 'Purchase request');
     return data;
   }
 
@@ -56,10 +65,13 @@ export class PurchaseRequestsRepository extends ScopedRepository {
     items: Record<string, unknown>[],
     requestedBy: string,
   ) {
+    await assertWarehouseInBranch(tenantId, payload.warehouse_id as string);
+    const branchId = currentBranchId(tenantId);
     const { data: pr, error } = await this.supabase
       .from('purchase_requests')
       .insert({
         ...payload,
+        ...(branchId ? { branch_id: branchId } : {}),
         tenant_id: tenantId,
         requested_by: requestedBy,
         status: 'draft',

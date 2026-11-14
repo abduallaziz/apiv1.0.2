@@ -130,3 +130,36 @@ export async function scopedRpcPage<T extends Record<string, any>>(
   const all = (data ?? []).filter((r) => ids.has(r[warehouseColumn]));
   return { rows: all.slice(offset, offset + limit), total: all.length };
 }
+
+/**
+ * Documents that carry their own nullable branch_id AND a warehouse (purchase requests, RFQs):
+ * a PostgREST `or` filter matching rows of the branch or located in one of its warehouses, or null
+ * when isolation is off. Usage: `const f = await branchOrWarehouseFilter(t); if (f) q = q.or(f);`
+ */
+export async function branchOrWarehouseFilter(
+  tenantId: string,
+): Promise<string | null> {
+  const scope = currentBranchScope(tenantId);
+  if (!scope) return null;
+  const ids = await scope.warehouseIds();
+  const parts = [`branch_id.eq.${scope.branchId}`];
+  if (ids.length) parts.push(`warehouse_id.in.(${ids.join(',')})`);
+  return parts.join(',');
+}
+
+/** Visibility check of one document row with its own branch_id / warehouse_id. */
+export async function assertVisibleBranchDoc(
+  tenantId: string,
+  row: { branch_id?: string | null; warehouse_id?: string | null } | null,
+  what = 'Record',
+): Promise<void> {
+  const scope = currentBranchScope(tenantId);
+  if (!scope || !row) return;
+  if (row.branch_id === scope.branchId) return;
+  if (
+    row.warehouse_id &&
+    (await scope.warehouseIds()).includes(row.warehouse_id)
+  )
+    return;
+  throw new NotFoundException(`${what} not found`);
+}

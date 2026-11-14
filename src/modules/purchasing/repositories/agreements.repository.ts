@@ -1,4 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import {
+  assertSupplierInBranch,
+  branchSupplierIds,
+} from '../../../core/branch-scope/branch-supplier';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
@@ -24,6 +28,8 @@ export class AgreementsRepository extends ScopedRepository {
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
+    const supplierIds = await branchSupplierIds(this.supabase, tenantId);
+    if (supplierIds) query = query.in('supplier_id', supplierIds);
 
     const [from, to] = pagination.range;
     const { data, error, count } = await query.range(from, to);
@@ -45,6 +51,8 @@ export class AgreementsRepository extends ScopedRepository {
       .is('deleted_at', null)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertSupplierInBranch(this.supabase, tenantId, data.supplier_id);
     return data;
   }
 
@@ -54,6 +62,11 @@ export class AgreementsRepository extends ScopedRepository {
     items: Record<string, unknown>[],
     createdBy: string,
   ) {
+    await assertSupplierInBranch(
+      this.supabase,
+      tenantId,
+      payload.supplier_id as string,
+    );
     const { data: agreement, error } = await this.supabase
       .from('agreements')
       .insert({
