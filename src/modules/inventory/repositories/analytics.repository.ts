@@ -81,15 +81,16 @@ export class AnalyticsRepository extends ScopedRepository {
   }
 
   async purchaseOrdersWaitingReceipt(tenantId: string, limit = 10) {
-    const { data, error } = await inWarehouses(
-      this.supabase
-        .from('purchase_orders')
-        .select(
-          'id, order_number, status, expected_date, suppliers(name), warehouses(name)',
-        )
-        .eq('tenant_id', tenantId),
-      await branchWarehouseIds(tenantId),
-    )
+    const warehouseIds = await branchWarehouseIds(tenantId);
+    let query = this.supabase
+      .from('purchase_orders')
+      .select(
+        'id, order_number, status, expected_date, suppliers(name), warehouses(name)',
+      )
+      .eq('tenant_id', tenantId);
+    // (not via inWarehouses<Q>: the generic makes nest build hit TS2589 on this joined select)
+    if (warehouseIds) query = query.in('warehouse_id', warehouseIds);
+    const { data, error } = await query
       .is('deleted_at', null)
       .in('status', ['submitted', 'approved', 'partially_received'])
       .order('expected_date', { ascending: true })
