@@ -23,6 +23,8 @@ function toBadRequest(err: unknown): never {
   if (e?.code === 'P0001' && e.message) {
     throw new BadRequestException(e.message);
   }
+  // Not a business rule: keep the real database error in the server log (the client only gets a 500).
+  new Logger('SalesReturns').error(`fn_create_sales_return failed: code=${e?.code} message=${e?.message}`);
   throw err;
 }
 
