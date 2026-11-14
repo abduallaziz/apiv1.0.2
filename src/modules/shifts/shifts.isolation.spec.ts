@@ -41,3 +41,16 @@ describe('ShiftsService branch isolation', () => {
     expect(repo.create).not.toHaveBeenCalled();
   });
 });
+
+describe('ShiftsService per-branch register', () => {
+  it('isolated: current/open look only at the working branch', async () => {
+    const { service, repo } = build();
+    await service.getCurrentShift(new TenantContext('t1', 'b2', true), 'u1');
+    expect(repo.findOpenByUser).toHaveBeenCalledWith('u1', 't1', 'b2');
+  });
+  it('not isolated: tenant-wide lookup as before', async () => {
+    const { service, repo } = build();
+    await service.getCurrentShift(new TenantContext('t1', 'b2'), 'u1');
+    expect(repo.findOpenByUser).toHaveBeenCalledWith('u1', 't1', undefined);
+  });
+});

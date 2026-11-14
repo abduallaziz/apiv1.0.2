@@ -4,7 +4,6 @@ import { randomBytes } from 'crypto';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant.context';
-import { scopeToBranch } from '../../core/tenant/branch-scope.util';
 
 @Injectable()
 export class UsersRepository extends ScopedRepository {
@@ -15,8 +14,34 @@ export class UsersRepository extends ScopedRepository {
   private static readonly PAYROLL_FIELDS =
     'base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value, attendance_token, attendance_device_fingerprint, attendance_enabled, shift_pattern_id, custom_days_of_week, custom_shifts, custom_day_overrides, schedule_start_date, department, job_title, avatar_url, employee_number, phone, identity_number, manager_name, employment_type, join_date, city, address, gps_radius_meters, is_employee_profile, branch_id';
 
+  /**
+   * Branch scope for user lists: under isolation the context branch's users; in the MAIN branch the
+   * central users (branch_id NULL: owner/admin) are shown too, never in other branches.
+   */
+  private async isMainBranch(tenant: TenantContext): Promise<boolean> {
+    if (!tenant.isolated || !tenant.branchId) return false;
+    const { data } = await this.supabase
+      .from('branches')
+      .select('is_main')
+      .eq('id', tenant.branchId)
+      .eq('tenant_id', tenant.tenantId as string)
+      .maybeSingle();
+    return !!(data as { is_main?: boolean } | null)?.is_main;
+  }
+
+  private scopeUsers<Q extends { eq(c: string, v: string): Q; or(f: string): Q }>(
+    query: Q,
+    tenant: TenantContext,
+    isMain: boolean,
+  ): Q {
+    if (!tenant.isolated || !tenant.branchId) return query;
+    return isMain
+      ? query.or(`branch_id.eq.${tenant.branchId},branch_id.is.null`)
+      : query.eq('branch_id', tenant.branchId);
+  }
+
   async findAll(tenant: TenantContext) {
-    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
+    return this.scopeUsers(this.scopedQuery('users', tenant), tenant, await this.isMainBranch(tenant))
       .select(
         `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
       )
@@ -43,7 +68,7 @@ export class UsersRepository extends ScopedRepository {
   }
 
   async findById(id: string, tenant: TenantContext) {
-    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
+    return this.scopeUsers(this.scopedQuery('users', tenant), tenant, await this.isMainBranch(tenant))
       .select(
         `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
       )
@@ -85,7 +110,7 @@ export class UsersRepository extends ScopedRepository {
   // profile. A System User with a real login can exist without ever appearing
   // here (see 058_employee_profile_flag.sql).
   async findAllEmployees(tenant: TenantContext) {
-    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
+    return this.scopeUsers(this.scopedQuery('users', tenant), tenant, await this.isMainBranch(tenant))
       .select(
         `id, email, name, role, is_active, commission_rate, created_at, ${UsersRepository.PAYROLL_FIELDS}`,
       )
@@ -96,7 +121,7 @@ export class UsersRepository extends ScopedRepository {
   // Candidates for "Link existing System User" — has real login (role != none)
   // but no Employee Core profile yet.
   async findLinkableSystemUsers(tenant: TenantContext) {
-    return scopeToBranch(this.scopedQuery('users', tenant), tenant)
+    return this.scopeUsers(this.scopedQuery('users', tenant), tenant, await this.isMainBranch(tenant))
       .select('id, name, email, role')
       .eq('is_employee_profile', false)
       .neq('role', 'none')

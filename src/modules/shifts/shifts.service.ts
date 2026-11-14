@@ -56,7 +56,7 @@ export class ShiftsService {
     if (tenant.isolated && tenant.branchId && dto.branch_id !== tenant.branchId) {
       throw new BadRequestException('A shift can only be opened in the working branch');
     }
-    const existing = await this.repo.findOpenByUser(actorId, tenant.tenantId);
+    const existing = await this.repo.findOpenByUser(actorId, tenant.tenantId, this.isolatedBranch(tenant));
     this.engine.validateNoDoubleShift(!!existing);
 
     // S1 (phase 4): the check above is read-then-write; the partial UNIQUE
@@ -385,7 +385,7 @@ export class ShiftsService {
     ip: string,
     device: string,
   ) {
-    const shift = await this.repo.findOpenByUser(actorId, tenant.tenantId);
+    const shift = await this.repo.findOpenByUser(actorId, tenant.tenantId, this.isolatedBranch(tenant));
     if (!shift)
       throw new BadRequestException(
         'No open shift — open a shift before opening the drawer',
@@ -426,7 +426,7 @@ export class ShiftsService {
     // latest open register whoever opened it, which would show a manager
     // "register open" and then reject every sale (it is not his). A register in
     // another branch than the working one is reported as such when selling.
-    return this.repo.findOpenByUser(actorId, tenant.tenantId);
+    return this.repo.findOpenByUser(actorId, tenant.tenantId, this.isolatedBranch(tenant));
   }
 
   // Called by InvoicesService.create() before any sale is written — the cash

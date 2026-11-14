@@ -193,7 +193,7 @@ describe('ShiftsService.getCurrentShift (phase 4: the register OPENED BY THIS US
     repo.findOpenByUser.mockResolvedValue(SHIFT);
     const r = await service.getCurrentShift(TENANT, 'user-1', 'branch-1');
     expect(r).toEqual(SHIFT);
-    expect(repo.findOpenByUser).toHaveBeenCalledWith('user-1', 'tenant-1');
+    expect(repo.findOpenByUser).toHaveBeenCalledWith('user-1', 'tenant-1', undefined);
     expect(
       (repo as unknown as { findCurrentByBranch: jest.Mock }).findCurrentByBranch,
     ).not.toHaveBeenCalled();

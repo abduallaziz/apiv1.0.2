@@ -29,15 +29,17 @@ export class ShiftsRepository {
     }));
   }
 
-  async findOpenByUser(cashierId: string, tenantId: string) {
-    const { data } = await this.supabase
+  /** `branchId` is passed under branch isolation: a shift is then per (cashier, branch). */
+  async findOpenByUser(cashierId: string, tenantId: string, branchId?: string | null) {
+    let q = this.supabase
       .from('shifts')
       .select('*')
       .eq('tenant_id', tenantId)
       .eq('cashier_id', cashierId)
       .eq('status', 'open')
-      .is('deleted_at', null)
-      .maybeSingle();
+      .is('deleted_at', null);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data } = await q.maybeSingle();
     return data;
   }
 
