@@ -127,9 +127,12 @@ export class PdfRendererService implements OnModuleDestroy {
         .catch((e: unknown) => {
           // A browser that cannot start is a server-environment problem, not
           // a bug in the request: report it as 503 (not an opaque 500).
-          this.logger.error(`Chrome launch failed: ${(e as Error).message}`);
+          const reason = e instanceof Error ? e.message : 'unknown error';
+          this.logger.error(`Chrome launch failed: ${reason}`);
+          // The reason is included (truncated, first line only) so a deployment problem can be
+          // diagnosed from the UI without server logs.
           throw new ServiceUnavailableException(
-            'PDF engine failed to start on this server',
+            `PDF engine failed to start on this server: ${reason.split('\n')[0].slice(0, 220)}`,
           );
         })
         .finally(() => {

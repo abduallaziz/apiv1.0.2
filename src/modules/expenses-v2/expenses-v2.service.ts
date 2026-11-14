@@ -583,6 +583,9 @@ export class ExpensesV2Service {
       .update({
         cancelled_by: cancelledBy,
         cancelled_at: new Date().toISOString(),
+        // A cancelled expense must stop recurring too (the scheduler and the recurring page
+        // both key on is_recurring).
+        is_recurring: false,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
