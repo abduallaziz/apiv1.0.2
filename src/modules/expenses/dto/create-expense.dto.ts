@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsUUID,
   Min,
+  Max,
   IsNotEmpty,
   IsEnum,
 } from 'class-validator';
@@ -31,6 +32,7 @@ export class CreateExpenseDto {
 
   @IsNumber()
   @Min(0.01)
+  @Max(9999999.99)
   @Type(() => Number)
   amount: number;
 

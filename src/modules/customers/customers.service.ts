@@ -574,7 +574,7 @@ export class CustomersService {
       const vehicles = await this.repo.listVehicles(tenant, customerId);
       const first = vehicles[0]?.plate ?? null;
       await this.repo.update(tenant, customerId, {
-        plate_number: first as unknown as string,
+        plate_number: first,
       });
     } catch {
       // Best-effort denormalisation: the cars table stays the source of truth.

@@ -6,7 +6,7 @@ export class QueryExpensesDto {
   branch_id?: string;
 
   @IsOptional()
-  @IsIn(['pending', 'approved', 'rejected', 'expired'])
+  @IsIn(['pending', 'approved', 'rejected', 'expired', 'cancelled'])
   status?: string;
 
   @IsOptional()
