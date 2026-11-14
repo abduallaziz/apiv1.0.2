@@ -243,6 +243,66 @@ export class BranchesRepository {
     if (error) throw error;
   }
 
+  /**
+   * A branch cannot post a sale without an accounting owner assigned to it ("No Accounting Owner is assigned
+   * to branch ..."). Registration creates one for the first branch only; every later branch needs it too.
+   * Idempotent: does nothing when the branch already has a current assignment. The default accounting book is
+   * created by the database trigger on accounting_owners.
+   */
+  async ensureAccountingOwner(
+    tenantId: string,
+    branchId: string,
+    branchName: string,
+  ): Promise<boolean> {
+    const { data: existing, error: exErr } = await this.supabase
+      .from('branch_accounting_assignments')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('branch_id', branchId)
+      .is('effective_to', null)
+      .limit(1);
+    if (exErr) throw exErr;
+    if (existing && existing.length > 0) return false;
+
+    const { data: owner, error: ownerErr } = await this.supabase
+      .from('accounting_owners')
+      .insert({
+        tenant_id: tenantId,
+        branch_id: branchId,
+        owner_type_code: 'branch',
+        name: branchName,
+        status: 'active',
+      })
+      .select('id')
+      .single<{ id: string }>();
+    if (ownerErr || !owner) throw ownerErr ?? new Error('owner not created');
+
+    const { error: asgErr } = await this.supabase
+      .from('branch_accounting_assignments')
+      .insert({
+        tenant_id: tenantId,
+        branch_id: branchId,
+        accounting_owner_id: owner.id,
+        effective_from: new Date().toISOString().slice(0, 10),
+        reason: 'Automatic setup for a new branch',
+      });
+    if (asgErr) throw asgErr;
+    return true;
+  }
+
+  async activeBranchIdsAndNames(
+    tenantId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    const { data, error } = await this.supabase
+      .from('branches')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .is('deleted_at', null);
+    if (error) throw error;
+    return data ?? [];
+  }
+
   // ── Branch isolation (docs/DESIGN_BRANCH_ISOLATION.md D1/D2) ─────────────────────────────
   async getIsolation(
     tenantId: string,

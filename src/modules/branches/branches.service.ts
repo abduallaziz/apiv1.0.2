@@ -48,6 +48,7 @@ export class BranchesService {
     await this.billingService.checkBranchLimit(tenant.tenantId);
     const { copy_setup_from_main: copySetup, ...rest } = dto;
     const branch = await this.repo.create(tenant, { ...rest, name });
+    await this.provisionAccounting(tenant.tenantId, branch.id as string, name);
     if (copySetup && tenant.isolated && tenant.tenantId && this.publisher) {
       try {
         const iso = await this.repo.getIsolation(tenant.tenantId);
@@ -62,10 +63,30 @@ export class BranchesService {
         }
       } catch (e) {
         // The branch exists already: a failed convenience copy must not fail its creation.
-        this.logger.warn(`copy setup from main failed: ${(e as Error).message}`);
+        this.logger.warn(
+          `copy setup from main failed: ${(e as Error).message}`,
+        );
       }
     }
     return branch;
+  }
+
+  /**
+   * Every branch needs an accounting owner or its sales cannot be posted ("No Accounting Owner is assigned to
+   * branch"). Best effort and idempotent: a failure is logged and never blocks the caller.
+   */
+  private async provisionAccounting(
+    tenantId: string,
+    branchId: string,
+    name: string,
+  ): Promise<void> {
+    try {
+      await this.repo.ensureAccountingOwner(tenantId, branchId, name);
+    } catch (e) {
+      this.logger.warn(
+        `accounting owner setup failed for branch ${branchId}: ${e instanceof Error ? e.message : 'unknown'}`,
+      );
+    }
   }
 
   async update(id: string, dto: UpdateBranchDto, tenant: TenantContext) {
@@ -162,6 +183,14 @@ export class BranchesService {
           );
         }
         throw e;
+      }
+    }
+    // Independent branches must each be able to post their sales: give every active branch an accounting owner.
+    if (enabled) {
+      for (const b of await this.repo.activeBranchIdsAndNames(
+        tenant.tenantId,
+      )) {
+        await this.provisionAccounting(tenant.tenantId, b.id, b.name);
       }
     }
     await this.repo.setIsolation(tenant.tenantId, enabled);

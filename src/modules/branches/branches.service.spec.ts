@@ -116,6 +116,7 @@ describe('BranchesService', () => {
         setIsolation: jest.fn().mockResolvedValue(undefined),
         backfillToMain: jest.fn().mockResolvedValue({}),
         backfillHr: jest.fn().mockResolvedValue({}),
+        activeBranchIdsAndNames: jest.fn().mockResolvedValue([]),
       });
       await svc.setIsolation(tenant, true);
       expect(repo.backfillToMain).toHaveBeenCalledWith('t1');
@@ -132,6 +133,51 @@ describe('BranchesService', () => {
         BadRequestException,
       );
       expect(repo.setMainBranch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('accounting owner for every branch', () => {
+    it('creates an accounting owner when a branch is created', async () => {
+      const { svc, repo } = make({
+        nameExists: jest.fn().mockResolvedValue(false),
+        create: jest.fn().mockResolvedValue({ id: 'b9', name: 'New' }),
+        ensureAccountingOwner: jest.fn().mockResolvedValue(true),
+      });
+      await svc.create({ name: 'New' }, tenant);
+      expect(repo.ensureAccountingOwner).toHaveBeenCalledWith(
+        't1',
+        'b9',
+        'New',
+      );
+    });
+
+    it('a failing accounting setup never blocks the creation', async () => {
+      const { svc } = make({
+        nameExists: jest.fn().mockResolvedValue(false),
+        create: jest.fn().mockResolvedValue({ id: 'b9', name: 'New' }),
+        ensureAccountingOwner: jest.fn().mockRejectedValue(new Error('boom')),
+      });
+      await expect(svc.create({ name: 'New' }, tenant)).resolves.toMatchObject({
+        id: 'b9',
+      });
+    });
+
+    it('enabling isolation provisions every active branch', async () => {
+      const { svc, repo } = make({
+        getIsolation: jest
+          .fn()
+          .mockResolvedValue({ enabled: false, main_branch_id: 'b1' }),
+        backfillToMain: jest.fn().mockResolvedValue({}),
+        backfillHr: jest.fn().mockResolvedValue({}),
+        setIsolation: jest.fn().mockResolvedValue(undefined),
+        activeBranchIdsAndNames: jest.fn().mockResolvedValue([
+          { id: 'b1', name: 'Main' },
+          { id: 'b2', name: 'Two' },
+        ]),
+        ensureAccountingOwner: jest.fn().mockResolvedValue(true),
+      });
+      await svc.setIsolation(tenant, true);
+      expect(repo.ensureAccountingOwner).toHaveBeenCalledTimes(2);
     });
   });
 });
