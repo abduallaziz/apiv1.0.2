@@ -27,6 +27,7 @@ import { ExpenseAttachmentsService } from './expense-attachments.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CreateQuickExpenseDto } from './dto/create-quick-expense.dto';
+import { CancelExpenseDto } from './dto/cancel-expense.dto';
 import { FilterExpensesDto } from './dto/filter-expenses.dto';
 
 // New Expenses domain — Expense core (Step 4 of the locked Execution
@@ -121,10 +122,11 @@ export class ExpensesV2Controller {
   async cancel(
     @GetTenant() tenant: TenantContext,
     @Param('id') id: string,
+    @Body() dto: CancelExpenseDto,
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.cancel(tenant.tenantId, id, user.sub);
+    return this.service.cancel(tenant.tenantId, id, user.sub, dto?.reason);
   }
 
   @Patch(':id/confirm-payment')

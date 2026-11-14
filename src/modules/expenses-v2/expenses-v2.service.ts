@@ -150,7 +150,11 @@ export class ExpensesV2Service {
     if (filters.source) query = query.eq('source', filters.source);
     if (filters.payment_status)
       query = query.eq('payment_status', filters.payment_status);
-    if (filters.search) query = query.ilike('title', `%${filters.search}%`);
+    if (filters.search?.trim()) {
+      // `%` / `_` typed by the user match literally, not as LIKE wildcards.
+      const term = filters.search.trim().replace(/[\%_]/g, '\$&').replace(/,/g, '');
+      if (term) query = query.ilike('title', `%${term}%`);
+    }
     if (filters.date_from) query = query.gte('expense_date', filters.date_from);
     if (filters.date_to) query = query.lte('expense_date', filters.date_to);
     if (filters.amount_min !== undefined)
@@ -162,9 +166,10 @@ export class ExpensesV2Service {
     if (filters.is_recurring !== undefined)
       query = query.eq('is_recurring', filters.is_recurring === 'true');
 
-    const { data, error } = await query.order('expense_date', {
-      ascending: false,
-    });
+    const sortBy = filters.sort_by ?? 'expense_date';
+    const { data, error } = await query
+      .order(sortBy, { ascending: filters.sort_dir === 'asc' })
+      .order('created_at', { ascending: false });
     if (error) throw error;
     return data ?? [];
   }
@@ -555,7 +560,12 @@ export class ExpensesV2Service {
     return data;
   }
 
-  async cancel(tenantId: string, id: string, cancelledBy: string) {
+  async cancel(
+    tenantId: string,
+    id: string,
+    cancelledBy: string,
+    reason?: string,
+  ) {
     const existing = await this.findOne(tenantId, id);
     if (existing.cancelled_at) {
       throw new ConflictException('Expense is already cancelled');
@@ -575,7 +585,13 @@ export class ExpensesV2Service {
 
     if (error) throw error;
     if (!data) throw new NotFoundException('Expense not found');
-    await this.activityService.log(tenantId, id, cancelledBy, 'cancelled');
+    await this.activityService.log(
+      tenantId,
+      id,
+      cancelledBy,
+      'cancelled',
+      reason?.trim() || undefined,
+    );
     return data;
   }
 

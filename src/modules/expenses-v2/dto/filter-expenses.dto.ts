@@ -73,4 +73,12 @@ export class FilterExpensesDto {
   @IsOptional()
   @IsBooleanString()
   is_recurring?: string;
+
+  @IsOptional()
+  @IsIn(['expense_date', 'total_amount', 'created_at', 'title'])
+  sort_by?: 'expense_date' | 'total_amount' | 'created_at' | 'title';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sort_dir?: 'asc' | 'desc';
 }

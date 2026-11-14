@@ -24,6 +24,8 @@ interface AttachmentRow {
 // Attachments (Step 9 — Backend API completion). First real consumer of
 // the Step 1 Storage abstraction — private-by-default, tenant/owner-scoped
 // paths (`{tenantId}/expense/{expenseId}/...`), signed-URL retrieval only.
+const ALLOWED_ATTACHMENT_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+
 @Injectable()
 export class ExpenseAttachmentsService {
   constructor(
@@ -50,6 +52,11 @@ export class ExpenseAttachmentsService {
   ) {
     if (!file) {
       throw new BadRequestException('A file is required');
+    }
+    if (!ALLOWED_ATTACHMENT_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException(
+        'Unsupported file type: only PDF, PNG and JPG files can be attached',
+      );
     }
     await this.assertExpenseExists(tenantId, expenseId);
 
