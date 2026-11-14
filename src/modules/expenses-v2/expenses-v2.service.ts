@@ -152,7 +152,10 @@ export class ExpensesV2Service {
       query = query.eq('payment_status', filters.payment_status);
     if (filters.search?.trim()) {
       // `%` / `_` typed by the user match literally, not as LIKE wildcards.
-      const term = filters.search.trim().replace(/[\%_]/g, '\$&').replace(/,/g, '');
+      const term = filters.search
+        .trim()
+        .replace(/[\\%_]/g, '\\$&')
+        .replace(/,/g, '');
       if (term) query = query.ilike('title', `%${term}%`);
     }
     if (filters.date_from) query = query.gte('expense_date', filters.date_from);
@@ -382,7 +385,11 @@ export class ExpensesV2Service {
   private async resolveRegisterForCashExpense(
     tenantId: string,
     branchId: string,
-    dto: { shift_id?: string; payment_method: string; payment_status?: 'paid' | 'unpaid' },
+    dto: {
+      shift_id?: string;
+      payment_method: string;
+      payment_status?: 'paid' | 'unpaid';
+    },
   ): Promise<string | null> {
     if (!dto.shift_id) return null;
     if (dto.payment_method.trim().toLowerCase() !== 'cash') {
