@@ -1281,9 +1281,18 @@ export class ReportsService {
     // logic observation). Only the orders sub-query below, which already
     // applied query.branch_id before this change, now uses the resolved
     // effectiveBranchId instead.
+    // Under isolation the branch filter goes through an embedded inner join on warehouses instead of an
+    // `in.(<every warehouse id>)` list: a branch with many warehouses made the request URL too long
+    // ("Bad Request" -> HTTP 500).
+    const isolatedBranch = tenant.isolated && tenant.branchId;
     let movementsQ = this.supabase
       .from('stock_movements')
-      .select('item_id, quantity, unit_cost, total_cost, movement_type')
+      .select(
+        // (the embedded join is only a filter: the cast keeps the row type of the plain column list)
+        (isolatedBranch
+          ? 'item_id, quantity, unit_cost, total_cost, movement_type, warehouses!inner(branch_id)'
+          : 'item_id, quantity, unit_cost, total_cost, movement_type') as 'item_id, quantity, unit_cost, total_cost, movement_type',
+      )
       .eq('tenant_id', tenant.tenantId)
       // T10 / R2: only movements that belong to a real sale: a 'sale' tied to
       // an order, minus the stock that came back ('sale_return' from a
@@ -1293,18 +1302,9 @@ export class ReportsService {
       .in('reference_type', ['order', 'sales_return'])
       .gte('occurred_at', from)
       .lte('occurred_at', to);
-    if (tenant.isolated && tenant.branchId) {
+    if (isolatedBranch) {
       // Stock is owned through warehouses.branch_id.
-      const { data: whs, error: whsErr } = await this.supabase
-        .from('warehouses')
-        .select('id')
-        .eq('tenant_id', tenant.tenantId)
-        .eq('branch_id', tenant.branchId);
-      if (whsErr) throw whsErr;
-      movementsQ = movementsQ.in(
-        'warehouse_id',
-        (whs ?? []).map((w: any) => w.id),
-      );
+      movementsQ = movementsQ.eq('warehouses.branch_id', tenant.branchId);
     }
     const { data: movements, error } = await movementsQ;
     if (error) throw error;
