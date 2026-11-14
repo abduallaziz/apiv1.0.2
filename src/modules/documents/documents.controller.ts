@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  HttpException,
   Logger,
   ServiceUnavailableException,
   Delete,
@@ -142,14 +143,14 @@ export class DocumentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('lang') lang?: string,
   ) {
-    const { html } = await this.renderSample(tenant, id, lang);
     let buffer: Buffer;
     try {
+      const { html } = await this.renderSample(tenant, id, lang);
       buffer = await this.pdf.renderDocument(html);
     } catch (e) {
       // The PDF engine (headless Chrome) can fail or time out on its own; that is an
       // engine-availability problem, not an opaque server bug: answer 503 and log the cause.
-      if (e instanceof ServiceUnavailableException) throw e;
+      if (e instanceof HttpException) throw e;
       this.logger.error(
         `Template test print failed (${id}): ${e instanceof Error ? e.message : String(e)}`,
       );

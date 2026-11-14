@@ -93,7 +93,7 @@ export class DefaultTemplateService {
       async (client) => {
         const r = await client.query(
           `SELECT 1 FROM document_templates WHERE tenant_id = $1
-            ${onlyIfNoLiveTemplates ? 'AND deleted_at IS NULL' : ''} LIMIT 1`,
+            ${onlyIfNoLiveTemplates ? "AND deleted_at IS NULL AND status <> 'archived'" : ''} LIMIT 1`,
           [tenant.tenantId],
         );
         return r.rows.length > 0;
