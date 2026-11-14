@@ -13,11 +13,17 @@ export class TablesService {
   constructor(private readonly repo: TablesRepository) {}
 
   findAll(tenant: TenantContext, branchId?: string) {
-    return this.repo.findAll(tenant.tenantId, branchId);
+    // branch isolation: always the working branch
+    const scoped = tenant.isolated && tenant.branchId ? tenant.branchId : branchId;
+    return this.repo.findAll(tenant.tenantId, scoped);
   }
 
   async findOne(id: string, tenant: TenantContext) {
-    const table = await this.repo.findById(id, tenant.tenantId);
+    const table = await this.repo.findById(
+      id,
+      tenant.tenantId,
+      tenant.isolated ? tenant.branchId : null,
+    );
     if (!table) throw new NotFoundException('Table not found');
     return table;
   }
@@ -28,6 +34,9 @@ export class TablesService {
       tenant.tenantId,
     );
     if (!branchOk) throw new BadRequestException('Branch not found');
+    if (tenant.isolated && tenant.branchId && dto.branch_id !== tenant.branchId) {
+      throw new BadRequestException('A table can only be created in the working branch');
+    }
     return this.repo.create(tenant.tenantId, dto);
   }
 

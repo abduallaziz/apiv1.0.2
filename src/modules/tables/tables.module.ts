@@ -13,6 +13,7 @@ import { ReservationsRepository } from './repositories/reservations.repository';
 import { WaitlistController } from './waitlist.controller';
 import { WaitlistService } from './waitlist.service';
 import { WaitlistRepository } from './repositories/waitlist.repository';
+import { BranchReferenceValidator } from '../invoices/branch-reference.validator';
 import { InvoicesRepository } from '../invoices/repositories/invoices.repository';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { PosEngineModule } from '../../engines/pos-engine/pos-engine.module';
@@ -46,6 +47,7 @@ import { CoreAuthModule } from '../../core/auth/auth.module';
     WaitlistRepository,
     InvoicesRepository,
     TenantsRepository,
+    BranchReferenceValidator,
   ],
 })
 export class TablesModule {}

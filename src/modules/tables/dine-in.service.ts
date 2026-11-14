@@ -3,7 +3,9 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
+import { BranchReferenceValidator } from '../invoices/branch-reference.validator';
 import { TablesRepository } from './repositories/tables.repository';
 import { DineInRepository } from './repositories/dine-in.repository';
 import { InvoicesRepository } from '../invoices/repositories/invoices.repository';
@@ -30,10 +32,22 @@ export class DineInService {
     private readonly tenantsRepo: TenantsRepository,
     private readonly auditService: AuditService,
     private readonly priceResolutionService: PriceResolutionService,
+    @Optional() private readonly branchRefs?: BranchReferenceValidator,
   ) {}
 
+  /** Branch isolation: a table of another branch behaves as if it did not exist (no-op flag-off). */
+  private async assertTableVisible(tenant: TenantContext, tableId: string) {
+    if (!tenant.isolated || !tenant.branchId) return;
+    const t = await this.tablesRepo.findById(tableId, tenant.tenantId, tenant.branchId);
+    if (!t) throw new NotFoundException('Table not found');
+  }
+
   async openTable(tenant: TenantContext, tableId: string, cashierId: string) {
-    const table = await this.tablesRepo.findById(tableId, tenant.tenantId);
+    const table = await this.tablesRepo.findById(
+      tableId,
+      tenant.tenantId,
+      tenant.isolated ? tenant.branchId : null,
+    );
     if (!table) throw new NotFoundException('Table not found');
 
     // fn_open_dine_in_table re-checks availability itself (with a row lock) and
@@ -66,6 +80,7 @@ export class DineInService {
     tableId: string,
     dto: AddDineInItemsDto,
   ) {
+    await this.assertTableVisible(tenant, tableId);
     // الطلب المفتوح ونسبة الضريبة مستقلان تمامًا عن بعضهما — يُنفَّذان بالتوازي بدل التسلسل.
     const [order, taxRate] = await Promise.all([
       this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId),
@@ -99,6 +114,7 @@ export class DineInService {
   }
 
   async removeItem(tenant: TenantContext, tableId: string, itemId: string) {
+    await this.assertTableVisible(tenant, tableId);
     const [order, taxRate] = await Promise.all([
       this.dineInRepo.findOpenOrderByTable(tenant.tenantId, tableId),
       this.tenantsRepo.getTaxRate(tenant.tenantId),
@@ -166,7 +182,11 @@ export class DineInService {
     userId: string,
     actorRole: string,
   ) {
-    const table = await this.tablesRepo.findById(tableId, tenant.tenantId);
+    const table = await this.tablesRepo.findById(
+      tableId,
+      tenant.tenantId,
+      tenant.isolated ? tenant.branchId : null,
+    );
     if (!table) throw new NotFoundException('Table not found');
     const result = await this.dineInRepo.releaseEmptyTable(
       tenant,
@@ -196,6 +216,7 @@ export class DineInService {
   }
 
   async getCurrentOrder(tenant: TenantContext, tableId: string) {
+    await this.assertTableVisible(tenant, tableId);
     const order = await this.dineInRepo.findOpenOrderByTable(
       tenant.tenantId,
       tableId,
@@ -214,6 +235,7 @@ export class DineInService {
     ip: string,
     device: string,
   ) {
+    await this.assertTableVisible(tenant, tableId);
     const order = await this.dineInRepo.findOpenOrderByTable(
       tenant.tenantId,
       tableId,
@@ -256,6 +278,10 @@ export class DineInService {
     ) {
       throw new BadRequestException('Customer not found');
     }
+    // branch isolation: the customer must belong to the order's branch (no-op flag-off)
+    await this.branchRefs?.assertSameBranch(tenant, order.branch_id, {
+      customerId: dto.customer_id,
+    });
 
     // ذرّي عبر fn_checkout_dine_in_table — إنهاء الطلب وتحرير الطاولة بمعاملة واحدة،
     // بدل خطوتين منفصلتين قد تتباعدان لو فشلت الثانية بعد نجاح الأولى.

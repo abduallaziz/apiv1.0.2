@@ -24,21 +24,37 @@ export class ReservationsService {
     private readonly dineInService: DineInService,
   ) {}
 
+  private isolatedBranch(tenant: TenantContext): string | null {
+    return tenant.isolated && tenant.branchId ? tenant.branchId : null;
+  }
+
   findAll(
     tenant: TenantContext,
     filters: { tableId?: string; from?: string; to?: string; status?: string },
   ) {
-    return this.repo.findAll(tenant.tenantId, filters);
+    return this.repo.findAll(
+      tenant.tenantId,
+      filters,
+      this.isolatedBranch(tenant),
+    );
   }
 
   async findOne(id: string, tenant: TenantContext) {
-    const reservation = await this.repo.findById(id, tenant.tenantId);
+    const reservation = await this.repo.findById(
+      id,
+      tenant.tenantId,
+      this.isolatedBranch(tenant),
+    );
     if (!reservation) throw new NotFoundException('Reservation not found');
     return reservation;
   }
 
   async create(tenant: TenantContext, dto: CreateReservationDto) {
-    const table = await this.repo.findTable(dto.table_id, tenant.tenantId);
+    const table = await this.repo.findTable(
+      dto.table_id,
+      tenant.tenantId,
+      this.isolatedBranch(tenant),
+    );
     if (!table) throw new BadRequestException('Table not found');
     assertNotInPast(dto.reservation_time);
     assertPartyFits(dto.party_size, table.capacity);

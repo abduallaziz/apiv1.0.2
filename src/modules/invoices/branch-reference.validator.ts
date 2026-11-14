@@ -67,7 +67,7 @@ export class BranchReferenceValidator {
     tenantId: string,
     ids: string[],
   ): Promise<Row[]> {
-    let res = await this.supabase
+    let res: { data: unknown; error: unknown } = await this.supabase
       .from(table)
       .select('id, branch_id')
       .eq('tenant_id', tenantId)
@@ -118,7 +118,7 @@ export class BranchReferenceValidator {
     code: string | null | undefined,
   ): Promise<void> {
     if (!code) return;
-    let res = await this.supabase
+    let res: { data: unknown; error: unknown } = await this.supabase
       .from('coupons')
       .select('id, branch_id')
       .eq('tenant_id', tenantId)

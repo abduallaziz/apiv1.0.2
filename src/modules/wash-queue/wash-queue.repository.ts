@@ -141,13 +141,19 @@ export class WashQueueRepository {
   }
 
   /** True if the order exists in this tenant and is a finished sale. */
-  async orderIsBillable(tenantId: string, orderId: string): Promise<boolean> {
-    const { data, error } = await this.supabase
+  async orderIsBillable(
+    tenantId: string,
+    orderId: string,
+    branchId?: string | null,
+  ): Promise<boolean> {
+    let q = this.supabase
       .from('orders')
       .select('id, status')
       .eq('id', orderId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle<{ id: string; status: string }>();
+      .eq('tenant_id', tenantId);
+    // branch isolation: only an order of the job's own branch can bill it
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle<{ id: string; status: string }>();
     if (error) throw error;
     return !!data && data.status !== 'cancelled';
   }
@@ -168,14 +174,20 @@ export class WashQueueRepository {
     return data;
   }
 
-  async findOne(tenantId: string, jobId: string): Promise<WashJob | null> {
-    const { data, error } = await this.supabase
+  async findOne(
+    tenantId: string,
+    jobId: string,
+    branchId?: string | null,
+  ): Promise<WashJob | null> {
+    let q = this.supabase
       .from('wash_jobs')
       .select('*')
       .eq('id', jobId)
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .maybeSingle<WashJob>();
+      .is('deleted_at', null);
+    // branch isolation: a job of another branch is not found
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle<WashJob>();
     if (error) throw error;
     return data;
   }

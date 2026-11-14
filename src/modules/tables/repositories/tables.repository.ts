@@ -34,14 +34,16 @@ export class TablesRepository {
     return (data ?? []) as TableRow[];
   }
 
-  async findById(id: string, tenantId: string) {
-    const { data, error } = await this.supabase
+  /** `branchId` is passed under branch isolation: a table of another branch is then not found. */
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    let q = this.supabase
       .from('tables')
       .select(SELECT)
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .maybeSingle<TableRow>();
+      .is('deleted_at', null);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle<TableRow>();
     if (error) throw error;
     return data;
   }

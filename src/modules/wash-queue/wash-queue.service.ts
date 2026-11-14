@@ -6,9 +6,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { AuditService } from '../../core/audit/audit.service';
+import { BranchReferenceValidator } from '../invoices/branch-reference.validator';
 import { WashJob, WashQueueRepository } from './wash-queue.repository';
 import { CreateWashJobDto } from './dto/create-wash-job.dto';
 import { ChangeWashStatusDto } from './dto/change-status.dto';
@@ -55,7 +57,13 @@ export class WashQueueService {
     private readonly repo: WashQueueRepository,
     private readonly audit: AuditService,
     @Inject(CAR_READY_NOTIFIER) private readonly notifier: CarReadyNotifier,
+    @Optional() private readonly branchRefs?: BranchReferenceValidator,
   ) {}
+
+  /** The context branch when the tenant runs with branch isolation, else null (no filter). */
+  private isolatedBranch(tenant: TenantContext): string | null {
+    return tenant.isolated && tenant.branchId ? tenant.branchId : null;
+  }
 
   async create(tenant: TenantContext, dto: CreateWashJobDto, actor: Actor) {
     // English digits only, collapsed whitespace (B-22).
@@ -63,6 +71,14 @@ export class WashQueueService {
     if (!plate) throw new BadRequestException('plate must not be empty');
     // One live ticket per plate per branch (B-22).
     const key = normalizePlate(plate);
+    if (tenant.isolated && tenant.branchId && dto.branch_id !== tenant.branchId) {
+      throw new BadRequestException('A wash job can only be created in the working branch');
+    }
+    // customer / worker must belong to the job's branch (no-op flag-off)
+    await this.branchRefs?.assertSameBranch(tenant, dto.branch_id, {
+      customerId: dto.customer_id,
+      workerIds: [dto.assigned_worker_id],
+    });
     const active = await this.repo.listActiveByBranch(
       tenant.tenantId,
       dto.branch_id,
@@ -90,6 +106,8 @@ export class WashQueueService {
   }
 
   async board(tenant: TenantContext, branchId: string, date?: string) {
+    // branch isolation: the board is ALWAYS the working branch's
+    branchId = this.isolatedBranch(tenant) ?? branchId;
     const day = date ?? new Date().toISOString().slice(0, 10);
     const jobs = await this.repo.listBoard(tenant.tenantId, branchId, day);
     const columns: Record<string, WashJob[]> = {};
@@ -99,7 +117,11 @@ export class WashQueueService {
   }
 
   async getOne(tenant: TenantContext, jobId: string) {
-    const job = await this.repo.findOne(tenant.tenantId, jobId);
+    const job = await this.repo.findOne(
+      tenant.tenantId,
+      jobId,
+      this.isolatedBranch(tenant),
+    );
     if (!job) throw new NotFoundException('Wash job not found');
     const events = await this.repo.listEvents(tenant.tenantId, jobId);
     return { ...job, events };
@@ -111,7 +133,11 @@ export class WashQueueService {
     dto: ChangeWashStatusDto,
     actor: Actor,
   ) {
-    const before = await this.repo.findOne(tenant.tenantId, jobId);
+    const before = await this.repo.findOne(
+      tenant.tenantId,
+      jobId,
+      this.isolatedBranch(tenant),
+    );
     if (!before) throw new NotFoundException('Wash job not found');
 
     const allowRewash = canRewash(actor.role);
@@ -154,7 +180,11 @@ export class WashQueueService {
     orderId: string,
     actor: Actor,
   ) {
-    const job = await this.repo.findOne(tenant.tenantId, jobId);
+    const job = await this.repo.findOne(
+      tenant.tenantId,
+      jobId,
+      this.isolatedBranch(tenant),
+    );
     if (!job) throw new NotFoundException('Wash job not found');
     if (job.status === 'cancelled') {
       throw new BadRequestException('Cannot bill a cancelled job');
@@ -162,7 +192,11 @@ export class WashQueueService {
     if (job.order_id) {
       throw new ConflictException('This job is already billed');
     }
-    if (!(await this.repo.orderIsBillable(tenant.tenantId, orderId))) {
+    if (!(await this.repo.orderIsBillable(
+        tenant.tenantId,
+        orderId,
+        this.isolatedBranch(tenant),
+      ))) {
       throw new BadRequestException('Order not found');
     }
     const updated = await this.repo.setOrder(tenant.tenantId, jobId, orderId);
@@ -176,6 +210,17 @@ export class WashQueueService {
     workerId: string | null,
     actor: Actor,
   ) {
+    if (this.isolatedBranch(tenant)) {
+      const current = await this.repo.findOne(
+        tenant.tenantId,
+        jobId,
+        this.isolatedBranch(tenant),
+      );
+      if (!current) throw new NotFoundException('Wash job not found');
+      await this.branchRefs?.assertSameBranch(tenant, current.branch_id, {
+        workerIds: [workerId],
+      });
+    }
     try {
       const job = await this.repo.assign(
         tenant.tenantId,

@@ -19,7 +19,8 @@ export class WaitlistService {
   ) {}
 
   findAll(tenant: TenantContext, branchId?: string, status?: string) {
-    return this.repo.findAll(tenant.tenantId, branchId, status);
+    const scoped = tenant.isolated && tenant.branchId ? tenant.branchId : branchId;
+    return this.repo.findAll(tenant.tenantId, scoped, status);
   }
 
   async create(tenant: TenantContext, dto: CreateWaitlistEntryDto) {
@@ -28,6 +29,9 @@ export class WaitlistService {
       tenant.tenantId,
     );
     if (!branchOk) throw new BadRequestException('Branch not found');
+    if (tenant.isolated && tenant.branchId && dto.branch_id !== tenant.branchId) {
+      throw new BadRequestException('A waitlist entry can only be created in the working branch');
+    }
     return this.repo.create(tenant.tenantId, dto);
   }
 

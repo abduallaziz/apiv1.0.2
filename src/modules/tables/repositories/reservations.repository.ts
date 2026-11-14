@@ -19,12 +19,15 @@ export class ReservationsRepository {
   async findAll(
     tenantId: string,
     filters: { tableId?: string; from?: string; to?: string; status?: string },
+    branchId?: string | null,
   ) {
     let q = this.supabase
       .from('table_reservations')
-      .select(SELECT)
+      .select(branchId ? SELECT.replace('tables(', 'tables!inner(') : SELECT)
       .eq('tenant_id', tenantId)
       .order('reservation_time', { ascending: true });
+    // branch isolation: a reservation belongs to the branch of its table
+    if (branchId) q = q.eq('tables.branch_id', branchId);
     if (filters.tableId) q = q.eq('table_id', filters.tableId);
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.from) q = q.gte('reservation_time', filters.from);
@@ -37,13 +40,14 @@ export class ReservationsRepository {
     );
   }
 
-  async findById(id: string, tenantId: string) {
-    const { data, error } = await this.supabase
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    let q = this.supabase
       .from('table_reservations')
-      .select(SELECT)
+      .select(branchId ? SELECT.replace('tables(', 'tables!inner(') : SELECT)
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
+      .eq('tenant_id', tenantId);
+    if (branchId) q = q.eq('tables.branch_id', branchId);
+    const { data, error } = await q.maybeSingle();
     if (error) throw error;
     return data ? this.map(data as unknown as ReservationRow) : null;
   }
@@ -52,14 +56,16 @@ export class ReservationsRepository {
   async findTable(
     tableId: string,
     tenantId: string,
+    branchId?: string | null,
   ): Promise<{ id: string; capacity: number | null } | null> {
-    const { data, error } = await this.supabase
+    let q = this.supabase
       .from('tables')
       .select('id, capacity')
       .eq('id', tableId)
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .maybeSingle<{ id: string; capacity: number | null }>();
+      .is('deleted_at', null);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle<{ id: string; capacity: number | null }>();
     if (error) throw error;
     return data;
   }

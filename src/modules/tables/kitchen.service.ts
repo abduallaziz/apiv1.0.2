@@ -29,7 +29,8 @@ export class KitchenService {
       .eq('status', 'pending')
       .not('table_id', 'is', null)
       .order('created_at', { ascending: true });
-    if (branchId) q = q.eq('branch_id', branchId);
+    const scoped = tenant.isolated && tenant.branchId ? tenant.branchId : branchId;
+    if (scoped) q = q.eq('branch_id', scoped);
 
     const { data, error } = await q;
     if (error) throw error;
