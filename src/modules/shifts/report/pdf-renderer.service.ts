@@ -57,14 +57,8 @@ export class PdfRendererService implements OnModuleDestroy {
           'PDF engine is not available on this server (no Chrome/Chromium found; set PUPPETEER_EXECUTABLE_PATH)',
         );
       }
-      // puppeteer-core is ESM-only: under CommonJS a plain import() is compiled
-      // to require(), which throws ERR_REQUIRE_ESM on Node < 22.12 (the opaque
-      // prod 500). A real runtime import() works everywhere.
-      const loadEsm = new Function('m', 'return import(m)') as (
-        m: string,
-      ) => Promise<typeof import('puppeteer-core')>;
-      const puppeteer = await loadEsm('puppeteer-core').catch((e: unknown) => {
-        this.logger.error(`puppeteer import failed: ${(e as Error).message}`);
+      const puppeteer = await import('puppeteer-core').catch((e: unknown) => {
+        this.logger.error('puppeteer import failed: ' + (e as Error).message);
         throw new ServiceUnavailableException('PDF engine is not available');
       });
       this.launching = puppeteer
@@ -109,8 +103,10 @@ export class PdfRendererService implements OnModuleDestroy {
     try {
       await page.setContent(html, { waitUntil: 'load' });
       const heightPx = await page.evaluate(() => {
-        const el = document.querySelector('.page') as HTMLElement | null;
-        return el ? el.getBoundingClientRect().height : document.body.scrollHeight;
+        const el = document.querySelector('.page');
+        return el
+          ? el.getBoundingClientRect().height
+          : document.body.scrollHeight;
       });
       const heightMm = Math.max(40, Math.ceil((heightPx * 25.4) / 96) + 2);
       const pdf = await page.pdf({
