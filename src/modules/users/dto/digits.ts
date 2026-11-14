@@ -18,9 +18,10 @@ export function normalizePhone(value: unknown): unknown {
   return toWesternDigits(value).trim().replace(/[\s-]/g, '');
 }
 
-export const NormalizePhone = () => Transform(({ value }) => normalizePhone(value));
+export const NormalizePhone = () =>
+  Transform(({ value }) => normalizePhone(value));
 export const NormalizeDigits = () =>
-  Transform(({ value }) =>
+  Transform(({ value }: { value: unknown }): unknown =>
     typeof value === 'string' ? toWesternDigits(value).trim() : value,
   );
 

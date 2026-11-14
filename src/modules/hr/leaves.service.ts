@@ -33,7 +33,10 @@ export class LeavesService {
     meta?: { reason?: string; actorId?: string; actorRole?: string },
   ) {
     if (status === 'approved') {
-      const current = await this.leaveRequestsRepo.findById(id, tenant.tenantId);
+      const current = await this.leaveRequestsRepo.findById(
+        id,
+        tenant.tenantId,
+      );
       if (!current) throw new NotFoundException('Leave request not found');
       const overlapping = await this.leaveRequestsRepo.findOverlapping(
         tenant.tenantId,
@@ -42,7 +45,9 @@ export class LeavesService {
         current.date_to,
         id,
       );
-      if (overlapping.some((o: { status: string }) => o.status === 'approved')) {
+      if (
+        overlapping.some((o: { status: string }) => o.status === 'approved')
+      ) {
         throw new BadRequestException(
           'Leave request overlaps an already approved request',
         );

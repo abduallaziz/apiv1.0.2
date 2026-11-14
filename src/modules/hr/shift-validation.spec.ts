@@ -2,7 +2,9 @@ import { findShiftsError } from './shift-validation';
 
 describe('findShiftsError', () => {
   it('rejects start == end', () => {
-    expect(findShiftsError([{ start_time: '09:00', end_time: '09:00' }])).toMatch(/different/);
+    expect(
+      findShiftsError([{ start_time: '09:00', end_time: '09:00' }]),
+    ).toMatch(/different/);
   });
   it('rejects overlapping shifts', () => {
     expect(
@@ -19,7 +21,9 @@ describe('findShiftsError', () => {
         { start_time: '14:00', end_time: '18:00' },
       ]),
     ).toBeNull();
-    expect(findShiftsError([{ start_time: '18:00', end_time: '08:00' }])).toBeNull();
+    expect(
+      findShiftsError([{ start_time: '18:00', end_time: '08:00' }]),
+    ).toBeNull();
   });
   it('overnight overlapping a day shift is rejected', () => {
     expect(
