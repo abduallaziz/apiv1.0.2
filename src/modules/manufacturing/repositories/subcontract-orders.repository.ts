@@ -55,7 +55,7 @@ export class SubcontractOrdersRepository {
     if (data)
       await assertVisibleWarehouse(
         tenantId,
-        data.warehouse_id,
+        (data as unknown as { warehouse_id: string }).warehouse_id,
         'Subcontract order',
       );
     return data;
