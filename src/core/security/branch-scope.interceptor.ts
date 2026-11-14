@@ -67,10 +67,14 @@ export class BranchScopeInterceptor implements NestInterceptor {
 
     const source = options.source === 'body' ? request.body : request.query;
     const rawBranchId = source?.branch_id;
+    // Under branch isolation the tenant context already carries the authoritative branch (the chosen
+    // working branch, or the main branch for a central user): use it when the request names none.
     const requestedBranchId =
       typeof rawBranchId === 'string' && rawBranchId.length > 0
         ? rawBranchId
-        : undefined;
+        : tenantContext.isolated
+          ? (tenantContext.branchId ?? undefined)
+          : undefined;
 
     const result = await this.branchAuthorization.resolveBranchScope(
       {

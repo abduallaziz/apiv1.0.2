@@ -16,7 +16,7 @@ export class BranchesRepository {
     let query = this.supabase
       .from('branches')
       .select(
-        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
       )
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null);
@@ -37,7 +37,7 @@ export class BranchesRepository {
     const { data, error } = await this.supabase
       .from('branches')
       .select(
-        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
       )
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
@@ -136,7 +136,7 @@ export class BranchesRepository {
         is_active: true,
       })
       .select(
-        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
       )
       .single();
 
@@ -180,7 +180,7 @@ export class BranchesRepository {
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
       .select(
-        'id, name, address, is_active, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+        'id, name, address, is_active, is_main, default_warehouse_id, geofence_lat, geofence_lng, geofence_radius_m, created_at',
       )
       .single();
 
@@ -240,6 +240,57 @@ export class BranchesRepository {
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null);
 
+    if (error) throw error;
+  }
+
+  // ── Branch isolation (docs/DESIGN_BRANCH_ISOLATION.md D1/D2) ─────────────────────────────
+  async getIsolation(
+    tenantId: string,
+  ): Promise<{ enabled: boolean; main_branch_id: string | null }> {
+    const [{ data: t, error: tErr }, { data: m, error: mErr }] =
+      await Promise.all([
+        this.supabase
+          .from('tenants')
+          .select('branch_isolation_enabled')
+          .eq('id', tenantId)
+          .maybeSingle<{ branch_isolation_enabled: boolean }>(),
+        this.supabase
+          .from('branches')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('is_main', true)
+          .is('deleted_at', null)
+          .maybeSingle<{ id: string }>(),
+      ]);
+    if (tErr) throw tErr;
+    if (mErr) throw mErr;
+    return {
+      enabled: t?.branch_isolation_enabled === true,
+      main_branch_id: m?.id ?? null,
+    };
+  }
+
+  async setIsolation(tenantId: string, enabled: boolean): Promise<void> {
+    const { error } = await this.supabase
+      .from('tenants')
+      .update({ branch_isolation_enabled: enabled })
+      .eq('id', tenantId);
+    if (error) throw error;
+  }
+
+  /** Makes `branchId` the tenant's main branch (the previous one is unflagged first: one main per tenant). */
+  async setMainBranch(tenantId: string, branchId: string): Promise<void> {
+    const { error: clearErr } = await this.supabase
+      .from('branches')
+      .update({ is_main: false })
+      .eq('tenant_id', tenantId)
+      .eq('is_main', true);
+    if (clearErr) throw clearErr;
+    const { error } = await this.supabase
+      .from('branches')
+      .update({ is_main: true })
+      .eq('id', branchId)
+      .eq('tenant_id', tenantId);
     if (error) throw error;
   }
 }

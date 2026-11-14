@@ -4,6 +4,7 @@ import {
   Post,
   Patch,
   Delete,
+  Put,
   Param,
   Body,
   Query,
@@ -36,6 +37,31 @@ export class BranchesController {
     @Query('active_only') activeOnly?: string,
   ) {
     return this.service.findAll(tenant, activeOnly === 'true');
+  }
+
+  // Branch isolation (docs/DESIGN_BRANCH_ISOLATION.md). Declared before ':id' routes.
+  @Get('isolation/status')
+  @RequirePermission('branches.view')
+  isolation(@GetTenant() tenant: TenantContext) {
+    return this.service.getIsolation(tenant);
+  }
+
+  @Put('isolation/status')
+  @RequirePermission('branches.manage')
+  setIsolation(
+    @Body() body: { enabled: boolean },
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.service.setIsolation(tenant, body?.enabled === true);
+  }
+
+  @Patch(':id/main')
+  @RequirePermission('branches.manage')
+  setMain(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetTenant() tenant: TenantContext,
+  ) {
+    return this.service.setMain(id, tenant);
   }
 
   @Get(':id')

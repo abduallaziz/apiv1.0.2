@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { TenantIsolationService } from '../../core/security/tenant-isolation.service';
 import { BranchesRepository } from './branches.repository';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CreateBranchDto } from './dto/create-branch.dto';
@@ -15,6 +16,7 @@ export class BranchesService {
   constructor(
     private readonly repo: BranchesRepository,
     private readonly billingService: BillingService,
+    private readonly isolation: TenantIsolationService,
   ) {}
 
   async findAll(tenant: TenantContext, activeOnly = false) {
@@ -101,5 +103,34 @@ export class BranchesService {
       await this.repo.softDeleteWarehouse(warehouseId, tenant);
     }
     return { success: true };
+  }
+
+  // ── Branch isolation ────────────────────────────────────────────────────────────────────
+  getIsolation(tenant: TenantContext) {
+    return this.repo.getIsolation(tenant.tenantId);
+  }
+
+  /** Turns full branch isolation on/off for the tenant. Needs a main branch to resolve the default scope. */
+  async setIsolation(tenant: TenantContext, enabled: boolean) {
+    const current = await this.repo.getIsolation(tenant.tenantId);
+    if (enabled && !current.main_branch_id) {
+      throw new BadRequestException(
+        'Set a main branch before enabling branch isolation',
+      );
+    }
+    await this.repo.setIsolation(tenant.tenantId, enabled);
+    this.isolation.invalidate(tenant.tenantId);
+    return this.repo.getIsolation(tenant.tenantId);
+  }
+
+  async setMain(id: string, tenant: TenantContext) {
+    const branch = await this.repo.findById(id, tenant);
+    if (!branch) throw new NotFoundException('Branch not found');
+    if (!branch.is_active) {
+      throw new BadRequestException('The main branch must be active');
+    }
+    await this.repo.setMainBranch(tenant.tenantId, id);
+    this.isolation.invalidate(tenant.tenantId);
+    return this.repo.findById(id, tenant);
   }
 }

@@ -24,9 +24,15 @@ function make(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
   const billing = { checkBranchLimit: jest.fn() };
+  const isolation = { invalidate: jest.fn() };
   return {
-    repo,
-    svc: new BranchesService(repo as never, billing as never),
+    repo: repo as Record<string, jest.Mock>,
+    isolation,
+    svc: new BranchesService(
+      repo as never,
+      billing as never,
+      isolation as never,
+    ),
   };
 }
 
@@ -86,5 +92,43 @@ describe('BranchesService', () => {
     await svc.remove('b1', tenant);
     expect(repo.softDelete).toHaveBeenCalled();
     expect(repo.softDeleteWarehouse).not.toHaveBeenCalled();
+  });
+
+  describe('branch isolation', () => {
+    it('refuses to enable isolation without a main branch', async () => {
+      const { svc, repo } = make({
+        getIsolation: jest
+          .fn()
+          .mockResolvedValue({ enabled: false, main_branch_id: null }),
+        setIsolation: jest.fn(),
+      });
+      await expect(svc.setIsolation(tenant, true)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repo.setIsolation).not.toHaveBeenCalled();
+    });
+
+    it('enables isolation and clears the cache when a main branch exists', async () => {
+      const { svc, repo, isolation } = make({
+        getIsolation: jest
+          .fn()
+          .mockResolvedValue({ enabled: false, main_branch_id: 'b1' }),
+        setIsolation: jest.fn().mockResolvedValue(undefined),
+      });
+      await svc.setIsolation(tenant, true);
+      expect(repo.setIsolation).toHaveBeenCalledWith('t1', true);
+      expect(isolation.invalidate).toHaveBeenCalledWith('t1');
+    });
+
+    it('only an active branch can become main', async () => {
+      const { svc, repo } = make({
+        findById: jest.fn().mockResolvedValue({ id: 'b2', is_active: false }),
+        setMainBranch: jest.fn(),
+      });
+      await expect(svc.setMain('b2', tenant)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repo.setMainBranch).not.toHaveBeenCalled();
+    });
   });
 });
