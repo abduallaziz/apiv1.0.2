@@ -61,6 +61,17 @@ export class ReportsService {
     user: JwtPayload,
     requestedBranchId: string | undefined,
   ): Promise<string | null> {
+    // Branch isolation: the guard already resolved and validated the working
+    // branch (own branch for restricted users, switcher/main for central).
+    // A different explicitly requested branch is never honoured.
+    if (tenant.isolated && tenant.branchId) {
+      if (requestedBranchId && requestedBranchId !== tenant.branchId) {
+        throw new ForbiddenException(
+          'You are not authorized to view reports for this branch.',
+        );
+      }
+      return tenant.branchId;
+    }
     const result = await this.branchAuthorization.resolveBranchScope(
       {
         tenantId: tenant.tenantId,
@@ -769,7 +780,9 @@ export class ReportsService {
     const from = localDayBoundIso(days[0], 'start', tz);
     const to = localDayBoundIso(days[6], 'end', tz);
 
-    const { data: orders, error: oErr } = await this.supabase
+    const isolatedBranch =
+      tenant.isolated && tenant.branchId ? tenant.branchId : null;
+    let ordersQ = this.supabase
       .from('orders')
       .select('total, created_at')
       .eq('tenant_id', tenant.tenantId)
@@ -777,6 +790,8 @@ export class ReportsService {
       .eq('status', 'completed')
       .gte('created_at', from)
       .lte('created_at', to);
+    if (isolatedBranch) ordersQ = ordersQ.eq('branch_id', isolatedBranch);
+    const { data: orders, error: oErr } = await ordersQ;
 
     if (oErr) throw oErr;
 
@@ -794,7 +809,7 @@ export class ReportsService {
 
     if (cErr) throw cErr;
 
-    const { data: expenses, error: eErr } = await this.supabase
+    let expensesQ = this.supabase
       .from('expenses_v2')
       .select('amount, expense_date')
       .eq('tenant_id', tenant.tenantId)
@@ -802,6 +817,8 @@ export class ReportsService {
       .is('cancelled_at', null)
       .gte('expense_date', days[0])
       .lte('expense_date', days[6]);
+    if (isolatedBranch) expensesQ = expensesQ.eq('branch_id', isolatedBranch);
+    const { data: expenses, error: eErr } = await expensesQ;
 
     if (eErr) throw eErr;
 
@@ -864,7 +881,9 @@ export class ReportsService {
       .gte('created_at', from)
       .lte('created_at', to);
 
-    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+    const scopedBranchId =
+      tenant.isolated && tenant.branchId ? tenant.branchId : query.branch_id;
+    if (scopedBranchId) q = q.eq('branch_id', scopedBranchId);
 
     const { data: orders, error } = await q;
     if (error) throw error;
@@ -939,7 +958,9 @@ export class ReportsService {
       .lte('created_at', to)
       .not('customer_id', 'is', null);
 
-    if (query.branch_id) q = q.eq('branch_id', query.branch_id);
+    const scopedBranchId =
+      tenant.isolated && tenant.branchId ? tenant.branchId : query.branch_id;
+    if (scopedBranchId) q = q.eq('branch_id', scopedBranchId);
 
     const { data: orders, error } = await q;
     if (error) throw error;
@@ -1240,7 +1261,7 @@ export class ReportsService {
     // logic observation). Only the orders sub-query below, which already
     // applied query.branch_id before this change, now uses the resolved
     // effectiveBranchId instead.
-    const { data: movements, error } = await this.supabase
+    let movementsQ = this.supabase
       .from('stock_movements')
       .select('item_id, quantity, unit_cost, total_cost, movement_type')
       .eq('tenant_id', tenant.tenantId)
@@ -1252,6 +1273,20 @@ export class ReportsService {
       .in('reference_type', ['order', 'sales_return'])
       .gte('occurred_at', from)
       .lte('occurred_at', to);
+    if (tenant.isolated && tenant.branchId) {
+      // Stock is owned through warehouses.branch_id.
+      const { data: whs, error: whsErr } = await this.supabase
+        .from('warehouses')
+        .select('id')
+        .eq('tenant_id', tenant.tenantId)
+        .eq('branch_id', tenant.branchId);
+      if (whsErr) throw whsErr;
+      movementsQ = movementsQ.in(
+        'warehouse_id',
+        (whs ?? []).map((w: any) => w.id),
+      );
+    }
+    const { data: movements, error } = await movementsQ;
     if (error) throw error;
 
     const sign = (m: { movement_type: string }) =>
@@ -1383,7 +1418,7 @@ export class ReportsService {
         );
       }
       await this.resolveReportBranchScope(tenant, user, warehouse.branch_id);
-    } else if (user.branch_id) {
+    } else if (user.branch_id && !(tenant.isolated && tenant.branchId)) {
       // Restricted actor omitted warehouse_id entirely — unlike the other
       // migrated endpoints, there is no "their own branch" fallback to
       // silently apply here (the RPC's p_warehouse_id=null means "every
@@ -1410,7 +1445,18 @@ export class ReportsService {
     );
     if (error) throw error;
 
-    const rows = data ?? [];
+    let rows = data ?? [];
+    if (tenant.isolated && tenant.branchId) {
+      // Only the working branch's warehouses (stock is owned through warehouses.branch_id).
+      const { data: whs, error: whsErr } = await this.supabase
+        .from('warehouses')
+        .select('id')
+        .eq('tenant_id', tenant.tenantId)
+        .eq('branch_id', tenant.branchId);
+      if (whsErr) throw whsErr;
+      const allowed = new Set((whs ?? []).map((w: any) => w.id));
+      rows = rows.filter((r: any) => allowed.has(r.warehouse_id));
+    }
     const totalValue = rows.reduce(
       (s: number, r: any) => s + (r.inventory_value || 0),
       0,
@@ -1541,11 +1587,17 @@ export class ReportsService {
   async getBranchComparison(tenant: TenantContext, query: ReportQueryDto) {
     const { from, to } = await this.getDateRange(query, tenant.tenantId);
 
-    const { data: branches, error: branchError } = await this.supabase
+    let branchesQ = this.supabase
       .from('branches')
       .select('id, name')
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null);
+    // Under isolation this legacy endpoint only describes the working branch;
+    // the cross-branch view is GET /reports/branches-summary.
+    if (tenant.isolated && tenant.branchId) {
+      branchesQ = branchesQ.eq('id', tenant.branchId);
+    }
+    const { data: branches, error: branchError } = await branchesQ;
     if (branchError) throw branchError;
 
     const results = await Promise.all(
@@ -1559,7 +1611,12 @@ export class ReportsService {
     // T10 / R6: orders whose branch is not in the list above (a deleted
     // branch) would silently vanish; report them as one unassigned row so
     // the branches always add up to the tenant total.
-    const tenantTotal = await this.getOrderMetrics(tenant.tenantId, from, to);
+    const tenantTotal = await this.getOrderMetrics(
+      tenant.tenantId,
+      from,
+      to,
+      tenant.isolated && tenant.branchId ? tenant.branchId : undefined,
+    );
     const listedRevenue = results.reduce((s, r) => s + r.revenue, 0);
     const listedOrders = results.reduce((s, r) => s + r.order_count, 0);
     const otherOrders = tenantTotal.order_count - listedOrders;
@@ -1600,7 +1657,7 @@ export class ReportsService {
     const monthStart = `${month}-01`;
     const monthEnd = new Date(year, mon, 0).toISOString().substring(0, 10); // last day of month
 
-    const { data: employees, error: empErr } = await this.supabase
+    let empQ = this.supabase
       .from('users')
       .select(
         'id, name, base_salary, grace_period_minutes, late_deduction_mode, late_deduction_value',
@@ -1608,6 +1665,10 @@ export class ReportsService {
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
       .not('base_salary', 'is', null);
+    if (tenant.isolated && tenant.branchId) {
+      empQ = empQ.eq('branch_id', tenant.branchId);
+    }
+    const { data: employees, error: empErr } = await empQ;
     if (empErr) throw empErr;
     if (!employees || employees.length === 0) return { month, employees: [] };
 
@@ -1813,12 +1874,16 @@ export class ReportsService {
       .toISOString()
       .substring(0, 10);
 
-    const { data: employees, error: empErr } = await this.supabase
+    const isolatedBranch =
+      tenant.isolated && tenant.branchId ? tenant.branchId : null;
+    let hrEmpQ = this.supabase
       .from('users')
       .select('id')
       .eq('tenant_id', tenant.tenantId)
       .eq('is_active', true)
       .is('deleted_at', null);
+    if (isolatedBranch) hrEmpQ = hrEmpQ.eq('branch_id', isolatedBranch);
+    const { data: employees, error: empErr } = await hrEmpQ;
     if (empErr) throw empErr;
     const userIds = (employees ?? []).map((e) => e.id);
     const totalEmployees = userIds.length;
@@ -1861,18 +1926,24 @@ export class ReportsService {
         .in('user_id', userIds)
         .lte('date_from', today)
         .gte('date_to', today),
-      this.supabase
-        .from('leave_requests')
-        .select('id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId)
-        .eq('status', 'pending'),
-      this.supabase
-        .from('leave_requests')
-        .select('id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId)
-        .eq('status', 'approved')
-        .lte('date_from', monthEnd)
-        .gte('date_to', monthStart),
+      (() => {
+        const q = this.supabase
+          .from('leave_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.tenantId)
+          .eq('status', 'pending');
+        return isolatedBranch ? q.in('user_id', userIds) : q;
+      })(),
+      (() => {
+        const q = this.supabase
+          .from('leave_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.tenantId)
+          .eq('status', 'approved')
+          .lte('date_from', monthEnd)
+          .gte('date_to', monthStart);
+        return isolatedBranch ? q.in('user_id', userIds) : q;
+      })(),
     ]);
     if (scheduleRes.error) throw scheduleRes.error;
     if (attendanceRes.error) throw attendanceRes.error;
@@ -1913,11 +1984,15 @@ export class ReportsService {
   async getAuditSummary(tenant: TenantContext) {
     const todayStart = `${new Date().toISOString().substring(0, 10)}T00:00:00.000Z`;
 
-    const { data, error } = await this.supabase
+    let auditQ = this.supabase
       .from('audit_logs')
       .select('resource_type')
       .eq('tenant_id', tenant.tenantId)
       .gte('created_at', todayStart);
+    if (tenant.isolated && tenant.branchId) {
+      auditQ = auditQ.eq('branch_id', tenant.branchId);
+    }
+    const { data, error } = await auditQ;
     if (error) throw error;
 
     const rows = data ?? [];
