@@ -118,6 +118,9 @@ export class BranchesService {
         'Set a main branch before enabling branch isolation',
       );
     }
+    // Everything that has no branch yet joins the main branch BEFORE the flag flips, so nothing
+    // disappears from view the moment isolation starts.
+    if (enabled) await this.repo.backfillToMain(tenant.tenantId);
     await this.repo.setIsolation(tenant.tenantId, enabled);
     this.isolation.invalidate(tenant.tenantId);
     return this.repo.getIsolation(tenant.tenantId);

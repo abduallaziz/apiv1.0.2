@@ -270,6 +270,16 @@ export class BranchesRepository {
     };
   }
 
+  /** Assigns every unbranched row of the registered tables to the main branch (idempotent). */
+  async backfillToMain(tenantId: string): Promise<Record<string, number>> {
+    const { data, error } = await this.supabase.rpc(
+      'fn_branch_isolation_backfill',
+      { p_tenant_id: tenantId },
+    );
+    if (error) throw error;
+    return (data ?? {}) as Record<string, number>;
+  }
+
   async setIsolation(tenantId: string, enabled: boolean): Promise<void> {
     const { error } = await this.supabase
       .from('tenants')
