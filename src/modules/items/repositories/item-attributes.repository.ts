@@ -169,14 +169,13 @@ export class ItemAttributesRepository extends ScopedRepository {
     tenantId: string,
     branchId?: string | null,
   ): Promise<boolean> {
-    const { data, error } = await withBranch(
-      this.supabase
-        .from('item_variants')
-        .select('id')
-        .eq('id', variantId)
-        .eq('tenant_id', tenantId),
-      branchId,
-    ).maybeSingle();
+    let q = this.supabase
+      .from('item_variants')
+      .select('id')
+      .eq('id', variantId)
+      .eq('tenant_id', tenantId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle();
     if (error) throw error;
     return !!data;
   }

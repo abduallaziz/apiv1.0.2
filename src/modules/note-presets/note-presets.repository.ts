@@ -3,6 +3,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import {
+  branchForWrite,
+  scopeToBranch,
+} from '../../core/tenant/branch-scope.util';
 import { CreateNotePresetDto } from './dto/create-note-preset.dto';
 import { UpdateNotePresetDto } from './dto/update-note-preset.dto';
 
@@ -25,7 +29,10 @@ export class NotePresetsRepository extends ScopedRepository {
 
   /** Full list for the admin management page — every preset, active or not. */
   async findAll(tenant: TenantContext): Promise<NotePreset[]> {
-    const { data, error } = await this.scopedQuery('note_presets', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('note_presets', tenant),
+      tenant,
+    )
       .select('*')
       .order('sort_order', { ascending: true })
       .returns<NotePreset[]>();
@@ -35,7 +42,10 @@ export class NotePresetsRepository extends ScopedRepository {
 
   /** Active-only, ordered — what the POS "choose from list" tab actually shows. */
   async findActive(tenant: TenantContext): Promise<NotePreset[]> {
-    const { data, error } = await this.scopedQuery('note_presets', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('note_presets', tenant),
+      tenant,
+    )
       .select('*')
       .eq('is_active', true)
       .order('sort_order', { ascending: true })
@@ -48,7 +58,10 @@ export class NotePresetsRepository extends ScopedRepository {
     tenant: TenantContext,
     id: string,
   ): Promise<NotePreset | null> {
-    const { data, error } = await this.scopedQuery('note_presets', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('note_presets', tenant),
+      tenant,
+    )
       .select('*')
       .eq('id', id)
       .maybeSingle<NotePreset>();
@@ -62,7 +75,11 @@ export class NotePresetsRepository extends ScopedRepository {
   ): Promise<NotePreset> {
     const { data, error } = await this.supabase
       .from('note_presets')
-      .insert({ ...dto, tenant_id: tenant.tenantId })
+      .insert({
+        ...dto,
+        tenant_id: tenant.tenantId,
+        ...(tenant.isolated ? { branch_id: branchForWrite(tenant) } : {}),
+      })
       .select()
       .single<NotePreset>();
     if (error) throw error;
@@ -96,7 +113,10 @@ export class NotePresetsRepository extends ScopedRepository {
 
   /** Highest current sort_order for this tenant, so a new preset lands at the end of the list. */
   async maxSortOrder(tenant: TenantContext): Promise<number> {
-    const { data, error } = await this.scopedQuery('note_presets', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('note_presets', tenant),
+      tenant,
+    )
       .select('sort_order')
       .order('sort_order', { ascending: false })
       .limit(1)

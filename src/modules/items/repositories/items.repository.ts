@@ -121,14 +121,13 @@ export class ItemsRepository extends ScopedRepository {
     term: string,
     branchId?: string | null,
   ): Promise<string[]> {
-    const { data, error } = await withBranch(
-      this.supabase
-        .from('item_barcodes')
-        .select('item_id')
-        .eq('tenant_id', tenantId)
-        .is('deleted_at', null),
-      branchId,
-    )
+    let q = this.supabase
+      .from('item_barcodes')
+      .select('item_id')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q
       .ilike('barcode', `%${escapeLike(term)}%`)
       .limit(200);
     if (error) throw error;
@@ -141,15 +140,14 @@ export class ItemsRepository extends ScopedRepository {
   // paginated list's filters (a caller viewing a filtered/paged view should
   // still see the true tenant totals, not counts scoped to the current page).
   async getStats(tenantId: string, branchId?: string | null) {
-    const base = () =>
-      withBranch(
-        this.supabase
-          .from('items')
-          .select('id', { count: 'exact', head: true })
-          .is('deleted_at', null)
-          .eq('tenant_id', tenantId),
-        branchId,
-      );
+    const base = () => {
+      const q = this.supabase
+        .from('items')
+        .select('id', { count: 'exact', head: true })
+        .is('deleted_at', null)
+        .eq('tenant_id', tenantId);
+      return branchId ? q.eq('branch_id', branchId) : q;
+    };
 
     const [
       { count: total, error: totalErr },
@@ -276,14 +274,13 @@ export class ItemsRepository extends ScopedRepository {
     tenantId: string,
     branchId?: string | null,
   ): Promise<boolean> {
-    const { data, error } = await withBranch(
-      this.supabase
-        .from('categories')
-        .select('id')
-        .eq('id', categoryId)
-        .eq('tenant_id', tenantId),
-      branchId,
-    ).maybeSingle();
+    let q = this.supabase
+      .from('categories')
+      .select('id')
+      .eq('id', categoryId)
+      .eq('tenant_id', tenantId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q.maybeSingle();
     if (error) throw error;
     return !!data;
   }

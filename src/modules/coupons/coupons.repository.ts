@@ -3,6 +3,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import {
+  branchForWrite,
+  scopeToBranch,
+} from '../../core/tenant/branch-scope.util';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
@@ -14,7 +18,10 @@ export class CouponsRepository extends ScopedRepository {
   }
 
   async findAll(tenant: TenantContext) {
-    const { data, error } = await this.scopedQuery('coupons', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('coupons', tenant),
+      tenant,
+    )
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -22,7 +29,10 @@ export class CouponsRepository extends ScopedRepository {
   }
 
   async findById(tenant: TenantContext, id: string) {
-    const { data, error } = await this.scopedQuery('coupons', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('coupons', tenant),
+      tenant,
+    )
       .select('*')
       .eq('id', id)
       .maybeSingle();
@@ -38,8 +48,18 @@ export class CouponsRepository extends ScopedRepository {
    * "%" would match *any* coupon in the tenant and pass validation. Uppercase + `eq` avoids
    * that entirely while keeping the same case-insensitive behavior for legitimate codes.
    */
-  async findByCode(tenant: TenantContext, code: string) {
-    const { data, error } = await this.scopedQuery('coupons', tenant)
+  async findByCode(
+    tenant: TenantContext,
+    code: string,
+    orderBranchId?: string | null,
+  ) {
+    // Under isolation a coupon is only valid in its own branch: the order's branch when given
+    // (checkout), else the request's branch. Codes are unique per branch (migration 282).
+    const base = this.scopedQuery('coupons', tenant);
+    const scoped = orderBranchId
+      ? base.eq('branch_id', orderBranchId)
+      : scopeToBranch(base, tenant);
+    const { data, error } = await scoped
       .select('*')
       .eq('code', code.toUpperCase())
       .maybeSingle();
@@ -50,7 +70,11 @@ export class CouponsRepository extends ScopedRepository {
   async create(tenant: TenantContext, dto: CreateCouponDto) {
     const { data, error } = await this.supabase
       .from('coupons')
-      .insert({ ...dto, tenant_id: tenant.tenantId })
+      .insert({
+        ...dto,
+        tenant_id: tenant.tenantId,
+        ...(tenant.isolated ? { branch_id: branchForWrite(tenant) } : {}),
+      })
       .select()
       .single();
     if (error) {

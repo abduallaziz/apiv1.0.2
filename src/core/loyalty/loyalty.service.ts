@@ -274,7 +274,7 @@ export class LoyaltyService {
   ): Promise<number> {
     const { data, error } = await this.supabase
       .from('customers')
-      .select('lifetime_points_earned')
+      .select('lifetime_points_earned, branch_id')
       .eq('id', customerId)
       .eq('tenant_id', tenantId)
       .single();
@@ -283,6 +283,7 @@ export class LoyaltyService {
     const tier = await this.tiersRepo.findMatchingTier(
       tenantId,
       data.lifetime_points_earned ?? 0,
+      data.branch_id ?? null,
     );
     return tier?.points_multiplier ?? 1;
   }

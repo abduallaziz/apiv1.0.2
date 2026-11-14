@@ -3,6 +3,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import {
+  branchForWrite,
+  scopeToBranch,
+} from '../../core/tenant/branch-scope.util';
 import { CreateRewardDefinitionDto } from './dto/create-reward-definition.dto';
 import { UpdateRewardDefinitionDto } from './dto/update-reward-definition.dto';
 
@@ -13,7 +17,10 @@ export class RewardDefinitionsRepository extends ScopedRepository {
   }
 
   async findAll(tenant: TenantContext) {
-    const { data, error } = await this.scopedQuery('reward_definitions', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('reward_definitions', tenant),
+      tenant,
+    )
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -21,7 +28,10 @@ export class RewardDefinitionsRepository extends ScopedRepository {
   }
 
   async findById(tenant: TenantContext, id: string) {
-    const { data, error } = await this.scopedQuery('reward_definitions', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('reward_definitions', tenant),
+      tenant,
+    )
       .select('*')
       .eq('id', id)
       .maybeSingle();
@@ -31,7 +41,10 @@ export class RewardDefinitionsRepository extends ScopedRepository {
 
   /** Active, non-deleted definitions of a given trigger type — used by event-driven eligibility evaluation (e.g. every completed order for purchase_count). */
   async findActiveByTriggerType(tenant: TenantContext, triggerType: string) {
-    const { data, error } = await this.scopedQuery('reward_definitions', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('reward_definitions', tenant),
+      tenant,
+    )
       .select('*')
       .eq('trigger_type', triggerType)
       .eq('is_active', true);
@@ -44,7 +57,10 @@ export class RewardDefinitionsRepository extends ScopedRepository {
     tenant: TenantContext,
     triggerTypes: string[],
   ) {
-    const { data, error } = await this.scopedQuery('reward_definitions', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('reward_definitions', tenant),
+      tenant,
+    )
       .select('*')
       .in('trigger_type', triggerTypes)
       .eq('is_active', true);
@@ -55,7 +71,14 @@ export class RewardDefinitionsRepository extends ScopedRepository {
   async create(tenant: TenantContext, dto: CreateRewardDefinitionDto) {
     const { data, error } = await this.supabase
       .from('reward_definitions')
-      .insert({ ...dto, tenant_id: tenant.tenantId })
+      .insert({
+        ...dto,
+        tenant_id: tenant.tenantId,
+        // Isolated tenants: a definition belongs to exactly one branch (D4).
+        ...(tenant.isolated
+          ? { branch_scope: 'specific', branch_id: branchForWrite(tenant) }
+          : {}),
+      })
       .select()
       .single();
     if (error) throw error;

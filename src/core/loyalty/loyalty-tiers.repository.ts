@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../tenant/scoped.repository';
 import { TenantContext } from '../tenant/tenant-context';
+import { branchForWrite, scopeToBranch } from '../tenant/branch-scope.util';
 import { CreateLoyaltyTierDto } from './dto/create-loyalty-tier.dto';
 import { UpdateLoyaltyTierDto } from './dto/update-loyalty-tier.dto';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
@@ -14,7 +15,10 @@ export class LoyaltyTiersRepository extends ScopedRepository {
   }
 
   async findAll(tenant: TenantContext) {
-    const { data, error } = await this.scopedQuery('loyalty_tiers', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('loyalty_tiers', tenant),
+      tenant,
+    )
       .select('*')
       .order('min_lifetime_points', { ascending: true });
     if (error) throw error;
@@ -22,7 +26,10 @@ export class LoyaltyTiersRepository extends ScopedRepository {
   }
 
   async findById(tenant: TenantContext, id: string) {
-    const { data, error } = await this.scopedQuery('loyalty_tiers', tenant)
+    const { data, error } = await scopeToBranch(
+      this.scopedQuery('loyalty_tiers', tenant),
+      tenant,
+    )
       .select('*')
       .eq('id', id)
       .maybeSingle();
@@ -31,12 +38,22 @@ export class LoyaltyTiersRepository extends ScopedRepository {
   }
 
   /** Highest tier whose threshold the given lifetime points total qualifies for, or null if none match (or no tiers configured). */
-  async findMatchingTier(tenantId: string, lifetimePoints: number) {
-    const { data, error } = await this.supabase
+  async findMatchingTier(
+    tenantId: string,
+    lifetimePoints: number,
+    customerBranchId?: string | null,
+  ) {
+    let query = this.supabase
       .from('loyalty_tiers')
       .select('*')
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
+      .is('deleted_at', null);
+    // Tiers are branch-owned: a customer (who belongs to one branch) is matched against the tiers of
+    // that branch. Legacy NULL-branch tiers (flag never enabled) stay tenant-wide.
+    if (customerBranchId) {
+      query = query.or(`branch_id.eq.${customerBranchId},branch_id.is.null`);
+    }
+    const { data, error } = await query
       .lte('min_lifetime_points', lifetimePoints)
       .order('min_lifetime_points', { ascending: false })
       .limit(1)
@@ -48,7 +65,11 @@ export class LoyaltyTiersRepository extends ScopedRepository {
   async create(tenant: TenantContext, dto: CreateLoyaltyTierDto) {
     const { data, error } = await this.supabase
       .from('loyalty_tiers')
-      .insert({ ...dto, tenant_id: tenant.tenantId })
+      .insert({
+        ...dto,
+        tenant_id: tenant.tenantId,
+        ...(tenant.isolated ? { branch_id: branchForWrite(tenant) } : {}),
+      })
       .select()
       .single();
     if (error) {

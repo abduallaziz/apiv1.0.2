@@ -108,8 +108,14 @@ export class CouponsService {
     tenant: TenantContext,
     code: string,
     subtotal: number,
+    orderBranchId?: string | null,
   ): Promise<Coupon> {
-    const coupon = await this.repo.findByCode(tenant, code);
+    // Isolated tenants: only a coupon of the order's branch is accepted (other branch = "invalid").
+    const coupon = await this.repo.findByCode(
+      tenant,
+      code,
+      tenant.isolated ? (orderBranchId ?? tenant.branchId) : null,
+    );
     if (!coupon) throw new BadRequestException('Invalid coupon code');
     if (!coupon.is_active)
       throw new BadRequestException('This coupon is no longer active');
