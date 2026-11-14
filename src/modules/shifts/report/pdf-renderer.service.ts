@@ -132,7 +132,7 @@ export class PdfRendererService implements OnModuleDestroy {
           // The reason is included (truncated, first line only) so a deployment problem can be
           // diagnosed from the UI without server logs.
           throw new ServiceUnavailableException(
-            `PDF engine failed to start on this server: ${reason.split('\n')[0].slice(0, 220)}`,
+            `PDF engine failed to start on this server: [${resolved.source}] ${reason.replace(/\s*\n\s*/g, ' | ').slice(0, 700)}`,
           );
         })
         .finally(() => {
