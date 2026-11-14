@@ -95,8 +95,11 @@ export class LeaveRequestsRepository {
   ) {
     let query = this.supabase
       .from('leave_requests')
-      .select(SELECT_WITH_USER)
+      .select(
+        'id, leave_type, date_from, date_to, days_count, status, reason, created_at, user_id, users!inner(name, job_title, department, deleted_at)',
+      )
       .eq('tenant_id', tenantId)
+      .is('users.deleted_at', null)
       .order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
     if (userId) query = query.eq('user_id', userId);
