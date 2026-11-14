@@ -176,54 +176,59 @@ export class BranchPublishService {
     }
     const tenantId = tenant.tenantId as string;
     const types = [...new Set(req.entity_types)];
-    return Promise.all(
-      types.map(async (type): Promise<WizardCopyTypeResult> => {
-        try {
-          const publisher = this.requirePublisher(type);
-          const ctx = this.ctx(tenantId, req.source_branch_id, actor.userId);
-          const ids = await publisher.listSourceIds(ctx);
-          if (!ids.length) {
-            return {
-              entity_type: type,
-              ok: true,
-              created: 0,
-              skipped: 0,
-              failed: 0,
-            };
-          }
-          const res = await this.run(
-            publisher,
-            tenantId,
-            req.source_branch_id,
-            ids,
-            [targetBranchId],
-            'copy_new',
-            actor.userId,
-          );
-          const t = res.results[0];
+    const copyOne = async (type: string): Promise<WizardCopyTypeResult> => {
+      try {
+        const publisher = this.requirePublisher(type);
+        const ctx = this.ctx(tenantId, req.source_branch_id, actor.userId);
+        const ids = await publisher.listSourceIds(ctx);
+        if (!ids.length) {
           return {
             entity_type: type,
-            ok: t.failed === 0,
-            created: t.created,
-            skipped: t.skipped,
-            failed: t.failed,
-            error: t.errors[0]?.message,
-          };
-        } catch (e) {
-          this.logger.warn(
-            `wizard copy "${type}" failed: ${(e as Error).message}`,
-          );
-          return {
-            entity_type: type,
-            ok: false,
+            ok: true,
             created: 0,
             skipped: 0,
             failed: 0,
-            error: (e as Error).message,
           };
         }
-      }),
+        const res = await this.run(
+          publisher,
+          tenantId,
+          req.source_branch_id,
+          ids,
+          [targetBranchId],
+          'copy_new',
+          actor.userId,
+        );
+        const t = res.results[0];
+        return {
+          entity_type: type,
+          ok: t.failed === 0,
+          created: t.created,
+          skipped: t.skipped,
+          failed: t.failed,
+          error: t.errors[0]?.message,
+        };
+      } catch (e) {
+        this.logger.warn(
+          `wizard copy "${type}" failed: ${(e as Error).message}`,
+        );
+        return {
+          entity_type: type,
+          ok: false,
+          created: 0,
+          skipped: 0,
+          failed: 0,
+          error: (e as Error).message,
+        };
+      }
+    };
+    // Items resolve/create their categories + units by name: run them AFTER the lookup types so the two
+    // never race on the same natural key.
+    const lookups = await Promise.all(
+      types.filter((t) => t !== 'items').map(copyOne),
     );
+    const items = types.includes('items') ? [await copyOne('items')] : [];
+    return [...lookups, ...items];
   }
 
   private requirePublisher(type: string): EntityPublisher {
