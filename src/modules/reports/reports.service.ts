@@ -841,8 +841,7 @@ export class ReportsService {
     }
     for (const e of expenses ?? []) {
       const d = String(e.expense_date).slice(0, 10);
-      if (expensesMap[d] !== undefined)
-        expensesMap[d] += Number(e.amount ?? 0);
+      if (expensesMap[d] !== undefined) expensesMap[d] += Number(e.amount ?? 0);
     }
 
     return {
@@ -1317,10 +1316,7 @@ export class ReportsService {
     if (returnsErr && !isMissingTable(returnsErr)) throw returnsErr;
     const returnedNet = returnsErr
       ? 0
-      : (returnRows ?? []).reduce(
-          (s, r) => s + Number(r.net_amount || 0),
-          0,
-        );
+      : (returnRows ?? []).reduce((s, r) => s + Number(r.net_amount || 0), 0);
 
     const grossSalesInclTax = (orders ?? []).reduce(
       (s, o) => s + Number(o.total || 0),
@@ -1719,7 +1715,11 @@ export class ReportsService {
       for (const [scheduledDate, earliestStartTime] of scheduledDates) {
         // Only elapsed days count: future days (and today without a check-in yet) are skipped.
         if (
-          !isDayEvaluable(scheduledDate, todayIso, !!attendanceDates[scheduledDate])
+          !isDayEvaluable(
+            scheduledDate,
+            todayIso,
+            !!attendanceDates[scheduledDate],
+          )
         )
           continue;
         const leaveType = leaveDates.get(scheduledDate);

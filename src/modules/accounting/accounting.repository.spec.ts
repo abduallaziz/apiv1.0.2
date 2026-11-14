@@ -40,7 +40,7 @@ describe('AccountingRepository.findJournalEntries line filters', () => {
       account_id: 'a1',
       amount_min: 5,
       amount_max: 100,
-    } as any);
+    });
     expect(calls.select[0][0]).toContain('journal_lines!inner');
     expect(calls.eq).toContainEqual(['journal_lines.account_id', 'a1']);
     expect(calls.or[0][1]).toEqual({ referencedTable: 'journal_lines' });
@@ -61,7 +61,7 @@ describe('AccountingRepository.findJournalEntries line filters', () => {
 
   it('does not join journal_lines when no line filter is set', async () => {
     const { repo, calls } = fake();
-    await repo.findJournalEntries(T, { page: 1 } as any);
+    await repo.findJournalEntries(T, { page: 1 });
     expect(calls.select[0][0]).not.toContain('journal_lines');
   });
 });

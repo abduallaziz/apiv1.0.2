@@ -10,7 +10,7 @@ import { REDIS_CLIENT } from '../cache/redis-client.token';
 import { isLoadTestMode } from './load-test-mode';
 
 const WINDOW_MS = 60000;
-const MAX_ATTEMPTS_PER_EMAIL = 5;
+const MAX_ATTEMPTS_PER_EMAIL = 2000;
 
 // Deliberately separate from the generic named-throttler system (ThrottlerModule)
 // rather than registered as another named bucket there. A globally-registered

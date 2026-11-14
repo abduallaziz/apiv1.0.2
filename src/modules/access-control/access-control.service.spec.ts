@@ -318,17 +318,26 @@ describe('AccessControlService — S5 Stage C', () => {
     };
 
     it('detaches soft-deleted users before deleting the role', async () => {
-      const { service, repo } = buildService({ roles: { [CUSTOM.id]: CUSTOM } });
+      const { service, repo } = buildService({
+        roles: { [CUSTOM.id]: CUSTOM },
+      });
       (repo as any).deleteRole = jest.fn().mockResolvedValue(undefined);
       await service.deleteRole(CUSTOM.id, tenantCtx(), actor());
-      expect(repo.detachDeletedUsersFromRole).toHaveBeenCalledWith(TENANT_A, CUSTOM.id);
+      expect(repo.detachDeletedUsersFromRole).toHaveBeenCalledWith(
+        TENANT_A,
+        CUSTOM.id,
+      );
       expect((repo as any).deleteRole).toHaveBeenCalled();
     });
 
     it('rejects with 409 when active users are still assigned', async () => {
-      const { service, repo } = buildService({ roles: { [CUSTOM.id]: CUSTOM } });
+      const { service, repo } = buildService({
+        roles: { [CUSTOM.id]: CUSTOM },
+      });
       (repo.countUsersForRole as jest.Mock).mockResolvedValue(2);
-      await expect(service.deleteRole(CUSTOM.id, tenantCtx(), actor())).rejects.toThrow(ConflictException);
+      await expect(
+        service.deleteRole(CUSTOM.id, tenantCtx(), actor()),
+      ).rejects.toThrow(ConflictException);
     });
   });
 

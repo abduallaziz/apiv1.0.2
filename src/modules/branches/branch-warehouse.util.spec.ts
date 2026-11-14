@@ -50,16 +50,14 @@ describe('ensureBranchWarehouse', () => {
     expect(id).toBe('wh-new');
     const insert = calls.find(
       (c) => c.table === 'warehouses' && c.op === 'insert',
-    )!;
+    );
     expect(insert.payload).toMatchObject({
       tenant_id: 't1',
       branch_id: branchId,
       code: 'WH-11111111',
       is_active: true,
     });
-    const link = calls.find(
-      (c) => c.table === 'branches' && c.op === 'update',
-    )!;
+    const link = calls.find((c) => c.table === 'branches' && c.op === 'update');
     expect(link.payload).toEqual({ default_warehouse_id: 'wh-new' });
   });
 

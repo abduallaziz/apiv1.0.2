@@ -13,7 +13,16 @@ function fake(rows: unknown[]) {
     const rec = { table, is: [] as [string, unknown][] };
     calls.push(rec);
     const c: any = {};
-    for (const m of ['select', 'eq', 'gte', 'lte', 'not', 'in', 'order', 'limit'])
+    for (const m of [
+      'select',
+      'eq',
+      'gte',
+      'lte',
+      'not',
+      'in',
+      'order',
+      'limit',
+    ])
       c[m] = jest.fn(() => c);
     c.is = jest.fn((col: string, v: unknown) => {
       rec.is.push([col, v]);
@@ -30,7 +39,9 @@ function fake(rows: unknown[]) {
     return c;
   };
   return {
-    supabase: { from: jest.fn((t: string) => mk(t)) } as unknown as SupabaseClient,
+    supabase: {
+      from: jest.fn((t: string) => mk(t)),
+    } as unknown as SupabaseClient,
     calls,
   };
 }
