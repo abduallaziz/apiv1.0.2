@@ -10,8 +10,12 @@ import {
   Query,
   UseGuards,
   ParseUUIDPipe,
+  Req,
 } from '@nestjs/common';
 import { BranchesService } from './branches.service';
+import { BranchPublishService } from './publish/branch-publish.service';
+import { PublishToBranchesDto } from './dto/publish-branches.dto';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
@@ -24,7 +28,10 @@ import { RequirePermission } from '../../core/permissions/require-permission.dec
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 @Controller('branches')
 export class BranchesController {
-  constructor(private readonly service: BranchesService) {}
+  constructor(
+    private readonly service: BranchesService,
+    private readonly publishService: BranchPublishService,
+  ) {}
 
   // `active_only=true` is for branch-assignment selectors (Employee Wizard,
   // Employee Detail, Create User) — they must only offer branches that can
@@ -64,6 +71,27 @@ export class BranchesController {
     return this.service.setMain(id, tenant);
   }
 
+  // Publish to branches (design D8). Static routes: declared before ':id'.
+  @Get('publish/types')
+  @RequirePermission('branches.publish')
+  publishTypes() {
+    return this.publishService.listTypes();
+  }
+
+  @Post('publish')
+  @RequirePermission('branches.publish')
+  publish(
+    @Body() dto: PublishToBranchesDto,
+    @GetTenant() tenant: TenantContext,
+    @Req() req: { user: JwtPayload },
+  ) {
+    return this.publishService.publish(tenant, dto, {
+      userId: req.user?.sub ?? null,
+      // A user bound to a branch is never central, whatever their role says.
+      central: !req.user?.branch_id,
+    });
+  }
+
   @Get(':id')
   @RequirePermission('branches.view')
   findOne(
@@ -75,8 +103,12 @@ export class BranchesController {
 
   @Post()
   @RequirePermission('branches.manage')
-  create(@Body() dto: CreateBranchDto, @GetTenant() tenant: TenantContext) {
-    return this.service.create(dto, tenant);
+  create(
+    @Body() dto: CreateBranchDto,
+    @GetTenant() tenant: TenantContext,
+    @Req() req: { user: JwtPayload },
+  ) {
+    return this.service.create(dto, tenant, req.user?.sub ?? null);
   }
 
   @Patch(':id')

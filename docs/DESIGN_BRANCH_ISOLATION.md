@@ -78,3 +78,24 @@ dropped only after the new per-branch ones exist and a conflict check passes; `C
 Unit tests for guard resolution (restricted/central, flag on/off), repository scoping helper, publish service. Production
 verification on the demo tenant with the flag on: create a second branch, prove that items/customers/employees/sales/expenses of
 branch A are invisible from branch B in UI and API, owner switcher works, summary shows both branches.
+
+## 7. Publish to branches — how to register a new publishable entity type
+Code: `src/modules/branches/publish/` (service, registry, provenance repo) and `publishers/` (built-in types).
+API: `GET /branches/publish/types`, `POST /branches/publish {entity_type, source_ids[], target_branch_ids[]|'all', mode}`
+(permission `branches.publish`, owner/superadmin only; users bound to a branch get 403; requires isolation ON; sources must belong to
+the working branch; targets must be other active branches). Provenance: table `branch_publications` (migration 315), unique on
+`(tenant_id, entity_type, source_id, target_branch_id)`.
+Modes: `copy_new` creates what is missing and never touches existing rows (skipped); `update_existing` also updates them.
+A unique-key collision in the target (name/sku/code) is resolved by matching the existing row (`findExisting`), never by failing.
+
+To add a type:
+1. The table must be branch-owned (`branch_id`, registered in `branch_isolation_tables`, per-branch unique index).
+2. For a flat table: add a `simplePublisher({type, group, labelAr, labelEn, table, columns, naturalKey, softDelete?, hasUpdatedAt?, overrides?})`
+   entry in `publishers/index.ts` (`registerBuiltInPublishers`). Counters/usage columns are simply left out of `columns`.
+3. For a record with children or foreign keys: implement `EntityPublisher` (see `items.publisher.ts`): `loadSources`, `listSourceIds`,
+   `findExisting`, `exists`, `create`, `update` (+ optional `afterPublish` for cache invalidation). Map references to the target
+   branch's equivalent by name (`mapLookupByName`), creating it if missing.
+4. Use `group: 'setup'` only for types that must be copied when a new branch is created with `copy_setup_from_main`.
+5. Types that cannot be cloned register with `supported: false` + `unsupportedReason` (shown by `/types`, rejected by `/publish`), e.g. `document_templates` (tenant-wide, assigned per branch).
+6. Add the web label in `PublishToBranchesDialog` callers; add a case to `branch-publish.service.spec.ts` if the type has special rules.
+Deferred: per-branch settings/roles overlay (branch_settings) and item attributes/packaging levels.

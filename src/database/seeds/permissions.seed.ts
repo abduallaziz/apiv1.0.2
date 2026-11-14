@@ -204,6 +204,12 @@ const permissions = [
     description: 'Manage branches',
   },
   {
+    name: 'branches.publish',
+    resource: 'branches',
+    action: 'publish',
+    description: 'Publish (copy) catalog and setup records to other branches',
+  },
+  {
     name: 'customers.view',
     resource: 'customers',
     action: 'view',
@@ -748,6 +754,7 @@ add('superadmin', [
   'shift.view.all',
   'users.manage',
   'branches.manage',
+  'branches.publish',
   'branches.view',
   'items.manage',
   'items.view',
@@ -834,6 +841,7 @@ add('owner', [
   'shift.view.all',
   'users.manage',
   'branches.manage',
+  'branches.publish',
   'branches.view',
   'items.manage',
   'items.view',

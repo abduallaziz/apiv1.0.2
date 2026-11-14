@@ -1,5 +1,7 @@
 import {
   Injectable,
+  Logger,
+  Optional,
   NotFoundException,
   BadRequestException,
   ConflictException,
@@ -9,6 +11,7 @@ import { BranchesRepository } from './branches.repository';
 import { TenantContext } from '../../core/tenant/tenant.context';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { BranchPublishService } from './publish/branch-publish.service';
 import { BillingService } from '../../core/billing/billing.service';
 
 @Injectable()
@@ -17,7 +20,10 @@ export class BranchesService {
     private readonly repo: BranchesRepository,
     private readonly billingService: BillingService,
     private readonly isolation: TenantIsolationService,
+    @Optional() private readonly publisher?: BranchPublishService,
   ) {}
+
+  private readonly logger = new Logger(BranchesService.name);
 
   async findAll(tenant: TenantContext, activeOnly = false) {
     return this.repo.findAll(tenant, activeOnly);
@@ -29,14 +35,37 @@ export class BranchesService {
     return branch;
   }
 
-  async create(dto: CreateBranchDto, tenant: TenantContext) {
+  async create(
+    dto: CreateBranchDto,
+    tenant: TenantContext,
+    userId: string | null = null,
+  ) {
     const name = dto.name?.trim();
     if (!name) throw new BadRequestException('name should not be empty');
     if (await this.repo.nameExists(tenant, name)) {
       throw new ConflictException('A branch with this name already exists');
     }
     await this.billingService.checkBranchLimit(tenant.tenantId);
-    return this.repo.create(tenant, { ...dto, name });
+    const { copy_setup_from_main: copySetup, ...rest } = dto;
+    const branch = await this.repo.create(tenant, { ...rest, name });
+    if (copySetup && tenant.isolated && tenant.tenantId && this.publisher) {
+      try {
+        const iso = await this.repo.getIsolation(tenant.tenantId);
+        if (iso.main_branch_id && iso.main_branch_id !== branch.id) {
+          const setup_copy = await this.publisher.copySetupFromMain(
+            tenant.tenantId,
+            iso.main_branch_id,
+            branch.id as string,
+            userId,
+          );
+          return { ...branch, setup_copy };
+        }
+      } catch (e) {
+        // The branch exists already: a failed convenience copy must not fail its creation.
+        this.logger.warn(`copy setup from main failed: ${(e as Error).message}`);
+      }
+    }
+    return branch;
   }
 
   async update(id: string, dto: UpdateBranchDto, tenant: TenantContext) {
