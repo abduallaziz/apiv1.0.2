@@ -12,6 +12,16 @@ import {
   localDayBoundIso,
   safeTimezone,
 } from '../../shared/time/tenant-time.util';
+import {
+  CustomerRow,
+  CustomerVehicleRow,
+  IdRow,
+  OrderHistoryRow,
+  OrderItemQtyRow,
+  OrderTotalRow,
+} from './customers.types';
+
+type SpendPageRow = Record<string, unknown> & { total_count: number };
 
 @Injectable()
 export class CustomersRepository extends ScopedRepository {
@@ -95,7 +105,7 @@ export class CustomersRepository extends ScopedRepository {
     }
 
     const [{ data, error }, { count, error: countError }] = await Promise.all([
-      query,
+      query.returns<CustomerRow[]>(),
       countQuery,
     ]);
     if (error) throw error;
@@ -111,7 +121,8 @@ export class CustomersRepository extends ScopedRepository {
       .select('customer_id, total')
       .eq('tenant_id', tenant.tenantId)
       .eq('status', 'completed')
-      .in('customer_id', ids);
+      .in('customer_id', ids)
+      .returns<OrderTotalRow[]>();
     if (ordersError) throw ordersError;
 
     const statsByCustomer = new Map<
@@ -152,23 +163,18 @@ export class CustomersRepository extends ScopedRepository {
     sortOrder: 'asc' | 'desc',
   ) {
     const escapedSearch = search ? search.replace(/[%,]/g, '') : null;
-    const { data, error } = await this.supabase.rpc(
-      'fn_customers_page_by_spend',
-      {
-        p_tenant_id: tenant.tenantId,
-        p_search: escapedSearch,
-        p_custom_field_keys: customFieldKeys,
-        p_restrict_ids: restrictToCustomerIds ?? null,
-        p_ascending: sortOrder === 'asc',
-        p_limit: limit,
-        p_offset: (page - 1) * limit,
-      },
-    );
-    if (error) throw error;
+    const spendRes = await this.supabase.rpc('fn_customers_page_by_spend', {
+      p_tenant_id: tenant.tenantId,
+      p_search: escapedSearch,
+      p_custom_field_keys: customFieldKeys,
+      p_restrict_ids: restrictToCustomerIds ?? null,
+      p_ascending: sortOrder === 'asc',
+      p_limit: limit,
+      p_offset: (page - 1) * limit,
+    });
+    if (spendRes.error) throw spendRes.error;
 
-    const rows = (data ?? []) as Array<
-      Record<string, unknown> & { total_count: number }
-    >;
+    const rows: SpendPageRow[] = (spendRes.data as SpendPageRow[] | null) ?? [];
     const total = rows[0]?.total_count ?? 0;
 
     return {
@@ -189,7 +195,7 @@ export class CustomersRepository extends ScopedRepository {
       .select('*')
       .eq('id', id)
       .is('deleted_at', null)
-      .maybeSingle();
+      .maybeSingle<CustomerRow>();
     if (error) throw error;
     return data;
   }
@@ -205,7 +211,7 @@ export class CustomersRepository extends ScopedRepository {
     query = normalized
       ? query.eq('phone_normalized', normalized)
       : query.eq('phone', phone);
-    const { data, error } = await query.limit(1).maybeSingle();
+    const { data, error } = await query.limit(1).maybeSingle<IdRow>();
     if (error) throw error;
     return data;
   }
@@ -216,7 +222,7 @@ export class CustomersRepository extends ScopedRepository {
       .eq('phone_normalized', normalized)
       .is('deleted_at', null)
       .limit(1)
-      .maybeSingle();
+      .maybeSingle<CustomerRow>();
     if (error) throw error;
     return data;
   }
@@ -226,7 +232,7 @@ export class CustomersRepository extends ScopedRepository {
       .select('*')
       .eq('plate_normalized', plateNormalized)
       .is('deleted_at', null)
-      .maybeSingle();
+      .maybeSingle<CustomerVehicleRow>();
     if (error) throw error;
     return data;
   }
@@ -236,7 +242,8 @@ export class CustomersRepository extends ScopedRepository {
       .select('*')
       .eq('customer_id', customerId)
       .is('deleted_at', null)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
+      .returns<CustomerVehicleRow[]>();
     if (error) throw error;
     return data ?? [];
   }
@@ -255,7 +262,7 @@ export class CustomersRepository extends ScopedRepository {
       .from('customer_vehicles')
       .insert({ ...payload, tenant_id: tenant.tenantId })
       .select()
-      .single();
+      .single<CustomerVehicleRow>();
     if (error) throw error;
     return data;
   }
@@ -270,7 +277,7 @@ export class CustomersRepository extends ScopedRepository {
       .eq('id', vehicleId)
       .eq('customer_id', customerId)
       .is('deleted_at', null)
-      .maybeSingle();
+      .maybeSingle<CustomerVehicleRow>();
     if (error) throw error;
     return data;
   }
@@ -288,7 +295,7 @@ export class CustomersRepository extends ScopedRepository {
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
       .select()
-      .single();
+      .single<CustomerVehicleRow>();
     if (error) throw error;
     return data;
   }
@@ -330,7 +337,7 @@ export class CustomersRepository extends ScopedRepository {
         is_active: true,
       })
       .select()
-      .single();
+      .single<CustomerRow>();
     if (error) throw error;
     return data;
   }
@@ -343,7 +350,7 @@ export class CustomersRepository extends ScopedRepository {
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
       .select()
-      .single();
+      .single<CustomerRow>();
     if (error) throw error;
     return data;
   }
@@ -370,7 +377,9 @@ export class CustomersRepository extends ScopedRepository {
         .select('timezone')
         .eq('id', tenant.tenantId)
         .maybeSingle();
-      const tz = safeTimezone((tzRow as { timezone?: string } | null)?.timezone);
+      const tz = safeTimezone(
+        (tzRow as { timezone?: string } | null)?.timezone,
+      );
       const { count, error } = await this.supabase
         .from('customers')
         .select('id', { count: 'exact', head: true })
@@ -456,7 +465,8 @@ export class CustomersRepository extends ScopedRepository {
       .eq('customer_id', customerId)
       .eq('status', 'completed')
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .limit(limit)
+      .returns<OrderHistoryRow[]>();
     if (error) throw error;
     const orders = data ?? [];
     if (orders.length === 0) return [];
@@ -469,11 +479,12 @@ export class CustomersRepository extends ScopedRepository {
         'order_id',
         orders.map((o) => o.id),
       )
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .returns<OrderItemQtyRow[]>();
     if (itemsError) throw itemsError;
     const counts = new Map<string, number>();
     for (const row of items ?? []) {
-      const id = row.order_id as string;
+      const id = row.order_id;
       counts.set(id, (counts.get(id) ?? 0) + Number(row.qty ?? 0));
     }
     return orders.map((o) => ({ ...o, items_count: counts.get(o.id) ?? 0 }));
@@ -503,9 +514,9 @@ export class CustomersRepository extends ScopedRepository {
       .from('tenants')
       .select('customer_identity_scope')
       .eq('id', tenantId)
-      .single();
+      .single<{ customer_identity_scope: string | null }>();
     if (error) throw error;
-    const value = data?.customer_identity_scope as string | null | undefined;
+    const value = data?.customer_identity_scope;
     return value === 'shared' || value === 'branch' ? value : 'branch';
   }
 
@@ -519,9 +530,10 @@ export class CustomersRepository extends ScopedRepository {
       .from('customer_branch_relationships')
       .select('customer_id')
       .eq('tenant_id', tenantId)
-      .eq('branch_id', branchId);
+      .eq('branch_id', branchId)
+      .returns<{ customer_id: string }[]>();
     if (error) throw error;
-    return (data ?? []).map((r) => r.customer_id as string);
+    return (data ?? []).map((r) => r.customer_id);
   }
 
   // Record-level equivalent for a single customer read under BRANCH
@@ -541,7 +553,7 @@ export class CustomersRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .eq('customer_id', customerId)
       .eq('branch_id', branchId)
-      .maybeSingle();
+      .maybeSingle<IdRow>();
     if (error) throw error;
     return data !== null;
   }
@@ -565,7 +577,7 @@ export class CustomersRepository extends ScopedRepository {
       .eq('tenant_id', tenant.tenantId)
       .eq('customer_id', customerId)
       .eq('branch_id', branchId)
-      .maybeSingle();
+      .maybeSingle<IdRow>();
     if (findError) throw findError;
 
     if (existing) {
@@ -611,7 +623,7 @@ export class CustomersRepository extends ScopedRepository {
         .eq('status', 'completed')
         .order('created_at', { ascending: false })
         .limit(1)
-        .maybeSingle(),
+        .maybeSingle<{ created_at: string }>(),
     ]);
 
     if (countRes.error) throw countRes.error;
@@ -619,11 +631,13 @@ export class CustomersRepository extends ScopedRepository {
     const orders_count = countRes.count ?? 0;
     // customer_order_aggregates is declared RETURNS TABLE, so PostgREST hands
     // back an array of rows ([{ total_spent }]), not a single object.
-    const aggRow = Array.isArray(aggRes.data) ? aggRes.data[0] : aggRes.data;
+    type AggRow = { total_spent?: number | string | null };
+    const aggData = aggRes.data as AggRow[] | AggRow | null;
+    const aggRow = Array.isArray(aggData) ? aggData[0] : aggData;
     const total_spent = Number(aggRow?.total_spent ?? 0);
     const avg_order =
       orders_count > 0 ? Math.round(total_spent / orders_count) : 0;
-    const last_order_at = (lastRes.data as any)?.created_at ?? null;
+    const last_order_at = lastRes.data?.created_at ?? null;
 
     return { orders_count, total_spent, avg_order, last_order_at };
   }

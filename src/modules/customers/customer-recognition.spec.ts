@@ -2,6 +2,10 @@ import { ConflictException, BadRequestException } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { normalizePhone, normalizePlate } from './customer-normalize';
 import { TenantContext } from '../../core/tenant/tenant-context';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
+import { CustomersRepository } from './customers.repository';
+import { CustomerFieldDefinitionsRepository } from './customer-field-definitions.repository';
+import { TenantsService } from '../tenants/tenants.service';
 
 describe('T12 normalisation', () => {
   it('phone: digits only, last 9, Arabic-Indic handled', () => {
@@ -21,7 +25,11 @@ describe('T12 normalisation', () => {
 });
 
 const T = new TenantContext('t1', 'b1');
-const USER = { sub: 'u1', role: 'cashier', branch_id: 'b1' } as any;
+const USER = {
+  sub: 'u1',
+  role: 'cashier',
+  branch_id: 'b1',
+} as unknown as JwtPayload;
 
 function build() {
   const repo = {
@@ -35,17 +43,19 @@ function build() {
       last_order_at: '2026-11-01',
       avg_order: 100,
     }),
-    createVehicle: jest.fn().mockImplementation(async (_t, p) => ({
-      id: 'v-new',
-      size: null,
-      ...p,
-    })),
+    createVehicle: jest
+      .fn<Promise<object>, [unknown, { customer_id?: string }]>()
+      .mockImplementation((_t: unknown, p: object) =>
+        Promise.resolve({ id: 'v-new', size: null, ...p }),
+      ),
     updateVehicleSize: jest.fn().mockResolvedValue(undefined),
     findByPhone: jest.fn().mockResolvedValue(null),
     countAll: jest.fn().mockResolvedValue(0),
     create: jest
-      .fn()
-      .mockImplementation(async (_t, p) => ({ id: 'c-new', ...p })),
+      .fn<Promise<object>, [unknown, object]>()
+      .mockImplementation((_t: unknown, p: object) =>
+        Promise.resolve({ id: 'c-new', ...p }),
+      ),
     upsertRelationship: jest.fn().mockResolvedValue(undefined),
   };
   const fieldDefs = { findAll: jest.fn().mockResolvedValue([]) };
@@ -53,9 +63,9 @@ function build() {
     getPosConfig: jest.fn().mockResolvedValue({ name_field_enabled: false }),
   };
   const service = new CustomersService(
-    repo as any,
-    fieldDefs as any,
-    tenants as any,
+    repo as unknown as CustomersRepository,
+    fieldDefs as unknown as CustomerFieldDefinitionsRepository,
+    tenants as unknown as TenantsService,
   );
   return { service, repo, fieldDefs };
 }
@@ -282,9 +292,9 @@ describe('CustomersService.addVehicle', () => {
     const { service, repo } = build();
     repo.findById.mockResolvedValue({ id: 'A' });
     repo.findVehicleByPlate.mockResolvedValue({ id: 'v', customer_id: 'B' });
-    (service as any).resolveVisibilityBranchId = jest
-      .fn()
-      .mockResolvedValue(null);
+    (
+      service as unknown as { resolveVisibilityBranchId: jest.Mock }
+    ).resolveVisibilityBranchId = jest.fn().mockResolvedValue(null);
     await expect(
       service.addVehicle(T, USER, 'A', { plate: 'x 1' }),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -295,7 +305,8 @@ describe('CustomersService.getStats range', () => {
   it('passes a range to the repository only when both ends are given', async () => {
     const { service, repo } = build();
     const getGlobalStats = jest.fn().mockResolvedValue({ total: 0 });
-    (repo as any).getGlobalStats = getGlobalStats;
+    (repo as unknown as { getGlobalStats: jest.Mock }).getGlobalStats =
+      getGlobalStats;
 
     await service.getStats(T, '2026-11-01', '2026-11-10');
     expect(getGlobalStats).toHaveBeenLastCalledWith(T, {

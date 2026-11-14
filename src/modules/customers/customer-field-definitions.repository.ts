@@ -5,6 +5,7 @@ import { ScopedRepository } from '../../core/tenant/scoped.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { CreateFieldDefinitionDto } from './dto/create-field-definition.dto';
 import { UpdateFieldDefinitionDto } from './dto/update-field-definition.dto';
+import { CustomerFieldDefinitionRow } from './customers.types';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 
 @Injectable()
@@ -22,7 +23,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
 
     if (activeOnly) query = query.eq('is_active', true);
 
-    const { data, error } = await query;
+    const { data, error } = await query.returns<CustomerFieldDefinitionRow[]>();
     if (error) throw error;
     return data;
   }
@@ -34,7 +35,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
     )
       .select('id')
       .eq('field_key', fieldKey)
-      .maybeSingle();
+      .maybeSingle<{ id: string }>();
     return data;
   }
 
@@ -45,7 +46,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
     )
       .select('*')
       .eq('id', id)
-      .maybeSingle();
+      .maybeSingle<CustomerFieldDefinitionRow>();
     if (error) throw error;
     return data;
   }
@@ -59,7 +60,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
         is_active: true,
       })
       .select()
-      .single();
+      .single<CustomerFieldDefinitionRow>();
     if (error) {
       if (isUniqueViolation(error)) {
         throw new BadRequestException(
@@ -82,7 +83,7 @@ export class CustomerFieldDefinitionsRepository extends ScopedRepository {
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .select()
-      .single();
+      .single<CustomerFieldDefinitionRow>();
     if (error) throw error;
     return data;
   }

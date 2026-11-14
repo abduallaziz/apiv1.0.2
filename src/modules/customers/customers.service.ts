@@ -68,10 +68,8 @@ export class CustomersService {
         );
       }
       if (def.field_type === 'select') {
-        const allowed = (def.options ?? []).map(
-          (o: { value: string }) => o.value,
-        );
-        if (!allowed.includes(value)) {
+        const allowed = (def.options ?? []).map((o) => o.value);
+        if (!allowed.includes(value as string)) {
           throw new BadRequestException(
             `Custom field "${def.field_key}" has an invalid option`,
           );
@@ -656,13 +654,13 @@ export class CustomersService {
         full_name: capture.name?.trim() ?? '',
         phone: capture.phone?.trim() || undefined,
         custom_fields: customFields,
-      } as CreateCustomerDto);
-      customerId = created.id as string;
+      });
+      customerId = created.id;
     }
 
     if (plateN && !vehicle) {
       vehicle = await this.insertVehicle(tenant, customerId, {
-        plate: capture.plate as string,
+        plate: capture.plate,
         size: capture.size,
       });
     }

@@ -1,3 +1,5 @@
+import { ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { PermissionsService } from '../../core/permissions/permissions.service';
@@ -22,7 +24,9 @@ const TENANT_B = 'tenant-b';
 
 // ---- Decorator-mapping proof (controller wiring) ----
 describe('CustomersController — @RequirePermission wiring (Batch 1 Remediation 1)', () => {
-  const getRequiredPermission = (methodName: keyof CustomersController) =>
+  const getRequiredPermission = (
+    methodName: keyof CustomersController,
+  ): unknown =>
     Reflect.getMetadata(
       REQUIRE_PERMISSION_KEY,
       CustomersController.prototype[methodName],
@@ -135,11 +139,16 @@ function fakeSupabase(fixtures: {
     filters: [string, unknown][],
   ): Record<string, unknown>[] {
     let rows: Record<string, unknown>[];
-    if (table === 'role_permissions') rows = rolePermissions as any;
-    else if (table === 'tenant_role_permissions') rows = tenantOverrides as any;
-    else if (table === 'user_permissions_override') rows = userOverrides as any;
-    else if (table === 'roles') rows = roles as any;
-    else if (table === 'user_roles') rows = userRoles as any;
+    if (table === 'role_permissions')
+      rows = rolePermissions as unknown as Record<string, unknown>[];
+    else if (table === 'tenant_role_permissions')
+      rows = tenantOverrides as unknown as Record<string, unknown>[];
+    else if (table === 'user_permissions_override')
+      rows = userOverrides as unknown as Record<string, unknown>[];
+    else if (table === 'roles')
+      rows = roles as unknown as Record<string, unknown>[];
+    else if (table === 'user_roles')
+      rows = userRoles as unknown as Record<string, unknown>[];
     else rows = [];
 
     return rows.filter((row) =>
@@ -158,7 +167,7 @@ function buildGuard(
   permission: string,
 ) {
   return new PermissionGuard(
-    { getAllAndOverride: () => permission } as any,
+    { getAllAndOverride: () => permission } as unknown as Reflector,
     permissionsService,
   );
 }
@@ -169,7 +178,7 @@ function buildContext(user: Record<string, unknown>) {
     switchToHttp: () => ({ getRequest: () => request }),
     getHandler: () => ({}),
     getClass: () => ({}),
-  } as any;
+  } as unknown as ExecutionContext;
 }
 
 describe('Customers — real PermissionGuard → PermissionsService stack (Batch 1 Remediation 1)', () => {
