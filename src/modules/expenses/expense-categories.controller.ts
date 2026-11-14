@@ -40,7 +40,7 @@ export class ExpenseCategoriesController {
   @RequirePermission('expenses.view')
   findAll(@GetTenant() tenant: TenantContext, @Request() req: any) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.service.findAll(tenantId);
+    return this.service.findAll(tenantId, tenant);
   }
 
   @Post()
@@ -51,7 +51,7 @@ export class ExpenseCategoriesController {
     @Request() req: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.service.create(tenantId, dto.name);
+    return this.service.create(tenantId, dto.name, tenant);
   }
 
   @Patch(':id')
@@ -63,7 +63,7 @@ export class ExpenseCategoriesController {
     @Request() req: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.service.update(id, tenantId, dto);
+    return this.service.update(id, tenantId, dto, tenant);
   }
 
   @Delete(':id')
@@ -74,6 +74,6 @@ export class ExpenseCategoriesController {
     @Request() req: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.service.remove(id, tenantId);
+    return this.service.remove(id, tenantId, tenant);
   }
 }

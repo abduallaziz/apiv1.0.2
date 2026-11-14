@@ -75,7 +75,7 @@ export class ExpensesController {
     @Request() req: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.expensesService.findOne(id, tenantId);
+    return this.expensesService.findOne(id, tenantId, tenant);
   }
 
   // Branch Domain Batch 2, B6 (Owner-approved) — dto.branch_id was
@@ -102,6 +102,7 @@ export class ExpensesController {
       { ...dto, branch_id: effectiveBranchId },
       tenantId,
       req.user.sub,
+      tenant,
     );
   }
 
@@ -114,7 +115,7 @@ export class ExpensesController {
     @Request() req: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.expensesService.approve(id, tenantId, req.user.sub);
+    return this.expensesService.approve(id, tenantId, req.user.sub, tenant);
   }
 
   @Patch(':id/reject')
@@ -127,7 +128,7 @@ export class ExpensesController {
     @Request() req: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.expensesService.reject(id, dto, tenantId, req.user.sub);
+    return this.expensesService.reject(id, dto, tenantId, req.user.sub, tenant);
   }
 
   @Patch(':id/cancel')
@@ -139,6 +140,6 @@ export class ExpensesController {
     @Request() req: any,
   ) {
     const tenantId = tenant?.tenantId ?? req.user.tenant_id;
-    return this.expensesService.cancel(id, tenantId);
+    return this.expensesService.cancel(id, tenantId, tenant);
   }
 }

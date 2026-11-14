@@ -6,6 +6,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { TenantContext } from '../../core/tenant/tenant.context';
+import { scopeToBranch } from '../../core/tenant/branch-scope.util';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { ExpenseEngine } from '../../engines/expense-engine/expense.engine';
 import { ApprovalEngine } from '../../engines/approval-engine/approval.engine';
@@ -100,8 +102,8 @@ export class ExpensesService {
     };
   }
 
-  async findOne(id: string, tenantId: string) {
-    const { data, error } = await this.supabase
+  async findOne(id: string, tenantId: string, tenant?: TenantContext) {
+    let q = this.supabase
       .from('expenses')
       .select(
         `
@@ -113,15 +115,33 @@ export class ExpensesService {
       )
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .single();
+      .is('deleted_at', null);
+    if (tenant) q = scopeToBranch(q, tenant);
+    const { data, error } = await q.single();
 
     if (error || !data) throw new NotFoundException('Expense not found');
     return data;
   }
 
-  async create(dto: CreateExpenseDto, tenantId: string, userId: string) {
+  async create(
+    dto: CreateExpenseDto,
+    tenantId: string,
+    userId: string,
+    tenant?: TenantContext,
+  ) {
     const expiryHours = 8760;
+
+    // Isolation: the category must belong to the expense's branch.
+    if (tenant?.isolated && dto.category_id) {
+      const { data: cat } = await this.supabase
+        .from('expense_categories')
+        .select('id')
+        .eq('id', dto.category_id)
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', tenant.branchId as string)
+        .maybeSingle();
+      if (!cat) throw new BadRequestException('Category not found');
+    }
 
     const expenseData = {
       tenant_id: tenantId,
@@ -163,8 +183,13 @@ export class ExpensesService {
     return data;
   }
 
-  async approve(id: string, tenantId: string, approverId: string) {
-    const expense = await this.findOne(id, tenantId);
+  async approve(
+    id: string,
+    tenantId: string,
+    approverId: string,
+    tenant?: TenantContext,
+  ) {
+    const expense = await this.findOne(id, tenantId, tenant);
 
     if (!this.approvalEngine.canApprove(expense.status)) {
       throw new BadRequestException(
@@ -222,8 +247,9 @@ export class ExpensesService {
     dto: RejectExpenseDto,
     tenantId: string,
     approverId: string,
+    tenant?: TenantContext,
   ) {
-    const expense = await this.findOne(id, tenantId);
+    const expense = await this.findOne(id, tenantId, tenant);
 
     if (!this.approvalEngine.canReject(expense.status)) {
       throw new BadRequestException(
@@ -275,8 +301,8 @@ export class ExpensesService {
     return data;
   }
 
-  async cancel(id: string, tenantId: string) {
-    const expense = await this.findOne(id, tenantId);
+  async cancel(id: string, tenantId: string, tenant?: TenantContext) {
+    const expense = await this.findOne(id, tenantId, tenant);
 
     if (expense.status !== 'pending') {
       throw new BadRequestException(
