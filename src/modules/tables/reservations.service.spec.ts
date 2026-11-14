@@ -63,6 +63,15 @@ describe('ReservationsService.create (B-18)', () => {
   });
 });
 
+describe('ReservationsService.remove (V-3)', () => {
+  it('allows deleting a seated reservation', async () => {
+    const { svc, repo } = makeReservations();
+    repo.findById.mockResolvedValue({ id: 'r1', status: 'seated' });
+    await expect(svc.remove('r1', tenant)).resolves.toEqual({ id: 'r1' });
+    expect(repo.remove).toHaveBeenCalledWith('r1', 't1');
+  });
+});
+
 describe('WaitlistService.seat capacity (B-20)', () => {
   it('refuses to seat a party larger than the table', async () => {
     const repo = {

@@ -13,7 +13,7 @@ export class CreateTableDto {
   branch_id: string;
 
   @IsString()
-  @MaxLength(50)
+  @MaxLength(50, { message: 'Table name must be at most 50 characters' })
   name: string;
 
   @IsOptional()
