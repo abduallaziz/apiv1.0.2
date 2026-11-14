@@ -380,7 +380,11 @@ export class UsersService {
 
     await this.assertNoDuplicates(dto, tenant.tenantId);
     await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
-    const branchId = resolveNewStaffBranch(tenant, UserRole.NONE, dto.branch_id);
+    const branchId = resolveNewStaffBranch(
+      tenant,
+      UserRole.NONE,
+      dto.branch_id,
+    );
 
     const { data, error } = await this.usersRepository.create({
       tenant_id: tenant.tenantId,
