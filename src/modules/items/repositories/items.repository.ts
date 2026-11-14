@@ -32,7 +32,9 @@ export class ItemsRepository extends ScopedRepository {
       category_id: categories?.id ?? null,
       category_name: categories?.name ?? null,
       category_type: categories?.type ?? null,
-      variants_count: item_variants?.length ?? 0,
+      variants_count: (item_variants ?? []).filter(
+        (v: { is_active?: boolean }) => v.is_active !== false,
+      ).length,
     };
   }
 
@@ -50,7 +52,7 @@ export class ItemsRepository extends ScopedRepository {
       .select(
         `id, name, type, operation_type, price, has_inventory, has_variants, is_active, created_at, sku, image_url,
          categories(id, name, type),
-         item_variants(id)`,
+         item_variants(id, is_active)`,
         { count: 'exact' },
       )
       .is('deleted_at', null)
