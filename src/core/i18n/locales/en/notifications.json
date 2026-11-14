@@ -37,11 +37,11 @@
   },
   "shift_opened": {
     "title": "Shift opened",
-    "body": "A new shift was opened by {{cashier_name}} at branch {{branch_name}}."
+    "body": "A new shift was opened with opening cash of {{amount}} SAR."
   },
   "shift_closed": {
     "title": "Shift closed",
-    "body": "The shift was closed by {{cashier_name}}. Total: {{amount}} SAR."
+    "body": "The shift was closed. Invoices: {{total}}."
   },
   "inventory_stock_deduction_failed": {
     "title": "Warning: Stock not deducted",

@@ -48,7 +48,13 @@ export function buildNotificationTemplate(
     total: '',
   };
 
-  const mergedData: Record<string, unknown> = { ...defaults, ...data };
+  // producers send `total` (sales) or `opening_cash` (shift) - reuse it for {{amount}} so the text is never blank
+  const derived: Record<string, unknown> = {};
+  if (data.amount === undefined) {
+    const v = data.total ?? data.opening_cash;
+    if (v !== undefined && v !== null && v !== '') derived.amount = v;
+  }
+  const mergedData: Record<string, unknown> = { ...defaults, ...derived, ...data };
 
   const localeKey = typeKeyMap[type];
   if (!localeKey) {

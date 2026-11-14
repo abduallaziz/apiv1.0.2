@@ -37,11 +37,11 @@
   },
   "shift_opened": {
     "title": "تم فتح وردية",
-    "body": "تم فتح وردية جديدة بواسطة {{cashier_name}} في فرع {{branch_name}}."
+    "body": "تم فتح وردية جديدة برصيد افتتاحي {{amount}} ر.س."
   },
   "shift_closed": {
     "title": "تم إغلاق الوردية",
-    "body": "تم إغلاق الوردية بواسطة {{cashier_name}}. الإجمالي: {{total}} ريال."
+    "body": "تم إغلاق الوردية. عدد الفواتير: {{total}}."
   },
   "inventory_stock_deduction_failed": {
     "title": "تحذير: لم يتم خصم المخزون",
