@@ -69,7 +69,15 @@ export class UsersService {
   async findAll(tenant: TenantContext) {
     const { data, error } = await this.usersRepository.findAll(tenant);
     if (error) throw new BadRequestException(error.message);
-    return data;
+    const rows = (data ?? []) as unknown as { id: string; role: string }[];
+    // Users on a custom role have users.role = 'none'; expose the real name.
+    const names = await this.usersRepository.primaryRoleNames(
+      rows.filter((r) => r.role === 'none').map((r) => r.id),
+    );
+    return rows.map((r) => ({
+      ...r,
+      role_name: names.get(r.id) ?? null,
+    }));
   }
 
   async findOne(id: string, tenant: TenantContext) {

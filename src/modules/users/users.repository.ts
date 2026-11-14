@@ -22,6 +22,25 @@ export class UsersRepository extends ScopedRepository {
       .order('created_at', { ascending: false });
   }
 
+  /** Primary role name per user (user_roles), so custom roles can be shown. */
+  async primaryRoleNames(userIds: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (userIds.length === 0) return out;
+    const { data, error } = await this.supabase
+      .from('user_roles')
+      .select('user_id, role:roles!user_roles_role_id_fkey(name, is_system)')
+      .in('user_id', userIds)
+      .eq('is_primary', true);
+    if (error) return out;
+    for (const row of (data ?? []) as unknown as {
+      user_id: string;
+      role: { name: string; is_system: boolean } | null;
+    }[]) {
+      if (row.role) out.set(row.user_id, row.role.name);
+    }
+    return out;
+  }
+
   async findById(id: string, tenant: TenantContext) {
     return this.scopedQuery('users', tenant)
       .select(
