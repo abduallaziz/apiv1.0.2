@@ -29,7 +29,13 @@ export class RewardDefinitionsService {
     id: string,
     dto: UpdateRewardDefinitionDto,
   ) {
-    const existing = await this.findOne(tenant, id);
+    const existing = (await this.findOne(tenant, id)) as {
+      trigger_type?: string;
+      trigger_config?: Record<string, unknown> | null;
+      reward_type?: string;
+      reward_config?: Record<string, unknown> | null;
+      usage_conditions?: Record<string, unknown> | null;
+    };
     // Only re-validate when the semantic config is being changed, so toggling
     // is_active on a legacy row is never blocked.
     if (

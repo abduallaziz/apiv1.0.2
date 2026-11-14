@@ -22,11 +22,11 @@ describe('CouponsService create/update rules', () => {
 
   it('allows a large fixed value and uppercases the code', async () => {
     repo.findByCode.mockResolvedValue(null);
-    const r = await svc.create(tenant, {
+    const r = (await svc.create(tenant, {
       code: 'abc',
       discount_type: 'fixed',
       discount_value: 500,
-    });
+    })) as { code: string };
     expect(r.code).toBe('ABC');
   });
 
