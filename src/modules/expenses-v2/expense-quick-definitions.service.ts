@@ -6,6 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { TenantContext } from '../../core/tenant/tenant.context';
+import {
+  branchForWrite,
+  scopeToBranch,
+} from '../../core/tenant/branch-scope.util';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 import { CreateQuickDefinitionDto } from './dto/create-quick-definition.dto';
@@ -46,13 +51,15 @@ export class ExpenseQuickDefinitionsService {
     tenantId: string,
     id: string,
     label: string,
+    tenant?: TenantContext,
   ) {
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from(table)
       .select('id, is_active')
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
+      .eq('tenant_id', tenantId);
+    if (tenant) query = scopeToBranch(query, tenant);
+    const { data, error } = await query.maybeSingle();
     if (error) throw error;
     if (!data) throw new BadRequestException(`${label} not found`);
     if (!data.is_active) {
@@ -85,12 +92,17 @@ export class ExpenseQuickDefinitionsService {
     }
   }
 
-  async findAll(tenantId: string, includeInactive = false) {
+  async findAll(
+    tenantId: string,
+    includeInactive = false,
+    tenant?: TenantContext,
+  ) {
     let query = this.supabase
       .from('expense_quick_definitions')
       .select(SELECT)
       .eq('tenant_id', tenantId)
       .order('sort_order');
+    if (tenant) query = scopeToBranch(query, tenant);
     if (!includeInactive) query = query.eq('is_active', true);
 
     const { data, error } = await query;
@@ -98,13 +110,18 @@ export class ExpenseQuickDefinitionsService {
     return data ?? [];
   }
 
-  async findOne(tenantId: string, id: string): Promise<QuickDefinitionRecord> {
-    const { data, error } = await this.supabase
+  async findOne(
+    tenantId: string,
+    id: string,
+    tenant?: TenantContext,
+  ): Promise<QuickDefinitionRecord> {
+    let query = this.supabase
       .from('expense_quick_definitions')
       .select(SELECT)
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle<QuickDefinitionRecord>();
+      .eq('tenant_id', tenantId);
+    if (tenant) query = scopeToBranch(query, tenant);
+    const { data, error } = await query.maybeSingle<QuickDefinitionRecord>();
     if (error) throw error;
     if (!data)
       throw new NotFoundException('Quick Expense definition not found');
@@ -115,6 +132,7 @@ export class ExpenseQuickDefinitionsService {
     tenantId: string,
     createdBy: string,
     dto: CreateQuickDefinitionDto,
+    tenant?: TenantContext,
   ) {
     this.assertPairing(dto.amount_mode, dto.fixed_amount);
 
@@ -124,6 +142,7 @@ export class ExpenseQuickDefinitionsService {
         tenantId,
         dto.default_department_id,
         'Department',
+        tenant,
       );
     }
     if (dto.default_category_id) {
@@ -132,6 +151,7 @@ export class ExpenseQuickDefinitionsService {
         tenantId,
         dto.default_category_id,
         'Category',
+        tenant,
       );
     }
 
@@ -148,6 +168,7 @@ export class ExpenseQuickDefinitionsService {
         default_payment_method: dto.default_payment_method,
         sort_order: dto.sort_order ?? 0,
         created_by: createdBy,
+        ...(tenant?.isolated ? { branch_id: branchForWrite(tenant) } : {}),
       })
       .select(SELECT)
       .single();
@@ -163,8 +184,13 @@ export class ExpenseQuickDefinitionsService {
     return data;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateQuickDefinitionDto) {
-    const existing = await this.findOne(tenantId, id);
+  async update(
+    tenantId: string,
+    id: string,
+    dto: UpdateQuickDefinitionDto,
+    tenant?: TenantContext,
+  ) {
+    const existing = await this.findOne(tenantId, id, tenant);
 
     const amountMode = dto.amount_mode ?? existing.amount_mode;
     const fixedAmount =
@@ -179,6 +205,7 @@ export class ExpenseQuickDefinitionsService {
         tenantId,
         dto.default_department_id,
         'Department',
+        tenant,
       );
     }
     if (dto.default_category_id) {
@@ -187,6 +214,7 @@ export class ExpenseQuickDefinitionsService {
         tenantId,
         dto.default_category_id,
         'Category',
+        tenant,
       );
     }
 
@@ -210,13 +238,13 @@ export class ExpenseQuickDefinitionsService {
     if (dto.sort_order !== undefined) patch.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) patch.is_active = dto.is_active;
 
-    const { data, error } = await this.supabase
+    let updateQuery = this.supabase
       .from('expense_quick_definitions')
       .update(patch)
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .select(SELECT)
-      .maybeSingle();
+      .eq('tenant_id', tenantId);
+    if (tenant) updateQuery = scopeToBranch(updateQuery, tenant);
+    const { data, error } = await updateQuery.select(SELECT).maybeSingle();
 
     if (error) {
       if (isUniqueViolation(error)) {
@@ -234,7 +262,7 @@ export class ExpenseQuickDefinitionsService {
   // DELETE is unconditionally blocked at the DB level (guard trigger,
   // 197_new_expenses_database_foundation.sql) — deactivation is the only
   // removal path, matching Department/Category.
-  async deactivate(tenantId: string, id: string) {
-    return this.update(tenantId, id, { is_active: false });
+  async deactivate(tenantId: string, id: string, tenant?: TenantContext) {
+    return this.update(tenantId, id, { is_active: false }, tenant);
   }
 }

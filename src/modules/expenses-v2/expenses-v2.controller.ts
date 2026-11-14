@@ -64,7 +64,7 @@ export class ExpensesV2Controller {
   @Get(':id')
   @RequirePermission('expenses.view')
   async findOne(@GetTenant() tenant: TenantContext, @Param('id') id: string) {
-    return this.service.findOne(tenant.tenantId, id);
+    return this.service.findOne(tenant.tenantId, id, tenant);
   }
 
   @Get(':id/activity')
@@ -73,6 +73,7 @@ export class ExpensesV2Controller {
     @GetTenant() tenant: TenantContext,
     @Param('id') id: string,
   ) {
+    await this.service.findOne(tenant.tenantId, id, tenant);
     return this.activityService.findByExpense(tenant.tenantId, id);
   }
 
@@ -84,7 +85,13 @@ export class ExpensesV2Controller {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.create(tenant.tenantId, tenant.branchId, user.sub, dto);
+    return this.service.create(
+      tenant.tenantId,
+      tenant.branchId,
+      user.sub,
+      dto,
+      tenant,
+    );
   }
 
   @Post('quick/:definitionId')
@@ -102,6 +109,7 @@ export class ExpensesV2Controller {
       user.sub,
       definitionId,
       dto,
+      tenant,
     );
   }
 
@@ -114,7 +122,7 @@ export class ExpensesV2Controller {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.update(tenant.tenantId, id, dto, user.sub);
+    return this.service.update(tenant.tenantId, id, dto, user.sub, tenant);
   }
 
   @Patch(':id/cancel')
@@ -126,7 +134,13 @@ export class ExpensesV2Controller {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.cancel(tenant.tenantId, id, user.sub, dto?.reason);
+    return this.service.cancel(
+      tenant.tenantId,
+      id,
+      user.sub,
+      dto?.reason,
+      tenant,
+    );
   }
 
   @Patch(':id/confirm-payment')
@@ -137,7 +151,7 @@ export class ExpensesV2Controller {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.confirmPayment(tenant.tenantId, id, user.sub);
+    return this.service.confirmPayment(tenant.tenantId, id, user.sub, tenant);
   }
 
   @Patch(':id/stop-recurring')
@@ -148,7 +162,7 @@ export class ExpensesV2Controller {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.stopRecurring(tenant.tenantId, id, user.sub);
+    return this.service.stopRecurring(tenant.tenantId, id, user.sub, tenant);
   }
 
   @Get(':id/attachments')
@@ -157,6 +171,7 @@ export class ExpensesV2Controller {
     @GetTenant() tenant: TenantContext,
     @Param('id') id: string,
   ) {
+    await this.service.findOne(tenant.tenantId, id, tenant);
     return this.attachmentsService.findByExpense(tenant.tenantId, id);
   }
 
@@ -172,6 +187,7 @@ export class ExpensesV2Controller {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
+    await this.service.findOne(tenant.tenantId, id, tenant);
     return this.attachmentsService.upload(tenant.tenantId, id, user.sub, file);
   }
 }

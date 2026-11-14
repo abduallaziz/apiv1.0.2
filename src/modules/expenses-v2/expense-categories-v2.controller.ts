@@ -34,7 +34,11 @@ export class ExpenseCategoriesV2Controller {
     @GetTenant() tenant: TenantContext,
     @Query('includeInactive') includeInactive?: string,
   ) {
-    return this.service.findAll(tenant.tenantId, includeInactive === 'true');
+    return this.service.findAll(
+      tenant.tenantId,
+      includeInactive === 'true',
+      tenant,
+    );
   }
 
   @Post()
@@ -45,7 +49,7 @@ export class ExpenseCategoriesV2Controller {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.create(tenant.tenantId, user.sub, dto);
+    return this.service.create(tenant.tenantId, user.sub, dto, tenant);
   }
 
   @Patch(':id')
@@ -55,7 +59,7 @@ export class ExpenseCategoriesV2Controller {
     @Param('id') id: string,
     @Body() dto: UpdateExpenseCategoryDto,
   ) {
-    return this.service.update(tenant.tenantId, id, dto);
+    return this.service.update(tenant.tenantId, id, dto, tenant);
   }
 
   @Patch(':id/deactivate')
@@ -64,6 +68,6 @@ export class ExpenseCategoriesV2Controller {
     @GetTenant() tenant: TenantContext,
     @Param('id') id: string,
   ) {
-    return this.service.deactivate(tenant.tenantId, id);
+    return this.service.deactivate(tenant.tenantId, id, tenant);
   }
 }

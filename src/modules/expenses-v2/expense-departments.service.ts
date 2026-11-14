@@ -5,6 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { TenantContext } from '../../core/tenant/tenant.context';
+import {
+  branchForWrite,
+  scopeToBranch,
+} from '../../core/tenant/branch-scope.util';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { isUniqueViolation } from '../../shared/supabase/postgrest-error.util';
 import { CreateDepartmentDto } from './dto/create-department.dto';
@@ -18,12 +23,17 @@ export class ExpenseDepartmentsService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  async findAll(tenantId: string, includeInactive = false) {
+  async findAll(
+    tenantId: string,
+    includeInactive = false,
+    tenant?: TenantContext,
+  ) {
     let query = this.supabase
       .from('expense_departments')
       .select(SELECT)
       .eq('tenant_id', tenantId)
       .order('name');
+    if (tenant) query = scopeToBranch(query, tenant);
     if (!includeInactive) query = query.eq('is_active', true);
 
     const { data, error } = await query;
@@ -31,7 +41,12 @@ export class ExpenseDepartmentsService {
     return data ?? [];
   }
 
-  async create(tenantId: string, createdBy: string, dto: CreateDepartmentDto) {
+  async create(
+    tenantId: string,
+    createdBy: string,
+    dto: CreateDepartmentDto,
+    tenant?: TenantContext,
+  ) {
     const { data, error } = await this.supabase
       .from('expense_departments')
       .insert({
@@ -40,6 +55,7 @@ export class ExpenseDepartmentsService {
         code: dto.code ?? null,
         description: dto.description ?? null,
         created_by: createdBy,
+        ...(tenant?.isolated ? { branch_id: branchForWrite(tenant) } : {}),
       })
       .select(SELECT)
       .single();
@@ -55,14 +71,19 @@ export class ExpenseDepartmentsService {
     return data;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateDepartmentDto) {
-    const { data, error } = await this.supabase
+  async update(
+    tenantId: string,
+    id: string,
+    dto: UpdateDepartmentDto,
+    tenant?: TenantContext,
+  ) {
+    let query = this.supabase
       .from('expense_departments')
       .update({ ...dto, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .select(SELECT)
-      .maybeSingle();
+      .eq('tenant_id', tenantId);
+    if (tenant) query = scopeToBranch(query, tenant);
+    const { data, error } = await query.select(SELECT).maybeSingle();
 
     if (error) {
       if (isUniqueViolation(error)) {
@@ -80,7 +101,7 @@ export class ExpenseDepartmentsService {
   // DELETE is unconditionally blocked at the DB level (guard trigger,
   // 197_new_expenses_database_foundation.sql), so this is not a policy
   // choice made here, it's the only operation that can ever succeed.
-  async deactivate(tenantId: string, id: string) {
-    return this.update(tenantId, id, { is_active: false });
+  async deactivate(tenantId: string, id: string, tenant?: TenantContext) {
+    return this.update(tenantId, id, { is_active: false }, tenant);
   }
 }

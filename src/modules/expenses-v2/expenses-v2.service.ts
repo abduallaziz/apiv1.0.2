@@ -7,6 +7,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { TenantContext } from '../../core/tenant/tenant.context';
+import { scopeToBranch } from '../../core/tenant/branch-scope.util';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -120,13 +122,16 @@ export class ExpensesV2Service {
     tenantId: string,
     id: string,
     label: string,
+    tenant?: TenantContext,
   ) {
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from(table)
       .select('id, is_active')
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
+      .eq('tenant_id', tenantId);
+    // Isolation: a lookup of another branch is treated as not found.
+    if (tenant) query = scopeToBranch(query, tenant);
+    const { data, error } = await query.maybeSingle();
     if (error) throw error;
     if (!data) throw new BadRequestException(`${label} not found`);
     if (!data.is_active) {
@@ -177,13 +182,18 @@ export class ExpensesV2Service {
     return data ?? [];
   }
 
-  async findOne(tenantId: string, id: string): Promise<ExpenseRecord> {
-    const { data, error } = await this.supabase
+  async findOne(
+    tenantId: string,
+    id: string,
+    tenant?: TenantContext,
+  ): Promise<ExpenseRecord> {
+    let query = this.supabase
       .from('expenses_v2')
       .select(SELECT)
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle<ExpenseRecord>();
+      .eq('tenant_id', tenantId);
+    if (tenant) query = scopeToBranch(query, tenant);
+    const { data, error } = await query.maybeSingle<ExpenseRecord>();
     if (error) throw error;
     if (!data) throw new NotFoundException('Expense not found');
     return data;
@@ -194,6 +204,7 @@ export class ExpensesV2Service {
     branchId: string | null,
     createdBy: string,
     dto: CreateExpenseDto,
+    tenant?: TenantContext,
   ) {
     // Branch is mandatory on every Expense and is never client-supplied —
     // if the request context has no resolved branch, creation is blocked
@@ -209,12 +220,14 @@ export class ExpensesV2Service {
       tenantId,
       dto.department_id,
       'Department',
+      tenant,
     );
     await this.assertActiveMaster(
       'expense_categories_v2',
       tenantId,
       dto.category_id,
       'Category',
+      tenant,
     );
 
     const shiftId = await this.resolveRegisterForCashExpense(
@@ -279,6 +292,7 @@ export class ExpensesV2Service {
     createdBy: string,
     definitionId: string,
     dto: CreateQuickExpenseDto,
+    tenant?: TenantContext,
   ) {
     if (!branchId) {
       throw new BadRequestException(
@@ -286,14 +300,15 @@ export class ExpensesV2Service {
       );
     }
 
-    const { data: definition, error: defError } = await this.supabase
+    let defQuery = this.supabase
       .from('expense_quick_definitions')
       .select(
         'id, label, amount_mode, fixed_amount, tax_mode, default_department_id, default_category_id, default_payment_method, is_active',
       )
       .eq('id', definitionId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle<{
+      .eq('tenant_id', tenantId);
+    if (tenant) defQuery = scopeToBranch(defQuery, tenant);
+    const { data: definition, error: defError } = await defQuery.maybeSingle<{
         id: string;
         label: string;
         amount_mode: 'fixed' | 'variable';
@@ -346,12 +361,14 @@ export class ExpensesV2Service {
       tenantId,
       departmentId,
       'Department',
+      tenant,
     );
     await this.assertActiveMaster(
       'expense_categories_v2',
       tenantId,
       categoryId,
       'Category',
+      tenant,
     );
 
     const taxRate = await this.getTenantTaxRate(tenantId);
@@ -477,8 +494,9 @@ export class ExpensesV2Service {
     id: string,
     dto: UpdateExpenseDto,
     updatedBy: string,
+    tenant?: TenantContext,
   ) {
-    const existing = await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id, tenant);
     if (existing.cancelled_at) {
       throw new ConflictException('Cancelled expenses cannot be edited');
     }
@@ -489,6 +507,7 @@ export class ExpensesV2Service {
         tenantId,
         dto.department_id,
         'Department',
+        tenant,
       );
     }
     if (dto.category_id) {
@@ -497,6 +516,7 @@ export class ExpensesV2Service {
         tenantId,
         dto.category_id,
         'Category',
+        tenant,
       );
     }
     if (
@@ -572,8 +592,9 @@ export class ExpensesV2Service {
     id: string,
     cancelledBy: string,
     reason?: string,
+    tenant?: TenantContext,
   ) {
-    const existing = await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id, tenant);
     if (existing.cancelled_at) {
       throw new ConflictException('Expense is already cancelled');
     }
@@ -615,8 +636,9 @@ export class ExpensesV2Service {
     tenantId: string,
     id: string,
     confirmedBy: string,
+    tenant?: TenantContext,
   ): Promise<ExpenseRecord> {
-    const existing = await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id, tenant);
     if (existing.cancelled_at) {
       throw new ConflictException(
         'Cancelled expenses cannot have payment confirmed',
@@ -658,8 +680,9 @@ export class ExpensesV2Service {
     tenantId: string,
     id: string,
     actorId: string,
+    tenant?: TenantContext,
   ): Promise<ExpenseRecord> {
-    const existing = await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id, tenant);
     if (!existing.is_recurring) {
       return existing;
     }

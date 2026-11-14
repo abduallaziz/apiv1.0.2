@@ -35,7 +35,11 @@ export class ExpenseDepartmentsController {
     @GetTenant() tenant: TenantContext,
     @Query('includeInactive') includeInactive?: string,
   ) {
-    return this.service.findAll(tenant.tenantId, includeInactive === 'true');
+    return this.service.findAll(
+      tenant.tenantId,
+      includeInactive === 'true',
+      tenant,
+    );
   }
 
   @Post()
@@ -46,7 +50,7 @@ export class ExpenseDepartmentsController {
     @Req() req: Request,
   ) {
     const user = req.user as { sub: string };
-    return this.service.create(tenant.tenantId, user.sub, dto);
+    return this.service.create(tenant.tenantId, user.sub, dto, tenant);
   }
 
   @Patch(':id')
@@ -56,7 +60,7 @@ export class ExpenseDepartmentsController {
     @Param('id') id: string,
     @Body() dto: UpdateDepartmentDto,
   ) {
-    return this.service.update(tenant.tenantId, id, dto);
+    return this.service.update(tenant.tenantId, id, dto, tenant);
   }
 
   @Patch(':id/deactivate')
@@ -65,6 +69,6 @@ export class ExpenseDepartmentsController {
     @GetTenant() tenant: TenantContext,
     @Param('id') id: string,
   ) {
-    return this.service.deactivate(tenant.tenantId, id);
+    return this.service.deactivate(tenant.tenantId, id, tenant);
   }
 }
