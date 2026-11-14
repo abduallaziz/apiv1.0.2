@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -85,6 +86,12 @@ export class AccountingService {
     dto: AssignBranchAccountingOwnerDto,
     createdBy: string,
   ) {
+    // Isolation: a branch can only be (re)assigned from inside that branch.
+    if (tenant.isolated && dto.branch_id !== tenant.branchId) {
+      throw new ForbiddenException(
+        'Cannot assign an accounting owner to another branch',
+      );
+    }
     try {
       return await this.repo.assignBranchAccountingOwner(
         tenant,
@@ -123,6 +130,10 @@ export class AccountingService {
       }
       throw err;
     }
+  }
+
+  async getTrialBalance(tenant: TenantContext) {
+    return this.repo.getTrialBalance(tenant);
   }
 
   async getChartOfAccounts(tenant: TenantContext) {

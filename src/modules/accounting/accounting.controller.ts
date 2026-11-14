@@ -68,6 +68,12 @@ export class AccountingController {
     return this.accountingService.listFiscalPeriods(tenant);
   }
 
+  @Get('trial-balance')
+  @RequirePermission('accounting.ledger.view')
+  async trialBalance(@GetTenant() tenant: TenantContext) {
+    return this.accountingService.getTrialBalance(tenant);
+  }
+
   @Get('chart-of-accounts')
   @RequirePermission('accounting.ledger.view')
   async chartOfAccounts(@GetTenant() tenant: TenantContext) {

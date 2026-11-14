@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { TenantContext } from '../../../core/tenant/tenant-context';
+import { scopeToBranch } from '../../../core/tenant/branch-scope.util';
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 import { JournalEntriesQueryDto } from '../dto/journal-entries-query.dto';
 import { PriceOverrideAuditQueryDto } from '../dto/price-override-audit-query.dto';
@@ -33,6 +34,39 @@ export class AccountingRepository extends ScopedRepository {
     reversal_of_id, requires_cogs_reconciliation, created_by, created_at,
     posted_at, reversed_at
   `;
+
+  // Branch isolation (D9): the ledger of a branch is the set of journal entries posted into the books of that
+  // branch's accounting owner(s) (book -> owner -> branch; every branch has its own owner + default book).
+  // Owners without a branch (Central accounting) belong to the MAIN branch. Returns null when isolation is off
+  // (no restriction). An empty result is returned as [NIL_UUID] so .in() never matches.
+  async resolveBranchBookIds(tenant: TenantContext): Promise<string[] | null> {
+    if (!tenant.isolated || !tenant.branchId) return null;
+    const { data: branch } = await this.supabase
+      .from('branches')
+      .select('is_main')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('id', tenant.branchId)
+      .maybeSingle();
+    let owners = this.supabase
+      .from('accounting_owners')
+      .select('id')
+      .eq('tenant_id', tenant.tenantId);
+    owners = branch?.is_main
+      ? owners.or(`branch_id.eq.${tenant.branchId},branch_id.is.null`)
+      : owners.eq('branch_id', tenant.branchId);
+    const { data: ownerRows, error: ownerError } = await owners;
+    if (ownerError) throw ownerError;
+    const ownerIds = (ownerRows ?? []).map((o) => o.id as string);
+    if (ownerIds.length === 0) return [NIL_UUID];
+    const { data: bookRows, error: bookError } = await this.supabase
+      .from('accounting_books')
+      .select('id')
+      .eq('tenant_id', tenant.tenantId)
+      .in('accounting_owner_id', ownerIds);
+    if (bookError) throw bookError;
+    const ids = (bookRows ?? []).map((b) => b.id as string);
+    return ids.length ? ids : [NIL_UUID];
+  }
 
   // orders.branch_id is the only reachable branch context for a
   // sales-sourced entry — journal_entries itself has no branch_id column
@@ -83,6 +117,7 @@ export class AccountingRepository extends ScopedRepository {
     const lineFilter =
       !!query.account_id || amountMin !== undefined || amountMax !== undefined;
 
+    const bookIds = await this.resolveBranchBookIds(tenant);
     const pagination = new PaginationDto(query.page, query.per_page);
     let builder = this.supabase
       .from('journal_entries')
@@ -93,6 +128,7 @@ export class AccountingRepository extends ScopedRepository {
         { count: 'exact' },
       )
       .eq('tenant_id', tenant.tenantId);
+    if (bookIds) builder = builder.in('accounting_book_id', bookIds);
 
     if (lineFilter) {
       if (query.account_id)
@@ -165,12 +201,14 @@ export class AccountingRepository extends ScopedRepository {
   }
 
   async findJournalEntryDetail(tenant: TenantContext, id: string) {
-    const { data: entry, error } = await this.supabase
+    const bookIds = await this.resolveBranchBookIds(tenant);
+    let entryQuery = this.supabase
       .from('journal_entries')
       .select(this.JOURNAL_ENTRY_SELECT)
       .eq('tenant_id', tenant.tenantId)
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    if (bookIds) entryQuery = entryQuery.in('accounting_book_id', bookIds);
+    const { data: entry, error } = await entryQuery.maybeSingle();
     if (error) throw error;
     if (!entry) return null;
 
@@ -237,6 +275,7 @@ export class AccountingRepository extends ScopedRepository {
         { count: 'exact' },
       )
       .eq('tenant_id', tenant.tenantId);
+    builder = scopeToBranch(builder, tenant);
 
     if (query.date_from) builder = builder.gte('created_at', query.date_from);
     if (query.date_to) builder = builder.lte('created_at', query.date_to);
@@ -281,14 +320,15 @@ export class AccountingRepository extends ScopedRepository {
   }
 
   async findPriceOverrideAuditDetail(tenant: TenantContext, id: string) {
-    const { data, error } = await this.supabase
+    let auditQuery = this.supabase
       .from('price_override_audit')
       .select(
         'id, tenant_id, branch_id, order_id, order_item_id, actor_id, actor_role_id, actor_role_name_snapshot, item_id, official_unit_price, approved_unit_price, difference_amount, difference_percent, direction, reason, effective_policy_snapshot, created_at',
       )
       .eq('tenant_id', tenant.tenantId)
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    auditQuery = scopeToBranch(auditQuery, tenant);
+    const { data, error } = await auditQuery.maybeSingle();
     if (error) throw error;
     if (!data) return null;
 
@@ -315,23 +355,27 @@ export class AccountingRepository extends ScopedRepository {
   }
 
   async findAccountingOwners(tenant: TenantContext) {
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('accounting_owners')
       .select('id, branch_id, owner_type_code, name, status, created_at')
       .eq('tenant_id', tenant.tenantId)
       .order('created_at', { ascending: true });
+    query = scopeToBranch(query, tenant);
+    const { data, error } = await query;
     if (error) throw error;
     return data ?? [];
   }
 
   async findBranchAssignments(tenant: TenantContext) {
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('branch_accounting_assignments')
       .select(
         'id, branch_id, accounting_owner_id, effective_from, effective_to, reason, created_at',
       )
       .eq('tenant_id', tenant.tenantId)
       .order('effective_from', { ascending: false });
+    query = scopeToBranch(query, tenant);
+    const { data, error } = await query;
     if (error) throw error;
     return data ?? [];
   }
@@ -361,6 +405,53 @@ export class AccountingRepository extends ScopedRepository {
       .single();
     if (error) throw error;
     return data;
+  }
+
+  // Account balances (debit/credit totals over posted + reversed entries) of the request's branch ledger, or of the
+  // whole tenant when isolation is off. Read-only aggregate (fn_trial_balance, migration 301).
+  async getTrialBalance(tenant: TenantContext) {
+    const bookIds = await this.resolveBranchBookIds(tenant);
+    const { data: totals, error } = await this.supabase.rpc(
+      'fn_trial_balance',
+      {
+        p_tenant_id: tenant.tenantId,
+        p_book_ids: bookIds,
+      },
+    );
+    if (error) throw error;
+    const byAccount = new Map<string, { debit: number; credit: number }>();
+    for (const row of (totals ?? []) as {
+      account_id: string;
+      debit_total: number | string;
+      credit_total: number | string;
+    }[]) {
+      byAccount.set(row.account_id, {
+        debit: Number(row.debit_total),
+        credit: Number(row.credit_total),
+      });
+    }
+    const { data: accounts, error: accError } = await this.supabase
+      .from('accounts')
+      .select('id, code, name, account_type, normal_balance')
+      .eq('tenant_id', tenant.tenantId)
+      .order('code', { ascending: true });
+    if (accError) throw accError;
+    return (accounts ?? [])
+      .filter((a) => byAccount.has(a.id as string))
+      .map((a) => {
+        const t = byAccount.get(a.id as string)!;
+        const net = t.debit - t.credit;
+        return {
+          account_id: a.id,
+          code: a.code,
+          name: a.name,
+          account_type: a.account_type,
+          normal_balance: a.normal_balance,
+          debit_total: t.debit,
+          credit_total: t.credit,
+          balance: a.normal_balance === 'debit' ? net : -net,
+        };
+      });
   }
 
   async findChartOfAccounts(tenant: TenantContext) {
@@ -396,6 +487,7 @@ export class AccountingRepository extends ScopedRepository {
   // already decide; this only aggregates what fn_post_sales_order already
   // wrote.
   async getCommandCenterSummary(tenant: TenantContext) {
+    const bookIds = await this.resolveBranchBookIds(tenant);
     const [
       revenueLines,
       cashBankLines,
@@ -407,31 +499,52 @@ export class AccountingRepository extends ScopedRepository {
       branchesTotal,
       assignedBranchesCount,
     ] = await Promise.all([
-      this.sumLinesByRole(tenant, 'sales_revenue', 'credit'),
-      this.sumLinesByRoles(tenant, ['default_cash', 'default_bank'], 'debit'),
-      this.sumLinesByRole(tenant, 'accounts_receivable', 'debit'),
-      this.sumLinesByRole(tenant, 'tax_payable', 'credit'),
-      this.sumLinesByRole(tenant, 'cogs', 'debit'),
-      this.supabase
-        .from('journal_entries')
-        .select('id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId)
-        .eq('requires_cogs_reconciliation', true),
-      this.supabase
-        .from('accounting_owners')
-        .select('id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId),
-      this.supabase
-        .from('branches')
-        .select('id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId)
-        .eq('is_active', true)
-        .is('deleted_at', null),
-      this.supabase
-        .from('branch_accounting_assignments')
-        .select('branch_id', { count: 'exact', head: true })
-        .eq('tenant_id', tenant.tenantId)
-        .is('effective_to', null),
+      this.sumLinesByRole(tenant, 'sales_revenue', 'credit', bookIds),
+      this.sumLinesByRoles(
+        tenant,
+        ['default_cash', 'default_bank'],
+        'debit',
+        bookIds,
+      ),
+      this.sumLinesByRole(tenant, 'accounts_receivable', 'debit', bookIds),
+      this.sumLinesByRole(tenant, 'tax_payable', 'credit', bookIds),
+      this.sumLinesByRole(tenant, 'cogs', 'debit', bookIds),
+      (() => {
+        let q = this.supabase
+          .from('journal_entries')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.tenantId)
+          .eq('requires_cogs_reconciliation', true);
+        if (bookIds) q = q.in('accounting_book_id', bookIds);
+        return q;
+      })(),
+      (() => {
+        let q = this.supabase
+          .from('accounting_owners')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.tenantId);
+        q = scopeToBranch(q, tenant);
+        return q;
+      })(),
+      (() => {
+        let q = this.supabase
+          .from('branches')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.tenantId)
+          .eq('is_active', true)
+          .is('deleted_at', null);
+        if (tenant.isolated && tenant.branchId) q = q.eq('id', tenant.branchId);
+        return q;
+      })(),
+      (() => {
+        let q = this.supabase
+          .from('branch_accounting_assignments')
+          .select('branch_id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.tenantId)
+          .is('effective_to', null);
+        q = scopeToBranch(q, tenant);
+        return q;
+      })(),
     ]);
 
     return {
@@ -452,14 +565,16 @@ export class AccountingRepository extends ScopedRepository {
     tenant: TenantContext,
     roleCode: string,
     side: 'debit' | 'credit',
+    bookIds: string[] | null = null,
   ): Promise<number> {
-    return this.sumLinesByRoles(tenant, [roleCode], side);
+    return this.sumLinesByRoles(tenant, [roleCode], side, bookIds);
   }
 
   private async sumLinesByRoles(
     tenant: TenantContext,
     roleCodes: string[],
     side: 'debit' | 'credit',
+    bookIds: string[] | null = null,
   ): Promise<number> {
     const { data: roles } = await this.supabase
       .from('account_role_assignments')
@@ -479,14 +594,14 @@ export class AccountingRepository extends ScopedRepository {
     // Only lines belonging to a posted entry count toward the summary —
     // filtered via the entries already scoped to this tenant/status,
     // matching the "only already-posted truth" constraint.
+    let postedQuery = this.supabase
+      .from('journal_entries')
+      .select('id')
+      .eq('tenant_id', tenant.tenantId)
+      .eq('status', 'posted');
+    if (bookIds) postedQuery = postedQuery.in('accounting_book_id', bookIds);
     const entryIds = new Set(
-      (
-        await this.supabase
-          .from('journal_entries')
-          .select('id')
-          .eq('tenant_id', tenant.tenantId)
-          .eq('status', 'posted')
-      ).data?.map((e) => e.id as string) ?? [],
+      (await postedQuery).data?.map((e) => e.id as string) ?? [],
     );
 
     return (lines ?? [])
