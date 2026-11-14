@@ -1,7 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import {
-  assertSupplierInBranch,
-} from '../../../core/branch-scope/branch-supplier';
+import { assertSupplierInBranch } from '../../../core/branch-scope/branch-supplier';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isUniqueViolation } from '../../../shared/supabase/postgrest-error.util';
