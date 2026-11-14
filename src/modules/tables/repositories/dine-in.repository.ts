@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { TenantSessionService } from '../../../core/tenant/tenant-session.service';
 import { TenantContext } from '../../../core/tenant/tenant-context';
+import { DineInItemRow, DineInOrderRow } from '../tables.types';
 
 @Injectable()
 export class DineInRepository {
@@ -20,7 +21,7 @@ export class DineInRepository {
       .eq('tenant_id', tenantId)
       .eq('table_id', tableId)
       .eq('status', 'pending')
-      .maybeSingle();
+      .maybeSingle<DineInOrderRow>();
     if (error) throw error;
     return data;
   }
@@ -40,14 +41,14 @@ export class DineInRepository {
     branchId: string,
     cashierId: string,
   ) {
-    const { data, error } = await this.supabase.rpc('fn_open_dine_in_table', {
+    const res = await this.supabase.rpc('fn_open_dine_in_table', {
       p_tenant_id: tenantId,
       p_table_id: tableId,
       p_branch_id: branchId,
       p_cashier_id: cashierId,
     });
-    if (error) throw error;
-    return data?.[0] ?? null;
+    if (res.error) throw res.error;
+    return (res.data as DineInOrderRow[] | null)?.[0] ?? null;
   }
 
   /** True only if the customer exists in this tenant (not soft-deleted). */
@@ -174,7 +175,7 @@ export class DineInRepository {
       .is('deleted_at', null)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    return data ?? [];
+    return (data ?? []) as DineInItemRow[];
   }
 
   async updateOrderTotals(

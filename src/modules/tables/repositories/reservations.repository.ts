@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
+import { Reservation, ReservationRow } from '../tables.types';
 
 const SELECT =
   'id, table_id, customer_name, customer_phone, party_size, reservation_time, status, notes, created_at, tables(name)';
@@ -11,7 +12,7 @@ export class ReservationsRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  private map(row: any) {
+  private map(row: ReservationRow): Reservation {
     return { ...row, table_name: row.tables?.name ?? null, tables: undefined };
   }
 
@@ -31,7 +32,9 @@ export class ReservationsRepository {
 
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []).map((r) => this.map(r));
+    return ((data ?? []) as unknown as ReservationRow[]).map((r) =>
+      this.map(r),
+    );
   }
 
   async findById(id: string, tenantId: string) {
@@ -42,7 +45,7 @@ export class ReservationsRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
-    return data ? this.map(data) : null;
+    return data ? this.map(data as unknown as ReservationRow) : null;
   }
 
   async tableBelongsToTenant(
@@ -67,7 +70,7 @@ export class ReservationsRepository {
       .select(SELECT)
       .single();
     if (error) throw error;
-    return this.map(data);
+    return this.map(data as unknown as ReservationRow);
   }
 
   async update(id: string, tenantId: string, dto: object) {
@@ -79,6 +82,6 @@ export class ReservationsRepository {
       .select(SELECT)
       .single();
     if (error) throw error;
-    return this.map(data);
+    return this.map(data as unknown as ReservationRow);
   }
 }

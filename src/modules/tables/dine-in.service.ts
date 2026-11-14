@@ -15,6 +15,7 @@ import { PriceResolutionService } from '../../core/pricing/price-resolution.serv
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { AddDineInItemsDto } from './dto/add-dine-in-items.dto';
 import { CheckoutDineInDto } from './dto/checkout-dine-in.dto';
+import { DineInOrderRow } from './tables.types';
 
 @Injectable()
 export class DineInService {
@@ -51,9 +52,10 @@ export class DineInService {
         table.branch_id,
         cashierId,
       );
-    } catch (err: any) {
-      if (err?.message?.includes('not available')) {
-        throw new BadRequestException(err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('not available')) {
+        throw new BadRequestException(message);
       }
       throw err;
     }
@@ -76,7 +78,7 @@ export class DineInService {
 
     // Never trust the client-supplied price: every line is re-priced from the
     // item/variant master data (dine-in has no audited override workflow).
-    const pricedItems = [];
+    const pricedItems: Parameters<DineInRepository['insertItems']>[2] = [];
     for (const item of dto.items) {
       const official = await this.priceResolutionService.getOfficialUnitPrice(
         item.item_id,
@@ -123,7 +125,7 @@ export class DineInService {
    */
   private async recalculateAndRespond(
     tenant: TenantContext,
-    order: { id: string; [key: string]: unknown },
+    order: DineInOrderRow,
     taxRate: number,
   ) {
     const allItems = await this.dineInRepo.getOrderItems(order.id);
@@ -312,7 +314,7 @@ export class DineInService {
         )
         .catch((err) => {
           this.logger.warn(
-            `Stock deduction failed for dine-in order ${order.id}: ${err?.message ?? err}`,
+            `Stock deduction failed for dine-in order ${order.id}: ${err instanceof Error ? err.message : String(err)}`,
           );
         });
     }

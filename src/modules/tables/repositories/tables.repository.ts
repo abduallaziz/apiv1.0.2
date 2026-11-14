@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 import { isUniqueViolation } from '../../../shared/supabase/postgrest-error.util';
 
+import { TableRow } from '../tables.types';
 const SELECT = 'id, branch_id, name, capacity, status, created_at';
 
 function toHttpError(error: unknown): unknown {
@@ -30,7 +31,7 @@ export class TablesRepository {
     if (branchId) q = q.eq('branch_id', branchId);
     const { data, error } = await q;
     if (error) throw error;
-    return data;
+    return (data ?? []) as TableRow[];
   }
 
   async findById(id: string, tenantId: string) {
@@ -40,7 +41,7 @@ export class TablesRepository {
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
-      .maybeSingle();
+      .maybeSingle<TableRow>();
     if (error) throw error;
     return data;
   }
@@ -68,7 +69,7 @@ export class TablesRepository {
       .from('tables')
       .insert({ tenant_id: tenantId, ...dto })
       .select(SELECT)
-      .single();
+      .single<TableRow>();
     if (error) throw toHttpError(error);
     return data;
   }
@@ -80,7 +81,7 @@ export class TablesRepository {
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .select(SELECT)
-      .single();
+      .single<TableRow>();
     if (error) throw toHttpError(error);
     return data;
   }

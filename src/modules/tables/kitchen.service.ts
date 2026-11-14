@@ -10,6 +10,7 @@ import { DineInRepository } from './repositories/dine-in.repository';
 import { TenantContext } from '../../core/tenant/tenant-context';
 
 const VALID_STATUSES = ['pending', 'preparing', 'ready', 'served'];
+import { KitchenOrderRow } from './tables.types';
 
 @Injectable()
 export class KitchenService {
@@ -33,14 +34,14 @@ export class KitchenService {
     const { data, error } = await q;
     if (error) throw error;
 
-    return (data ?? []).map((o: any) => ({
+    return ((data ?? []) as unknown as KitchenOrderRow[]).map((o) => ({
       order_id: o.id,
       table_id: o.table_id,
       table_name: o.tables?.name ?? null,
       created_at: o.created_at,
-      items: (o.order_items ?? [])
-        .filter((i: any) => i.kitchen_status && i.kitchen_status !== 'served')
-        .map((i: any) => ({
+      items: o.order_items
+        .filter((i) => i.kitchen_status && i.kitchen_status !== 'served')
+        .map((i) => ({
           id: i.id,
           item_name: i.item_name,
           qty: i.qty,
