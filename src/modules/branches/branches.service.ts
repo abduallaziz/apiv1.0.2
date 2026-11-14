@@ -81,17 +81,25 @@ export class BranchesService {
     }
 
     if (await this.repo.hasOpenShift(id, tenant)) {
-      throw new BadRequestException(
+      throw new ConflictException(
         'Cannot delete a branch that has an open shift.',
       );
     }
     if (await this.repo.hasHistory(id, tenant)) {
-      throw new BadRequestException(
+      throw new ConflictException(
         'Cannot delete a branch that has shifts or invoices. Deactivate it instead.',
       );
     }
 
+    const warehouseId = branch.default_warehouse_id as string | null;
     await this.repo.softDelete(id, tenant);
+    // The auto-created warehouse goes with the branch, unless it holds stock.
+    if (
+      warehouseId &&
+      !(await this.repo.warehouseHasStock(warehouseId, tenant))
+    ) {
+      await this.repo.softDeleteWarehouse(warehouseId, tenant);
+    }
     return { success: true };
   }
 }

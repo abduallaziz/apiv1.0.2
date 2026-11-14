@@ -92,7 +92,9 @@ export class BranchesRepository {
 
   /** True when the branch already has shifts or invoices (real history). */
   async hasHistory(id: string, tenant: TenantContext): Promise<boolean> {
-    for (const table of ['shifts', 'invoices']) {
+    // NB: the sales table is `orders`; `invoices` is the SaaS billing table
+    // (no branch_id), so querying it made the delete fail with a 500.
+    for (const table of ['shifts', 'orders']) {
       const { count, error } = await this.supabase
         .from(table)
         .select('id', { count: 'exact', head: true })
@@ -200,6 +202,34 @@ export class BranchesRepository {
       .maybeSingle();
     if (error) throw error;
     return !!data;
+  }
+
+  /** True when any stock row with quantity still exists in the warehouse. */
+  async warehouseHasStock(
+    warehouseId: string,
+    tenant: TenantContext,
+  ): Promise<boolean> {
+    const { count, error } = await this.supabase
+      .from('stock_levels')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.tenantId)
+      .eq('warehouse_id', warehouseId)
+      .gt('quantity_on_hand', 0);
+    if (error) throw error;
+    return (count ?? 0) > 0;
+  }
+
+  /** Soft-deletes the auto-created warehouse that belonged to the branch. */
+  async softDeleteWarehouse(warehouseId: string, tenant: TenantContext) {
+    const { error } = await this.supabase
+      .from('warehouses')
+      .update({ deleted_at: new Date().toISOString(), is_active: false })
+      .eq('id', warehouseId)
+      .eq('tenant_id', tenant.tenantId)
+      .is('deleted_at', null);
+    if (error) {
+      this.logger.warn(`Warehouse soft delete failed: ${error.message}`);
+    }
   }
 
   async softDelete(id: string, tenant: TenantContext) {

@@ -19,6 +19,8 @@ function make(overrides: Record<string, unknown> = {}) {
     hasHistory: jest.fn().mockResolvedValue(false),
     softDelete: jest.fn(),
     warehouseBelongsToTenant: jest.fn(),
+    warehouseHasStock: jest.fn().mockResolvedValue(false),
+    softDeleteWarehouse: jest.fn(),
     ...overrides,
   };
   const billing = { checkBranchLimit: jest.fn() };
@@ -57,13 +59,13 @@ describe('BranchesService', () => {
         'b1',
         tenant,
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ConflictException);
     await expect(
       make({ hasHistory: jest.fn().mockResolvedValue(true) }).svc.remove(
         'b1',
         tenant,
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ConflictException);
   });
   it('refuses deleting the last branch', async () => {
     const { svc } = make({ countActive: jest.fn().mockResolvedValue(1) });
@@ -75,5 +77,14 @@ describe('BranchesService', () => {
     const { svc, repo } = make();
     await svc.remove('b1', tenant);
     expect(repo.softDelete).toHaveBeenCalled();
+    expect(repo.softDeleteWarehouse).toHaveBeenCalledWith('w1', tenant);
+  });
+  it('keeps the warehouse when it still holds stock', async () => {
+    const { svc, repo } = make({
+      warehouseHasStock: jest.fn().mockResolvedValue(true),
+    });
+    await svc.remove('b1', tenant);
+    expect(repo.softDelete).toHaveBeenCalled();
+    expect(repo.softDeleteWarehouse).not.toHaveBeenCalled();
   });
 });
