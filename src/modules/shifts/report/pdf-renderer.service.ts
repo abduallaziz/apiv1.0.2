@@ -57,7 +57,16 @@ export class PdfRendererService implements OnModuleDestroy {
           'PDF engine is not available on this server (no Chrome/Chromium found; set PUPPETEER_EXECUTABLE_PATH)',
         );
       }
-      const puppeteer = await import('puppeteer-core');
+      // puppeteer-core is ESM-only: under CommonJS a plain import() is compiled
+      // to require(), which throws ERR_REQUIRE_ESM on Node < 22.12 (the opaque
+      // prod 500). A real runtime import() works everywhere.
+      const loadEsm = new Function('m', 'return import(m)') as (
+        m: string,
+      ) => Promise<typeof import('puppeteer-core')>;
+      const puppeteer = await loadEsm('puppeteer-core').catch((e: unknown) => {
+        this.logger.error(`puppeteer import failed: ${(e as Error).message}`);
+        throw new ServiceUnavailableException('PDF engine is not available');
+      });
       this.launching = puppeteer
         .launch({
           executablePath,

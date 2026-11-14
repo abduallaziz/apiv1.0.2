@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -31,6 +32,7 @@ export class InvoiceItemDto {
 
   @IsNumber()
   @Min(1)
+  @Max(100000)
   quantity: number;
 
   @IsNumber()
