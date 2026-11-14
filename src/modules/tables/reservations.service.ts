@@ -108,10 +108,7 @@ export class ReservationsService {
   }
 
   async remove(id: string, tenant: TenantContext) {
-    const reservation = await this.findOne(id, tenant);
-    if (reservation.status === 'seated') {
-      throw new BadRequestException('A seated reservation cannot be deleted');
-    }
+    await this.findOne(id, tenant);
     await this.repo.remove(id, tenant.tenantId);
     return { id };
   }

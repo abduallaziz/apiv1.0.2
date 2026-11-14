@@ -369,6 +369,10 @@ export class CustomersService {
       await this.validateCustomFields(tenant, dto.custom_fields, false);
     }
 
+    if (plate_number?.trim()) {
+      await this.applyPlateToVehicles(tenant, user, id, plate_number.trim());
+    }
+
     return this.repo.update(tenant, id, {
       ...dto,
       phone,
@@ -377,6 +381,31 @@ export class CustomersService {
       visit_date,
       odometer,
     });
+  }
+
+  /**
+   * A plate sent with the customer (plate_number field) must reach the cars
+   * table, otherwise the list column changes while the real car keeps the old
+   * plate. Single car: renamed. Plate already among the cars: nothing to do.
+   * Several cars: the plate is added as another car.
+   */
+  private async applyPlateToVehicles(
+    tenant: TenantContext,
+    user: JwtPayload,
+    customerId: string,
+    plate: string,
+  ) {
+    const plateN = normalizePlate(plate);
+    if (!plateN) return;
+    const vehicles = await this.repo.listVehicles(tenant, customerId);
+    if (vehicles.some((v) => normalizePlate(v.plate) === plateN)) return;
+    if (vehicles.length === 1) {
+      await this.updateVehicle(tenant, user, customerId, vehicles[0].id, {
+        plate,
+      });
+      return;
+    }
+    await this.insertVehicle(tenant, customerId, { plate });
   }
 
   async remove(tenant: TenantContext, user: JwtPayload, id: string) {

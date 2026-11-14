@@ -283,6 +283,9 @@ export class InvoicesRepository extends ScopedRepository {
         throw new NotFoundException('Order not found');
       }
 
+      // SAVEPOINT: a swallowed error would otherwise leave the tx aborted and the
+      // final COMMIT would silently roll back the status update (cancel no-op).
+      await client.query('SAVEPOINT reverse_sale');
       try {
         await client.query(
           'SELECT fn_reverse_sales_order($1, $2, $3, $4, $5)',
@@ -295,6 +298,7 @@ export class InvoicesRepository extends ScopedRepository {
           ],
         );
       } catch (err: any) {
+        await client.query('ROLLBACK TO SAVEPOINT reverse_sale');
         // M184 approved behavior: only the specific "nothing to reverse"
         // case (order was never posted — e.g. created before this
         // integration existed, or posting itself never happened) is
@@ -360,7 +364,9 @@ export class InvoicesRepository extends ScopedRepository {
     // المكتملة التي نتجت عن استئنافها.
     let query = this.ordersQuery(tenant)
       .select(this.ORDER_SELECT)
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      // unfinished dine-in orders (open table) are not invoices
+      .or('table_id.is.null,status.neq.pending');
 
     if (branchId) query = query.eq('branch_id', branchId);
     if (dateFrom) query = query.gte('created_at', dateFrom);

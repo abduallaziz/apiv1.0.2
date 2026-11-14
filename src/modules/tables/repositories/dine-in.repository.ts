@@ -161,7 +161,7 @@ export class DineInRepository {
       } catch {
         await client.query('ROLLBACK TO SAVEPOINT release_empty');
         await client.query(
-          `UPDATE orders SET status = 'cancelled', cancelled_at = now(),
+          `UPDATE orders SET status = 'cancelled', cancelled_at = now(), deleted_at = now(),
                   cancelled_by = $3, cancel_reason = 'Table released (opened by mistake)'
             WHERE id = $1 AND tenant_id = $2`,
           [orderId, tenant.tenantId, cancelledBy],
