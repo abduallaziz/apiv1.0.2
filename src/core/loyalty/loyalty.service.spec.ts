@@ -464,3 +464,28 @@ describe('Phase 8 — existing default-tenant behavior unaffected', () => {
     expect(getPooled()).toBe(15);
   });
 });
+
+describe('LoyaltyService — branch isolation (D10)', () => {
+  it('rejects a customer that is not in the sale branch', async () => {
+    const { service, rpcCalls } = buildService({ customerExists: false });
+    await expect(
+      service.redeemPoints(TENANT_A, CUSTOMER_1, 5, {
+        branchId: BRANCH_A,
+        isolated: true,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it('uses the pooled balance (no ledger branch lookup) when isolated, even if loyalty_scope is branch', async () => {
+    const { service, ledgerQueryCalls, rpcCalls } = buildService({
+      loyaltyScope: 'branch',
+    });
+    await service.redeemPoints(TENANT_A, CUSTOMER_1, 5, {
+      branchId: BRANCH_A,
+      isolated: true,
+    });
+    expect(ledgerQueryCalls).toHaveLength(0);
+    expect(rpcCalls[0][1]).toMatchObject({ p_delta: -5, p_branch_id: BRANCH_A });
+  });
+});
