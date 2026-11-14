@@ -16,6 +16,9 @@ export interface ChromeFs {
   exists(p: string): boolean;
   readdir(p: string): string[];
   which(name: string): string | null;
+  // Ubuntu ships /usr/bin/chromium-browser as a tiny script that only says 'install the snap':
+  // it exists but cannot run, so it must never be chosen.
+  isStub?(p: string): boolean;
 }
 
 export const realChromeFs: ChromeFs = {
@@ -25,6 +28,14 @@ export const realChromeFs: ChromeFs = {
       return fs.readdirSync(p);
     } catch {
       return [];
+    }
+  },
+  isStub: (p) => {
+    try {
+      if (fs.statSync(p).size > 16384) return false;
+      return /snap/i.test(fs.readFileSync(p, 'utf8'));
+    } catch {
+      return false;
     }
   },
   which: (name) => {
@@ -71,7 +82,12 @@ export function resolveChromeExecutable(
   const check = (p: string | undefined | null, source: string) => {
     if (!p) return null;
     tried.push(p);
-    return io.exists(p) ? { path: p, source, tried } : null;
+    if (!io.exists(p)) return null;
+    if (io.isStub?.(p)) {
+      tried.push(`${p} (snap stub, skipped)`);
+      return null;
+    }
+    return { path: p, source, tried };
   };
 
   for (const key of ['PUPPETEER_EXECUTABLE_PATH', 'CHROME_PATH'] as const) {

@@ -84,3 +84,20 @@ describe('CHROME_LAUNCH_ARGS', () => {
     );
   });
 });
+
+describe('snap stub', () => {
+  it('skips a chromium-browser that only prints the snap message', () => {
+    const r = resolveChromeExecutable(
+      {},
+      {
+        exists: (p) => p === '/usr/bin/chromium-browser',
+        readdir: () => [],
+        which: () => null,
+        isStub: (p) => p === '/usr/bin/chromium-browser',
+      },
+      'linux',
+    );
+    expect(r.path).toBeNull();
+    expect(r.tried.some((t) => t.includes('snap stub'))).toBe(true);
+  });
+});

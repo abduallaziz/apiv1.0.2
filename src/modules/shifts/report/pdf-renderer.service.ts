@@ -23,50 +23,33 @@ export class PdfRendererService implements OnModuleDestroy {
     null;
   private resolveError: string | null = null;
 
-  /**
-   * Resolve a Chrome/Chromium binary: env var, well-known paths, PATH, `which`, nix store,
-   * puppeteer cache, then (last resort) the serverless build shipped by @sparticuz/chromium.
-   * A system chromium is preferred because it uses the installed fonts (Arabic shaping).
-   */
-  private async resolveExecutable(): Promise<{
-    path: string;
-    source: string;
-    args: string[];
-  } | null> {
-    if (this.resolved) return this.resolved;
+  /** Launch candidates in order: a working system Chrome first (installed fonts shape Arabic), then the serverless build. */
+  private async candidates(): Promise<
+    { path: string; source: string; args: string[] }[]
+  > {
+    const list: { path: string; source: string; args: string[] }[] = [];
     const sys = resolveChromeExecutable();
     if (sys.path) {
-      this.resolved = {
+      list.push({
         path: sys.path,
         source: sys.source,
         args: [...CHROME_LAUNCH_ARGS],
-      };
-    } else {
-      try {
-        const mod = (await import('@sparticuz/chromium')) as {
-          default: {
-            executablePath: () => Promise<string>;
-            args: string[];
-          };
-        };
-        const exe = await mod.default.executablePath();
-        this.resolved = {
-          path: exe,
-          source: '@sparticuz/chromium',
-          args: Array.from(
-            new Set([...mod.default.args, ...CHROME_LAUNCH_ARGS]),
-          ),
-        };
-      } catch (e) {
-        this.resolveError = `no Chrome found (tried ${sys.tried.length} paths) and @sparticuz/chromium failed: ${(e as Error).message}`;
-        this.logger.error(`PDF engine unavailable: ${this.resolveError}`);
-        return null;
-      }
+      });
     }
-    this.logger.log(
-      `PDF engine: using ${this.resolved.path} (source: ${this.resolved.source})`,
-    );
-    return this.resolved;
+    try {
+      const mod = (await import('@sparticuz/chromium')) as {
+        default: { executablePath: () => Promise<string>; args: string[] };
+      };
+      list.push({
+        path: await mod.default.executablePath(),
+        source: '@sparticuz/chromium',
+        args: Array.from(new Set([...mod.default.args, ...CHROME_LAUNCH_ARGS])),
+      });
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : 'unknown error';
+      this.logger.warn(`@sparticuz/chromium unavailable: ${reason}`);
+    }
+    return list;
   }
 
   /** Health probe: renders a tiny PDF and reports which executable was used. */
@@ -100,46 +83,62 @@ export class PdfRendererService implements OnModuleDestroy {
   private async getBrowser(): Promise<Browser> {
     if (this.browser?.connected) return this.browser;
     if (this.launching === null) {
-      const resolved = await this.resolveExecutable();
-      if (!resolved) {
-        throw new ServiceUnavailableException(
-          'PDF engine is not available on this server (no Chrome/Chromium found; set PUPPETEER_EXECUTABLE_PATH)',
-        );
-      }
-      const puppeteer = await import('puppeteer-core').catch((e: unknown) => {
-        this.logger.error('puppeteer import failed: ' + (e as Error).message);
-        throw new ServiceUnavailableException('PDF engine is not available');
+      this.launching = this.launchFirstWorking().finally(() => {
+        this.launching = null;
       });
-      this.launching = puppeteer
-        .launch({
-          executablePath: resolved.path,
-          headless: true,
-          args: resolved.args,
-          timeout: 30000,
-        })
-        .then((b) => {
-          this.browser = b;
-          b.on('disconnected', () => {
-            this.browser = null;
-          });
-          return b;
-        })
-        .catch((e: unknown) => {
-          // A browser that cannot start is a server-environment problem, not
-          // a bug in the request: report it as 503 (not an opaque 500).
-          const reason = e instanceof Error ? e.message : 'unknown error';
-          this.logger.error(`Chrome launch failed: ${reason}`);
-          // The reason is included (truncated, first line only) so a deployment problem can be
-          // diagnosed from the UI without server logs.
-          throw new ServiceUnavailableException(
-            `PDF engine failed to start on this server: [${resolved.source}] ${reason.replace(/\s*\n\s*/g, ' | ').slice(0, 700)}`,
-          );
-        })
-        .finally(() => {
-          this.launching = null;
-        });
     }
     return this.launching;
+  }
+
+  // Tries every candidate until one starts; a binary that exists but cannot run (snap stub,
+  // missing shared libraries) falls through to the next one instead of failing the request.
+  private async launchFirstWorking(): Promise<Browser> {
+    const puppeteer = await import('puppeteer-core').catch((e: unknown) => {
+      this.logger.error(
+        'puppeteer import failed: ' +
+          (e instanceof Error ? e.message : 'unknown'),
+      );
+      throw new ServiceUnavailableException('PDF engine is not available');
+    });
+    const candidates = await this.candidates();
+    if (candidates.length === 0) {
+      this.resolveError = 'no Chrome/Chromium candidate found';
+      throw new ServiceUnavailableException(
+        'PDF engine is not available on this server (no Chrome/Chromium found; set PUPPETEER_EXECUTABLE_PATH)',
+      );
+    }
+    const failures: string[] = [];
+    for (const c of candidates) {
+      try {
+        const b = await puppeteer.launch({
+          executablePath: c.path,
+          headless: true,
+          args: c.args,
+          timeout: 30000,
+        });
+        this.browser = b;
+        b.on('disconnected', () => {
+          this.browser = null;
+        });
+        this.resolved = c;
+        this.resolveError = null;
+        this.logger.log(`PDF engine: using ${c.path} (source: ${c.source})`);
+        return b;
+      } catch (e) {
+        const reason = (e instanceof Error ? e.message : 'unknown error')
+          .replace(/\s*\n\s*/g, ' | ')
+          .slice(0, 400);
+        this.logger.error(`Chrome launch failed [${c.source}]: ${reason}`);
+        failures.push(`[${c.source}] ${reason}`);
+      }
+    }
+    this.resolveError = failures.join(' || ');
+    // A browser that cannot start is a server-environment problem, not a bug in the request:
+    // report it as 503. The reasons are included so a deployment problem can be diagnosed from
+    // the UI without server logs.
+    throw new ServiceUnavailableException(
+      `PDF engine failed to start on this server: ${this.resolveError.slice(0, 900)}`,
+    );
   }
 
   // One-page PDF, 105 mm wide, as tall as its content (.page element).
