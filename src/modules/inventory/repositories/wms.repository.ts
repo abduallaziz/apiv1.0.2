@@ -29,7 +29,8 @@ export class WmsRepository extends ScopedRepository {
     query: ShipmentsQueryDto,
   ): Promise<unknown[] | PagedResult<unknown>>;
   async findShipments(tenantId: string, arg?: string | ShipmentsQueryDto) {
-    const q: ShipmentsQueryDto = typeof arg === 'string' ? { status: arg } : (arg ?? {});
+    const q: ShipmentsQueryDto =
+      typeof arg === 'string' ? { status: arg } : (arg ?? {});
 
     const applyFilters = (query: any) => {
       if (q.status) query = query.eq('status', q.status);
@@ -85,7 +86,12 @@ export class WmsRepository extends ScopedRepository {
     ]);
     if (error) throw error;
     if (countError) throw countError;
-    return { data, total: count ?? 0, page, perPage: limit } as PagedResult<unknown>;
+    return {
+      data,
+      total: count ?? 0,
+      page,
+      perPage: limit,
+    } as PagedResult<unknown>;
   }
 
   async findShipmentById(id: string, tenantId: string) {
@@ -247,7 +253,8 @@ export class WmsRepository extends ScopedRepository {
     const applyFilters = (query: any) => {
       if (q.entity_type) query = query.eq('entity_type', q.entity_type);
       if (q.entity_id) query = query.eq('entity_id', q.entity_id);
-      if (q.exception_type) query = query.eq('exception_type', q.exception_type);
+      if (q.exception_type)
+        query = query.eq('exception_type', q.exception_type);
       if (q.date_from) query = query.gte('created_at', q.date_from);
       if (q.date_to) query = query.lt('created_at', q.date_to);
       return query;
@@ -292,7 +299,12 @@ export class WmsRepository extends ScopedRepository {
     ]);
     if (error) throw error;
     if (countError) throw countError;
-    return { data, total: count ?? 0, page, perPage: limit } as PagedResult<unknown>;
+    return {
+      data,
+      total: count ?? 0,
+      page,
+      perPage: limit,
+    } as PagedResult<unknown>;
   }
 
   async shipShipment(id: string, actorId: string, trackingNumber?: string) {
@@ -336,7 +348,8 @@ export class WmsRepository extends ScopedRepository {
     query: PickListsQueryDto,
   ): Promise<unknown[] | PagedResult<unknown>>;
   async findPickLists(tenantId: string, arg?: string | PickListsQueryDto) {
-    const q: PickListsQueryDto = typeof arg === 'string' ? { status: arg } : (arg ?? {});
+    const q: PickListsQueryDto =
+      typeof arg === 'string' ? { status: arg } : (arg ?? {});
     const select =
       '*, warehouses(name, code), shipments:pick_list_shipments(shipment_id), lines:pick_list_lines(*, items(name, sku))';
 
@@ -390,7 +403,12 @@ export class WmsRepository extends ScopedRepository {
     ]);
     if (error) throw error;
     if (countError) throw countError;
-    return { data, total: count ?? 0, page, perPage: limit } as PagedResult<unknown>;
+    return {
+      data,
+      total: count ?? 0,
+      page,
+      perPage: limit,
+    } as PagedResult<unknown>;
   }
 
   async findPickListById(id: string, tenantId: string) {
@@ -413,7 +431,9 @@ export class WmsRepository extends ScopedRepository {
     // more than a few dozen rows for a real pick list), summed and attached
     // client-side in this one response — not a per-request loop, not a
     // global exceptions fetch, no new storage or business logic invented.
-    const lineIds = ((data as { lines?: { id: string }[] }).lines ?? []).map((l) => l.id);
+    const lineIds = ((data as { lines?: { id: string }[] }).lines ?? []).map(
+      (l) => l.id,
+    );
     if (lineIds.length > 0) {
       const { data: lineExceptions, error: excError } = await this.supabase
         .from('warehouse_exceptions')
@@ -426,9 +446,14 @@ export class WmsRepository extends ScopedRepository {
       const exceptionQtyByLine = new Map<string, number>();
       for (const exc of lineExceptions ?? []) {
         const prev = exceptionQtyByLine.get(exc.entity_id) ?? 0;
-        exceptionQtyByLine.set(exc.entity_id, prev + Number(exc.affected_quantity ?? 0));
+        exceptionQtyByLine.set(
+          exc.entity_id,
+          prev + Number(exc.affected_quantity ?? 0),
+        );
       }
-      for (const line of (data as { lines: { id: string; exception_quantity?: number }[] }).lines) {
+      for (const line of (
+        data as { lines: { id: string; exception_quantity?: number }[] }
+      ).lines) {
         line.exception_quantity = exceptionQtyByLine.get(line.id) ?? 0;
       }
     }
@@ -488,7 +513,8 @@ export class WmsRepository extends ScopedRepository {
     query: WavesQueryDto,
   ): Promise<unknown[] | PagedResult<unknown>>;
   async findWaves(tenantId: string, arg?: string | WavesQueryDto) {
-    const q: WavesQueryDto = typeof arg === 'string' ? { status: arg } : (arg ?? {});
+    const q: WavesQueryDto =
+      typeof arg === 'string' ? { status: arg } : (arg ?? {});
 
     const applyFilters = (query: any) => {
       if (q.status) query = query.eq('status', q.status);
@@ -497,9 +523,14 @@ export class WmsRepository extends ScopedRepository {
     };
 
     if (!q.page) {
-      let query = this.supabase.from('waves').select('*').eq('tenant_id', tenantId);
+      let query = this.supabase
+        .from('waves')
+        .select('*')
+        .eq('tenant_id', tenantId);
       query = applyFilters(query);
-      const { data, error } = await query.order('created_at', { ascending: false });
+      const { data, error } = await query.order('created_at', {
+        ascending: false,
+      });
       if (error) throw error;
       return data;
     }
@@ -509,7 +540,10 @@ export class WmsRepository extends ScopedRepository {
     const sortBy = q.sortBy ?? 'created_at';
     const sortOrder = q.sortOrder ?? 'desc';
 
-    let dataQuery = this.supabase.from('waves').select('*').eq('tenant_id', tenantId);
+    let dataQuery = this.supabase
+      .from('waves')
+      .select('*')
+      .eq('tenant_id', tenantId);
     dataQuery = applyFilters(dataQuery);
     dataQuery = dataQuery
       .order(sortBy, { ascending: sortOrder === 'asc' })
@@ -528,7 +562,12 @@ export class WmsRepository extends ScopedRepository {
     ]);
     if (error) throw error;
     if (countError) throw countError;
-    return { data, total: count ?? 0, page, perPage: limit } as PagedResult<unknown>;
+    return {
+      data,
+      total: count ?? 0,
+      page,
+      perPage: limit,
+    } as PagedResult<unknown>;
   }
 
   async findWaveById(id: string, tenantId: string) {

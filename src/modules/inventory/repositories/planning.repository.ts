@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -19,7 +20,7 @@ export class PlanningRepository extends ScopedRepository {
       'fn_calculate_demand_forecast',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_item_id: itemId,
         p_variant_id: variantId ?? null,
         p_lookback_days: lookbackDays ?? 30,
@@ -48,7 +49,7 @@ export class PlanningRepository extends ScopedRepository {
       'fn_calculate_safety_stock',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_item_id: itemId,
         p_variant_id: variantId ?? null,
         p_lookback_days: lookbackDays ?? 90,

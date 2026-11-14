@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -13,7 +14,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
       'fn_inventory_valuation_report',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;
@@ -30,7 +31,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
       'fn_inventory_turnover_report',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_date_from: dateFrom,
         p_date_to: dateTo,
       },
@@ -44,7 +45,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
       'fn_inventory_aging_report',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;
@@ -63,7 +64,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
         p_tenant_id: tenantId,
         p_date_from: dateFrom,
         p_date_to: dateTo,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;
@@ -80,7 +81,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
       {
         p_tenant_id: tenantId,
         p_lookback_days: lookbackDays ?? 90,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;
@@ -99,7 +100,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
         p_tenant_id: tenantId,
         p_lookback_days: lookbackDays ?? 90,
         p_max_units_sold: maxUnitsSold ?? 5,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;
@@ -111,7 +112,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
       'fn_inventory_overstock_report',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;
@@ -130,7 +131,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
         p_tenant_id: tenantId,
         p_date_from: dateFrom,
         p_date_to: dateTo,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;
@@ -142,7 +143,7 @@ export class AdvancedAnalyticsRepository extends ScopedRepository {
       'fn_inventory_coverage_report',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;

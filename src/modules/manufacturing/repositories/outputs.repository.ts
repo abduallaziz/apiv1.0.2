@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -86,7 +87,7 @@ export class OutputsRepository {
       'fn_receive_production_output',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_output_id: outputId,
         p_actor_id: actorId,
       },

@@ -1,3 +1,10 @@
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+  branchWarehouseIds,
+  inWarehouses,
+} from '../../../core/branch-scope/branch-warehouse-scope';
+import { assertSupplierInBranch } from '../../../core/branch-scope/branch-supplier';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isUniqueViolation } from '../../../shared/supabase/postgrest-error.util';
@@ -30,6 +37,7 @@ export class SubcontractOrdersRepository {
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
+    query = inWarehouses(query, await branchWarehouseIds(tenantId));
     const { data, error } = await query;
     if (error) throw error;
     return data ?? [];
@@ -44,6 +52,12 @@ export class SubcontractOrdersRepository {
       .is('deleted_at', null)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertVisibleWarehouse(
+        tenantId,
+        data.warehouse_id,
+        'Subcontract order',
+      );
     return data;
   }
 
@@ -53,6 +67,12 @@ export class SubcontractOrdersRepository {
     header: Record<string, unknown>,
     lines: Record<string, unknown>[],
   ) {
+    await assertWarehouseInBranch(tenantId, header.warehouse_id as string);
+    await assertSupplierInBranch(
+      this.supabase,
+      tenantId,
+      header.supplier_id as string,
+    );
     const { data: order, error } = await this.supabase
       .from('subcontract_orders')
       .insert({ ...header, tenant_id: tenantId, created_by: createdBy })

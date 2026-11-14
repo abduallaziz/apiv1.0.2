@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -39,7 +40,7 @@ export class PutawayRepository extends ScopedRepository {
       'fn_suggest_putaway_location',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_item_id: itemId,
         p_category_id: categoryId,
         p_quantity: quantity,
@@ -66,7 +67,10 @@ export class PutawayRepository extends ScopedRepository {
   ) {
     const { data, error } = await this.supabase.rpc('fn_create_putaway_task', {
       p_tenant_id: tenantId,
-      p_warehouse_id: payload.warehouse_id,
+      p_warehouse_id: await effectiveWarehouseId(
+        tenantId,
+        payload.warehouse_id,
+      ),
       p_item_id: payload.item_id,
       p_variant_id: payload.variant_id,
       p_batch_id: payload.batch_id,

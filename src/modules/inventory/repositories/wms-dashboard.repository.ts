@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -12,7 +13,7 @@ export class WmsDashboardRepository {
   async taskOverview(tenantId: string, warehouseId?: string) {
     const { data, error } = await this.supabase.rpc('fn_wms_task_overview', {
       p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId ?? null,
+      p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
     });
     if (error) throw error;
     return data;
@@ -21,7 +22,10 @@ export class WmsDashboardRepository {
   async pickListOverview(tenantId: string, warehouseId?: string) {
     const { data, error } = await this.supabase.rpc(
       'fn_wms_pick_list_overview',
-      { p_tenant_id: tenantId, p_warehouse_id: warehouseId ?? null },
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
+      },
     );
     if (error) throw error;
     return data;
@@ -30,7 +34,7 @@ export class WmsDashboardRepository {
   async waveOverview(tenantId: string, warehouseId?: string) {
     const { data, error } = await this.supabase.rpc('fn_wms_wave_overview', {
       p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId ?? null,
+      p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
     });
     if (error) throw error;
     return data;
@@ -39,7 +43,10 @@ export class WmsDashboardRepository {
   async shipmentOverview(tenantId: string, warehouseId?: string) {
     const { data, error } = await this.supabase.rpc(
       'fn_wms_shipment_overview',
-      { p_tenant_id: tenantId, p_warehouse_id: warehouseId ?? null },
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
+      },
     );
     if (error) throw error;
     return data;
@@ -55,7 +62,7 @@ export class WmsDashboardRepository {
       'fn_wms_exception_overview',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_date_from: dateFrom ?? null,
         p_date_to: dateTo ?? null,
       },
@@ -67,7 +74,10 @@ export class WmsDashboardRepository {
   async reservationOverview(tenantId: string, warehouseId?: string) {
     const { data, error } = await this.supabase.rpc(
       'fn_wms_reservation_overview',
-      { p_tenant_id: tenantId, p_warehouse_id: warehouseId ?? null },
+      {
+        p_tenant_id: tenantId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
+      },
     );
     if (error) throw error;
     return data;
@@ -92,7 +102,7 @@ export class WmsDashboardRepository {
       {
         p_tenant_id: tenantId,
         p_entity_type: entityType,
-        p_warehouse_id: warehouseId ?? null,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
       },
     );
     if (error) throw error;

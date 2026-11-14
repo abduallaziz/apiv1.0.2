@@ -1,10 +1,12 @@
+import {
+  assertVisibleWarehouse,
+  branchWarehouseIds,
+  inWarehouses,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
-import {
-  WarehouseTasksQueryDto,
-  PagedResult,
-} from '../dto/wms-list-query.dto';
+import { WarehouseTasksQueryDto, PagedResult } from '../dto/wms-list-query.dto';
 
 @Injectable()
 export class WarehouseTasksRepository extends ScopedRepository {
@@ -35,7 +37,9 @@ export class WarehouseTasksRepository extends ScopedRepository {
       q = { task_type: arg2, status: arg3, assigned_to: arg4 };
     }
 
+    const branchIds = await branchWarehouseIds(tenantId);
     const applyFilters = (query: any) => {
+      query = inWarehouses(query, branchIds);
       if (q.task_type) query = query.eq('task_type', q.task_type);
       if (q.status) query = query.eq('status', q.status);
       if (q.assigned_to) query = query.eq('assigned_to', q.assigned_to);
@@ -77,9 +81,10 @@ export class WarehouseTasksRepository extends ScopedRepository {
       .eq('tenant_id', tenantId);
     countQuery = applyFilters(countQuery);
 
-    const [{ data, error }, { count, error: countError }] = await Promise.all(
-      [dataQuery, countQuery],
-    );
+    const [{ data, error }, { count, error: countError }] = await Promise.all([
+      dataQuery,
+      countQuery,
+    ]);
     if (error) throw error;
     if (countError) throw countError;
     return {
@@ -98,6 +103,7 @@ export class WarehouseTasksRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
+    if (data) await assertVisibleWarehouse(tenantId, data.warehouse_id, 'Task');
     return data;
   }
 

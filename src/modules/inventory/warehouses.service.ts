@@ -44,7 +44,9 @@ export class WarehousesService {
     await this.findById(id, tenantId);
     const branchId = currentBranchId(tenantId);
     if (branchId && dto.branch_id && dto.branch_id !== branchId) {
-      throw new ForbiddenException('A warehouse cannot be moved to another branch');
+      throw new ForbiddenException(
+        'A warehouse cannot be moved to another branch',
+      );
     }
     // Deactivating the default warehouse of a branch would silently stop its
     // sales from deducting stock / posting COGS.

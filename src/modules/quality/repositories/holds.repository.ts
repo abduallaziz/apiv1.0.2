@@ -1,3 +1,4 @@
+import { assertWarehouseInBranch } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -48,6 +49,7 @@ export class HoldsRepository extends ScopedRepository {
       created_by: string | null;
     },
   ) {
+    await assertWarehouseInBranch(tenantId, payload.warehouse_id);
     const { data, error } = await this.supabase.rpc('fn_create_quality_hold', {
       p_tenant_id: tenantId,
       p_warehouse_id: payload.warehouse_id,

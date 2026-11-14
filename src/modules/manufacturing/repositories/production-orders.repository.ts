@@ -1,3 +1,9 @@
+import {
+  assertVisibleWarehouse,
+  assertWarehouseInBranch,
+  branchWarehouseIds,
+  inWarehouses,
+} from '../../../core/branch-scope/branch-warehouse-scope';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -60,6 +66,7 @@ export class ProductionOrdersRepository extends ScopedRepository {
 
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.warehouse_id) q = q.eq('warehouse_id', filters.warehouse_id);
+    q = inWarehouses(q, await branchWarehouseIds(tenantId));
     if (filters.date_from) q = q.gte('created_at', filters.date_from);
     if (filters.date_to) q = q.lte('created_at', filters.date_to);
     if (filters.search) q = q.ilike('order_number', `%${filters.search}%`);
@@ -82,6 +89,12 @@ export class ProductionOrdersRepository extends ScopedRepository {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
+    if (data)
+      await assertVisibleWarehouse(
+        tenantId,
+        data.warehouse_id,
+        'Production order',
+      );
     return data;
   }
 
@@ -141,6 +154,7 @@ export class ProductionOrdersRepository extends ScopedRepository {
   }
 
   async create(tenantId: string, payload: Record<string, unknown>) {
+    await assertWarehouseInBranch(tenantId, payload.warehouse_id as string);
     const { data, error } = await this.supabase
       .from('production_orders')
       .insert({ ...payload, tenant_id: tenantId, status: 'draft' })

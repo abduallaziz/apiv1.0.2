@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -36,7 +37,7 @@ export class ScrapRepository {
       'fn_record_production_scrap',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_production_order_id: productionOrderId,
         p_item_id: itemId,
         p_variant_id: variantId,

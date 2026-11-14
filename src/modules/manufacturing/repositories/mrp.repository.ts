@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -11,7 +12,7 @@ export class MrpRepository extends ScopedRepository {
   async runMrp(tenantId: string, warehouseId: string): Promise<string> {
     const { data, error } = await this.supabase.rpc('fn_run_mrp', {
       p_tenant_id: tenantId,
-      p_warehouse_id: warehouseId,
+      p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
     });
     if (error) throw error;
     return data as string;

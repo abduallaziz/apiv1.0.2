@@ -6,9 +6,7 @@ import {
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { TenantContext } from '../../../core/tenant/tenant.context';
-import {
-  currentBranchId,
-} from '../../../core/branch-scope/branch-warehouse-scope';
+import { currentBranchId } from '../../../core/branch-scope/branch-warehouse-scope';
 import {
   isUniqueViolation,
   isForeignKeyViolation,

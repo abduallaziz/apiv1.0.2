@@ -163,3 +163,24 @@ export async function assertVisibleBranchDoc(
     return;
   throw new NotFoundException(`${what} not found`);
 }
+
+/**
+ * For analytics RPCs that take ONE optional warehouse (NULL = whole tenant): under isolation reject a warehouse of
+ * another branch and, when none was requested and the branch owns exactly one warehouse, default to it.
+ * (Branches with several warehouses still get the tenant-wide aggregate from these RPCs; listed as deferred.)
+ */
+export async function effectiveWarehouseId(
+  tenantId: string,
+  requested: string | null | undefined,
+): Promise<string | null> {
+  const scope = currentBranchScope(tenantId);
+  if (!scope) return requested ?? null;
+  const ids = await scope.warehouseIds();
+  if (requested) {
+    if (!ids.includes(requested)) {
+      throw new NotFoundException('Warehouse not found');
+    }
+    return requested;
+  }
+  return ids.length === 1 ? ids[0] : null;
+}

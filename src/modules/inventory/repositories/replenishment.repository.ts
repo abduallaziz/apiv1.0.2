@@ -1,3 +1,4 @@
+import { effectiveWarehouseId } from '../../../core/branch-scope/branch-warehouse-scope';
 import { Injectable } from '@nestjs/common';
 import { ScopedRepository } from '../../../core/tenant/scoped.repository';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -37,7 +38,7 @@ export class ReplenishmentRepository extends ScopedRepository {
       'fn_run_replenishment_check',
       {
         p_tenant_id: tenantId,
-        p_warehouse_id: warehouseId,
+        p_warehouse_id: await effectiveWarehouseId(tenantId, warehouseId),
         p_created_by: createdBy,
       },
     );
