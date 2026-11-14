@@ -41,14 +41,16 @@ export class ShiftsRepository {
     return data;
   }
 
-  async findById(id: string, tenantId: string) {
-    const { data } = await this.supabase
+  /** `branchId` is passed under branch isolation: a shift of another branch is then not found. */
+  async findById(id: string, tenantId: string, branchId?: string | null) {
+    let q = this.supabase
       .from('shifts')
       .select('*')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .maybeSingle();
+      .is('deleted_at', null);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data } = await q.maybeSingle();
     return data;
   }
 

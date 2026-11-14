@@ -40,6 +40,11 @@ export class ShiftsService {
     private readonly i18n: I18nService,
   ) {}
 
+  /** The context branch when the tenant runs with branch isolation, else undefined (no filter). */
+  private isolatedBranch(tenant: TenantContext): string | undefined {
+    return tenant.isolated && tenant.branchId ? tenant.branchId : undefined;
+  }
+
   async openShift(
     dto: OpenShiftDto,
     tenant: TenantContext,
@@ -48,6 +53,9 @@ export class ShiftsService {
     ip: string,
     device: string,
   ) {
+    if (tenant.isolated && tenant.branchId && dto.branch_id !== tenant.branchId) {
+      throw new BadRequestException('A shift can only be opened in the working branch');
+    }
     const existing = await this.repo.findOpenByUser(actorId, tenant.tenantId);
     this.engine.validateNoDoubleShift(!!existing);
 
@@ -107,7 +115,7 @@ export class ShiftsService {
     ip: string,
     device: string,
   ) {
-    const shift = await this.repo.findById(shiftId, tenant.tenantId);
+    const shift = await this.repo.findById(shiftId, tenant.tenantId, this.isolatedBranch(tenant));
     if (!shift) throw new NotFoundException('Shift not found');
     if (shift.status === 'closed')
       throw new BadRequestException('Shift already closed');
@@ -335,7 +343,7 @@ export class ShiftsService {
   // so a report is built now from its data (marked legacy: only the cash
   // count was ever recorded).
   async getShiftReport(shiftId: string, tenant: TenantContext) {
-    const shift = await this.repo.findById(shiftId, tenant.tenantId);
+    const shift = await this.repo.findById(shiftId, tenant.tenantId, this.isolatedBranch(tenant));
     if (!shift) throw new NotFoundException('Shift not found');
     if (shift.status !== 'closed') {
       throw new BadRequestException(
@@ -402,7 +410,10 @@ export class ShiftsService {
   }
 
   async findAll(tenant: TenantContext, branchId?: string) {
-    return this.repo.findAll(tenant.tenantId, branchId);
+    return this.repo.findAll(
+      tenant.tenantId,
+      this.isolatedBranch(tenant) ?? branchId,
+    );
   }
 
   async getCurrentShift(
@@ -457,7 +468,7 @@ export class ShiftsService {
   }
 
   async getShiftSummary(shiftId: string, tenant: TenantContext) {
-    const shift = await this.repo.findById(shiftId, tenant.tenantId);
+    const shift = await this.repo.findById(shiftId, tenant.tenantId, this.isolatedBranch(tenant));
     if (!shift) throw new NotFoundException('Shift not found');
 
     const invoices = await this.repo.getShiftInvoices(shiftId, tenant.tenantId);

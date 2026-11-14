@@ -52,15 +52,45 @@ export class SalesReturnsRepository {
     return data as SalesReturnResult;
   }
 
+  /**
+   * Branch isolation: true when the order belongs to `branchId`. Legacy orders without a branch
+   * count as main-branch orders (the backfill assigns them there when isolation is enabled).
+   */
+  async orderInBranch(
+    tenantId: string,
+    orderId: string,
+    branchId: string,
+  ): Promise<boolean> {
+    const { data } = await this.supabase
+      .from('orders')
+      .select('branch_id')
+      .eq('id', orderId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle<{ branch_id: string | null }>();
+    if (!data) return false;
+    if (data.branch_id === branchId) return true;
+    if (data.branch_id !== null) return false;
+    const { data: b } = await this.supabase
+      .from('branches')
+      .select('is_main')
+      .eq('id', branchId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle<{ is_main: boolean }>();
+    return !!b?.is_main;
+  }
+
   async findOpenShiftId(
     tenantId: string,
     cashierId: string,
+    branchId?: string | null,
   ): Promise<string | null> {
-    const { data } = await this.supabase
+    let q = this.supabase
       .from('shifts')
       .select('id')
       .eq('tenant_id', tenantId)
-      .eq('cashier_id', cashierId)
+      .eq('cashier_id', cashierId);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data } = await q
       .eq('status', 'open')
       .is('deleted_at', null)
       .order('opened_at', { ascending: false })

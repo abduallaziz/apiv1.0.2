@@ -88,9 +88,22 @@ export class DineInRepository {
         [tenant.tenantId, orderId, tableId, paymentMethod, customerId],
       );
       if (done.rows.length === 0) return null;
+      let branchForNo: string | null = null;
+      if (tenant.isolated) {
+        // the order's own branch decides the numbering series
+        const b = await client.query<{ branch_id: string | null }>(
+          'SELECT branch_id FROM orders WHERE id = $1 AND tenant_id = $2',
+          [orderId, tenant.tenantId],
+        );
+        branchForNo = b.rows[0]?.branch_id ?? tenant.branchId;
+      }
       const n = await client.query<{ no: string }>(
-        'SELECT fn_next_invoice_no($1, $2, $3) AS no',
-        [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding],
+        branchForNo
+          ? 'SELECT fn_next_invoice_no($1, $2, $3, $4) AS no'
+          : 'SELECT fn_next_invoice_no($1, $2, $3) AS no',
+        branchForNo
+          ? [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding, branchForNo]
+          : [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding],
       );
       const invoiceNo = n.rows[0].no;
       await client.query(

@@ -7,6 +7,7 @@ import { TenantSessionService } from '../../../core/tenant/tenant-session.servic
 import { PaginationDto } from '../../../shared/dto/pagination.dto';
 import { isForeignKeyViolation } from '../../../shared/supabase/postgrest-error.util';
 import type { PoolClient } from 'pg';
+import { scopeToBranch } from '../../../core/tenant/branch-scope.util';
 import { resolveTemplate } from '../../print/print-template.util';
 import type { InvoiceTemplate } from '../../print/print.types';
 
@@ -96,8 +97,12 @@ export class InvoicesRepository extends ScopedRepository {
       let invoiceNo: string | null = null;
       if (invoiceNumber) {
         const n = await client.query<{ no: string }>(
-          'SELECT fn_next_invoice_no($1, $2, $3) AS no',
-          [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding],
+          tenant.isolated
+            ? 'SELECT fn_next_invoice_no($1, $2, $3, $4) AS no'
+            : 'SELECT fn_next_invoice_no($1, $2, $3) AS no',
+          tenant.isolated
+            ? [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding, orderPayload.branch_id]
+            : [tenant.tenantId, invoiceNumber.prefix, invoiceNumber.padding],
         );
         invoiceNo = n.rows[0].no;
       }
@@ -345,7 +350,8 @@ export class InvoicesRepository extends ScopedRepository {
     const query = this.supabase.from('orders').select('*');
     // tenantId is null only for superadmin callers — intentional cross-tenant access
     if (tenant.tenantId) {
-      return query.eq('tenant_id', tenant.tenantId);
+      // under branch isolation an order of another branch is invisible (detail -> 404)
+      return scopeToBranch(query.eq('tenant_id', tenant.tenantId), tenant);
     }
     return query;
   }
@@ -515,6 +521,7 @@ export class InvoicesRepository extends ScopedRepository {
       .eq('id', id)
       .eq('tenant_id', tenant.tenantId)
       .is('deleted_at', null)
+      .match(tenant.isolated && tenant.branchId ? { branch_id: tenant.branchId } : {})
       .select('id, notes')
       .maybeSingle();
     if (error) throw error;
@@ -686,9 +693,10 @@ export class InvoicesRepository extends ScopedRepository {
       .eq('id', id)
       .eq('held', true);
 
-    const scoped = tenant.tenantId
-      ? query.eq('tenant_id', tenant.tenantId)
-      : query;
+    const scoped = scopeToBranch(
+      tenant.tenantId ? query.eq('tenant_id', tenant.tenantId) : query,
+      tenant,
+    );
     const { data, error } = await scoped
       .select('id, held_visibility')
       .maybeSingle();
@@ -703,9 +711,10 @@ export class InvoicesRepository extends ScopedRepository {
       .eq('id', id)
       .eq('held', true);
 
-    const scoped = tenant.tenantId
-      ? query.eq('tenant_id', tenant.tenantId)
-      : query;
+    const scoped = scopeToBranch(
+      tenant.tenantId ? query.eq('tenant_id', tenant.tenantId) : query,
+      tenant,
+    );
     // branch_id added alongside id (Branch System Step 5) — same query, no
     // extra round trip, so the caller can audit-log the resource's real
     // branch instead of nothing.
@@ -745,7 +754,7 @@ export class InvoicesRepository extends ScopedRepository {
 
     // tenantId is null only for superadmin callers — intentional cross-tenant access
     if (tenant.tenantId) {
-      const { data, error } = await query
+      const { data, error } = await scopeToBranch(query, tenant)
         .eq('tenant_id', tenant.tenantId)
         .select('id, status')
         .single();

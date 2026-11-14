@@ -39,7 +39,16 @@ export class SalesReturnsService {
     private readonly zatca: ZatcaService,
   ) {}
 
+  /** Branch isolation: an order of another branch behaves as if it did not exist. */
+  private async assertOrderVisible(tenant: TenantContext, orderId: string) {
+    if (!tenant.isolated || !tenant.branchId) return;
+    if (!(await this.repo.orderInBranch(tenant.tenantId, orderId, tenant.branchId))) {
+      throw new NotFoundException('Invoice not found');
+    }
+  }
+
   async getForOrder(tenant: TenantContext, orderId: string) {
+    await this.assertOrderVisible(tenant, orderId);
     const info = await this.repo.getOrderReturnInfo(tenant.tenantId, orderId);
     if (!info) throw new NotFoundException('Invoice not found');
     return info;
@@ -55,7 +64,12 @@ export class SalesReturnsService {
     // A cash refund is paid from the CURRENT open register of the person
     // processing the return (owner decision 2026-11-09); the database
     // function rejects a cash refund when this is null.
-    const shiftId = await this.repo.findOpenShiftId(tenant.tenantId, actorId);
+    await this.assertOrderVisible(tenant, orderId);
+    const shiftId = await this.repo.findOpenShiftId(
+      tenant.tenantId,
+      actorId,
+      tenant.isolated ? tenant.branchId : null,
+    );
     try {
       return await this.repo.callCreate({
         tenantId: tenant.tenantId,

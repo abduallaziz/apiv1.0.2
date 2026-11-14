@@ -18,6 +18,7 @@ import { QualityModule } from '../quality/quality.module';
 import { OwnershipModule } from '../ownership/ownership.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ItemsModule } from '../items/items.module';
+import { BranchReferenceValidator } from './branch-reference.validator';
 import { ZatcaModule } from '../zatca/zatca.module';
 
 @Module({
@@ -44,7 +45,8 @@ import { ZatcaModule } from '../zatca/zatca.module';
     InvoicesRepository,
     TenantsRepository,
     JwtAuthGuard,
+    BranchReferenceValidator,
   ],
-  exports: [InvoicesService],
+  exports: [InvoicesService, BranchReferenceValidator],
 })
 export class InvoicesModule {}

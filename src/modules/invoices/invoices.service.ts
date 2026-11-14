@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
@@ -18,6 +19,7 @@ import { AuditService } from '../../core/audit/audit.service';
 import { MetricsService } from '../../core/metrics/metrics.service';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { LoyaltyService } from '../../core/loyalty/loyalty.service';
+import { BranchReferenceValidator } from './branch-reference.validator';
 import { CouponsService, Coupon } from '../coupons/coupons.service';
 import { CustomersService } from '../customers/customers.service';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
@@ -119,6 +121,7 @@ export class InvoicesService {
     private readonly rewardRedemptionService: RewardRedemptionService,
     private readonly packagingLevelsRepo: ItemPackagingLevelsRepository,
     private readonly zatca: ZatcaService,
+    @Optional() private readonly branchRefs?: BranchReferenceValidator,
   ) {}
 
   /** Best-effort compensation when order creation fails after redemptions. */
@@ -235,6 +238,15 @@ export class InvoicesService {
         capturedVehicle = resolved.vehicle;
       }
     }
+
+    // Branch isolation: every referenced record must belong to the order's branch (no-op flag-off).
+    await this.branchRefs?.assertSameBranch(tenant, branchId, {
+      itemIds: dto.items.map((i) => i.item_id),
+      variantIds: dto.items.map((i) => i.variant_id),
+      workerIds: dto.items.map((i) => i.worker_id),
+      customerId: dto.customer_id,
+      couponCode: dto.coupon_code,
+    });
 
     // ثلاثة استعلامات مستقلة تمامًا عن بعضها (فحص ملكية العميل، نسبة الضريبة، إعدادات
     // الولاء) — كانت تُنفَّذ بالتسلسل رغم عدم اعتماد أي منها على نتيجة الآخر، فتضيف
@@ -1370,6 +1382,8 @@ export class InvoicesService {
     perPage?: string,
     status?: string,
   ) {
+    // under branch isolation the list is ALWAYS the context branch
+    if (tenant.isolated && tenant.branchId) branchId = tenant.branchId;
     const pagination = new PaginationDto(page, perPage);
     const cacheKey = invoicesListCacheKey(
       tenant.tenantId,
@@ -1554,6 +1568,11 @@ export class InvoicesService {
     actorId: string,
     actorRole: string,
   ) {
+    await this.branchRefs?.assertSameBranch(tenant, dto.branch_id, {
+      itemIds: dto.items.map((i) => i.item_id),
+      customerId: dto.customer_id,
+    });
+
     const subtotal = dto.items.reduce(
       (sum, item) => sum + Number(item.quantity) * Number(item.unit_price),
       0,
