@@ -162,12 +162,17 @@ export class TenantsRepository {
     };
   }
 
+  // A "user" for plan purposes is a login account (role not 'none'/'superadmin'), NOT an HR-only
+  // employee — attendance/payroll profiles are unlimited. Mirrors BillingService.countLoginUsers so the
+  // usage card ("used") matches what checkUserLimit enforces.
   async countUsers(tenantId: string): Promise<number> {
     const { count, error } = await this.supabase
       .from('users')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .eq('is_active', true)
+      .not('role', 'in', '(none,superadmin)');
 
     if (error) throw error;
     return count ?? 0;

@@ -109,19 +109,29 @@ export class BillingService {
     const limits = await this.getPlanLimits(tenantId);
     if (limits.max_users === -1) return;
 
+    const count = await this.countLoginUsers(tenantId);
+    if (count >= limits.max_users) {
+      throw new ForbiddenException(
+        `User limit reached. Your plan allows ${limits.max_users} users.`,
+      );
+    }
+  }
+
+  // Single authoritative definition of a "user seat": an active account that can log in.
+  // HR-only employees (role 'none' — attendance/payroll profiles) never consume a seat, however
+  // many there are, and the platform superadmin is never a tenant seat. Both the limit check above
+  // and the usage display (TenantsRepository.countUsers) use this same rule so they can't disagree.
+  async countLoginUsers(tenantId: string): Promise<number> {
     const { count, error } = await this.supabase
       .from('users')
       .select('*', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .not('role', 'in', '(none,superadmin)');
 
     if (error) throw new Error(error.message);
-    if ((count ?? 0) >= limits.max_users) {
-      throw new ForbiddenException(
-        `User limit reached. Your plan allows ${limits.max_users} users.`,
-      );
-    }
+    return count ?? 0;
   }
 
   // Single authoritative definition of "branch capacity used": active,
