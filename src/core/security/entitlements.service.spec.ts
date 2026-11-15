@@ -45,3 +45,59 @@ describe('EntitlementsService.assertAccess', () => {
     await expect(make({ locked: false }).assertAccess('t1', '/orders')).resolves.toBeUndefined();
   });
 });
+
+describe('EntitlementsService counter-driven state write', () => {
+  function buildSupabase(sub: Record<string, unknown>) {
+    const update = jest.fn().mockReturnThis();
+    const chain: Record<string, jest.Mock> = {
+      from: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      is: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn(),
+      maybeSingle: jest.fn(),
+      update,
+    };
+    // subscriptions list → [sub]; plan lookup → a plan; addons → []; plan_features/overrides → []
+    chain.limit.mockImplementation(() => Promise.resolve({ data: [sub], error: null }));
+    chain.maybeSingle.mockResolvedValue({
+      data: { id: 'p1', name: 'Basic', max_users: 5, max_branches: 1 },
+      error: null,
+    });
+    // addons/features queries resolve to empty via the thenable eq chain
+    chain.eq.mockImplementation(() => chain);
+    return { chain, update };
+  }
+
+  const past = new Date(Date.now() - 86_400_000).toISOString();
+  const future = new Date(Date.now() + 10 * 86_400_000).toISOString();
+
+  it('flips an active subscription to expired the moment its period has passed', async () => {
+    const { chain, update } = buildSupabase({
+      id: 's1', plan_id: 'p1', status: 'active', billing_cycle: 'monthly',
+      current_period_end: past, trial_ends_at: null, grace_period_ends_at: null,
+    });
+    const svc = new EntitlementsService(chain as never);
+    const ent = await svc.get('t1');
+    expect(ent.locked).toBe(true);
+    expect(ent.days_left).toBe(0);
+    // A fire-and-forget update was issued to mark it expired.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'expired' }));
+  });
+
+  it('never writes while the subscription is still live', async () => {
+    const { chain, update } = buildSupabase({
+      id: 's2', plan_id: 'p1', status: 'active', billing_cycle: 'monthly',
+      current_period_end: future, trial_ends_at: null, grace_period_ends_at: null,
+    });
+    const svc = new EntitlementsService(chain as never);
+    const ent = await svc.get('t1');
+    expect(ent.locked).toBe(false);
+    expect(ent.days_left).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(update).not.toHaveBeenCalled();
+  });
+});

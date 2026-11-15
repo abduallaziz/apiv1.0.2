@@ -131,6 +131,14 @@ export class EntitlementsService {
       const days =
         end === null ? null : ended ? 0 : Math.max(0, Math.ceil((end.getTime() - now) / DAY_MS));
 
+      // The countdown is pure math on `end`, so it is always live without anyone being online. The moment it
+      // reaches zero, the first computation that sees it flips the stored row to ended (fire-and-forget) — the
+      // lock itself never waits for this. The hourly cron stays as a fallback: if this write is missed (nobody
+      // ever touches a dead tenant), the cron still catches it, so the counter failing cannot leave a row stale.
+      if (end !== null && end.getTime() <= now && ['trial', 'active', 'grace_period'].includes(sub.status)) {
+        void this.persistEnded(sub.id, sub.status);
+      }
+
       const phase: EntitlementPhase = ended
         ? 'locked'
         : sub.status === 'trial'
@@ -163,6 +171,24 @@ export class EntitlementsService {
       // Fail OPEN for access (never lock a paying tenant because of a lookup error), but report loudly.
       this.logger.error(`entitlements lookup failed for ${tenantId}: ${e instanceof Error ? e.message : e}`);
       return { ...base, phase: 'active', locked: false };
+    }
+  }
+
+  /**
+   * Counter-driven state write: the instant the countdown hits zero, mark the row ended. Same mapping the
+   * fallback cron uses (trial/grace → suspended, active → expired + locked_at). Fire-and-forget: a failure
+   * here never affects the request, and the cron will still correct the row later.
+   */
+  private async persistEnded(subId: string, status: string): Promise<void> {
+    const now = new Date().toISOString();
+    const patch =
+      status === 'active'
+        ? { status: 'expired', locked_at: now, updated_at: now }
+        : { status: 'suspended', suspended_at: now, updated_at: now };
+    try {
+      await this.supabase.from('subscriptions').update(patch).eq('id', subId).eq('status', status);
+    } catch (e) {
+      this.logger.warn(`persistEnded failed for ${subId}: ${e instanceof Error ? e.message : e}`);
     }
   }
 
