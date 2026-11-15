@@ -43,10 +43,9 @@ export class FeatureGuard implements CanActivate {
       throw new ForbiddenException('Tenant context missing');
     }
 
-    // Enforcement off for this tenant → no feature gating at all.
-    if (!this.entitlements.isEnforced(tenantId)) return true;
-
     const ent = await this.entitlements.get(tenantId);
+    // Enforcement off for this tenant → no feature gating at all.
+    if (!ent.enforced) return true;
     if (!ent.features.includes(featureKey)) {
       throw new ForbiddenException(
         `Feature '${featureKey}' is not available for your plan`,

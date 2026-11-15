@@ -65,11 +65,26 @@ export class EntitlementsService {
     this.cache.delete(tenantId);
   }
 
-  isEnforced(tenantId: string): boolean {
+  /** Env-based enforcement: SUBSCRIPTION_ENFORCEMENT = off (default) | all | comma-separated tenant ids. */
+  isEnforcedByEnv(tenantId: string): boolean {
     const raw = (process.env.SUBSCRIPTION_ENFORCEMENT ?? 'off').trim();
     if (!raw || raw === 'off') return false;
     if (raw === 'all') return true;
     return raw.split(',').map((s) => s.trim()).includes(tenantId);
+  }
+
+  /** Per-tenant rollout switch stored in tenants.subscription_enforced (migration 317). Fails safe to false. */
+  private async isEnforcedByDb(tenantId: string): Promise<boolean> {
+    try {
+      const { data } = await this.supabase
+        .from('tenants')
+        .select('subscription_enforced')
+        .eq('id', tenantId)
+        .maybeSingle<{ subscription_enforced: boolean }>();
+      return data?.subscription_enforced === true;
+    } catch {
+      return false;
+    }
   }
 
   async get(tenantId: string): Promise<Entitlements> {
@@ -80,12 +95,11 @@ export class EntitlementsService {
     return value;
   }
 
-  /** Throws 402 SUBSCRIPTION_LOCKED when enforcement is on for the tenant and its plan ended. */
+  /** Throws 402 SUBSCRIPTION_LOCKED when enforcement is on for the tenant (env or DB flag) and its plan ended. */
   async assertAccess(tenantId: string, path: string): Promise<void> {
-    if (!this.isEnforced(tenantId)) return;
     if (LOCK_EXEMPT.test(path)) return;
     const ent = await this.get(tenantId);
-    if (!ent.locked) return;
+    if (!ent.enforced || !ent.locked) return;
     throw new HttpException(
       {
         statusCode: HttpStatus.PAYMENT_REQUIRED,
@@ -98,7 +112,7 @@ export class EntitlementsService {
   }
 
   private async compute(tenantId: string): Promise<Entitlements> {
-    const enforced = this.isEnforced(tenantId);
+    const enforced = this.isEnforcedByEnv(tenantId) || (await this.isEnforcedByDb(tenantId));
     const base: Entitlements = {
       tenant_id: tenantId,
       enforced,
