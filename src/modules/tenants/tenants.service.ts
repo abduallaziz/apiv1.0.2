@@ -104,11 +104,12 @@ export class TenantsService {
     // non-deleted branch including deactivated ones, so a tenant with an
     // inactive-but-not-deleted branch could see a "used" number here higher
     // than what checkBranchLimit() actually enforces against.
-    const [planLimits, usersCount, branchesCount, invoicesThisMonth] =
+    const [planLimits, usersCount, branchesCount, posCount, invoicesThisMonth] =
       await Promise.all([
         this.billingService.getPlanLimits(tenantId),
         this.tenantsRepository.countUsers(tenantId),
         this.billingService.countActiveBranches(tenantId),
+        this.billingService.countActiveRegisters(tenantId),
         this.tenantsRepository.countInvoicesThisMonth(tenantId),
       ]);
 
@@ -120,6 +121,10 @@ export class TenantsService {
       branches: {
         used: branchesCount,
         limit: planLimits.max_branches === -1 ? null : planLimits.max_branches,
+      },
+      pos: {
+        used: posCount,
+        limit: planLimits.max_pos === -1 ? null : planLimits.max_pos,
       },
       invoices_this_month: {
         used: invoicesThisMonth,
