@@ -1,3 +1,4 @@
+import { FeatureFlagsModule } from '../../core/feature-flags/feature-flags.module';
 import { Module } from '@nestjs/common';
 import { BranchesController } from './branches.controller';
 import { BranchesService } from './branches.service';
@@ -10,7 +11,7 @@ import { BranchPublicationsRepository } from './publish/branch-publications.repo
 import { registerBuiltInPublishers } from './publish/publishers';
 
 @Module({
-  imports: [BillingModule],
+  imports: [FeatureFlagsModule, BillingModule],
   controllers: [BranchesController],
   providers: [
     BranchesService,

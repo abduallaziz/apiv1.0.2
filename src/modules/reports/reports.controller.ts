@@ -9,6 +9,8 @@ import {
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto, ExportFormat } from './dto/report-query.dto';
+import { FeatureGuard } from '../../core/feature-flags/feature.guard';
+import { RequireFeature } from '../../core/feature-flags/require-feature.decorator';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -20,7 +22,8 @@ import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 
 @Controller('reports')
-@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
+@RequireFeature('reports')
+@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard, FeatureGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 

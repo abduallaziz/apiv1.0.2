@@ -18,6 +18,8 @@ import { PublishToBranchesDto } from './dto/publish-branches.dto';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { FeatureGuard } from '../../core/feature-flags/feature.guard';
+import { RequireFeature } from '../../core/feature-flags/require-feature.decorator';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { TenantGuard } from '../../core/tenant/tenant.guard';
 import { PermissionGuard } from '../../core/permissions/permission.guard';
@@ -25,7 +27,8 @@ import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 
-@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
+@RequireFeature('multi_branch')
+@UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard, FeatureGuard)
 @Controller('branches')
 export class BranchesController {
   constructor(

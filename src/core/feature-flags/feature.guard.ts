@@ -6,13 +6,20 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { REQUIRE_FEATURE_KEY } from './require-feature.decorator';
-import { FeatureFlagsService } from './feature-flags.service';
+import { EntitlementsService } from '../security/entitlements.service';
 
+/**
+ * Blocks a route whose @RequireFeature('key') is NOT part of the tenant's entitlements
+ * (plan features + active feature add-ons, after super-admin overrides).
+ *
+ * Only enforced when SUBSCRIPTION_ENFORCEMENT is on for the tenant; otherwise everything is allowed,
+ * so turning the flag off is a complete and instant disable. Super admins always bypass.
+ */
 @Injectable()
 export class FeatureGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly featureFlagsService: FeatureFlagsService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -36,12 +43,11 @@ export class FeatureGuard implements CanActivate {
       throw new ForbiddenException('Tenant context missing');
     }
 
-    const isEnabled = await this.featureFlagsService.resolveFeature(
-      tenantId,
-      featureKey,
-    );
+    // Enforcement off for this tenant → no feature gating at all.
+    if (!this.entitlements.isEnforced(tenantId)) return true;
 
-    if (!isEnabled) {
+    const ent = await this.entitlements.get(tenantId);
+    if (!ent.features.includes(featureKey)) {
       throw new ForbiddenException(
         `Feature '${featureKey}' is not available for your plan`,
       );
