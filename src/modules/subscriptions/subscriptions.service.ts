@@ -25,6 +25,40 @@ export class SubscriptionsService {
     return this.entitlements.get(tenant.tenantId);
   }
 
+  /**
+   * TEST helper: ends the current subscription immediately so the owner can see the lock without SQL.
+   * Guarded hard — only works while the tenant is in enforcement (test) mode, and never deletes data
+   * (renewing restores everything). Available to the owner only (controller guard).
+   */
+  async devExpire(tenant: TenantContext) {
+    const ent = await this.entitlements.get(tenant.tenantId);
+    if (!ent.enforced) {
+      throw new BadRequestException(
+        'Test expiry is only available while subscription enforcement is on for this tenant',
+      );
+    }
+    const sub = await this.billingService.getActiveSubscription(
+      tenant.tenantId,
+    );
+    if (!sub) throw new BadRequestException('No active subscription to expire');
+
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    const now = new Date().toISOString();
+    const { error } = await this.supabase
+      .from('subscriptions')
+      .update({
+        status: 'expired',
+        current_period_end: past,
+        locked_at: now,
+        updated_at: now,
+      })
+      .eq('id', sub.id);
+    if (error) throw new Error(error.message);
+
+    this.entitlements.invalidate(tenant.tenantId);
+    return { success: true };
+  }
+
   async getCurrent(tenant: TenantContext) {
     const sub = await this.billingService.getActiveSubscription(
       tenant.tenantId,

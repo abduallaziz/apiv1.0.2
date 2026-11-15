@@ -44,6 +44,14 @@ export class SubscriptionsController {
     );
   }
 
+  // TEST ONLY: ends the subscription now so the owner can see the lock. Guarded to enforcement/test mode
+  // in the service, owner-only here. Reversible via renewal; never deletes data.
+  @Post('dev-expire')
+  @UseGuards(TenantOwnerGuard)
+  devExpire(@GetTenant() tenant: TenantContext, @Req() req: Request) {
+    return this.subscriptionsService.devExpire(this.resolveTenant(tenant, req));
+  }
+
   @Post('upgrade')
   @UseGuards(TenantOwnerGuard)
   upgrade(
