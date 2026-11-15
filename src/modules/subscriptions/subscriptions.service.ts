@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EntitlementsService } from '../../core/security/entitlements.service';
 import { BillingService } from '../../core/billing/billing.service';
 import { BillingCycle } from '../../core/billing/billing.types';
 import { TenantContext } from '../../core/tenant/tenant.context';
@@ -15,8 +16,14 @@ import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 export class SubscriptionsService {
   constructor(
     private readonly billingService: BillingService,
+    private readonly entitlements: EntitlementsService,
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
+
+  /** Everything the subscription screen / lock popup / countdown banner needs, from one place. */
+  getEntitlements(tenant: TenantContext) {
+    return this.entitlements.get(tenant.tenantId);
+  }
 
   async getCurrent(tenant: TenantContext) {
     const sub = await this.billingService.getActiveSubscription(
@@ -70,6 +77,7 @@ export class SubscriptionsService {
       tenantData.email,
       tenantData.name,
     );
+    this.entitlements.invalidate(tenant.tenantId);
 
     return { success: true };
   }

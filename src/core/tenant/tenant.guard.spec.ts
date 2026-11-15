@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { TenantGuard } from './tenant.guard';
 import { TenantContext } from './tenant.context';
 import { BranchValidatorService } from '../security/branch-validator.service';
+import { EntitlementsService } from '../security/entitlements.service';
 import {
   TenantIsolation,
   TenantIsolationService,
@@ -35,6 +36,7 @@ function make(
     reflector as unknown as Reflector,
     validator as unknown as BranchValidatorService,
     isolation as unknown as TenantIsolationService,
+    { assertAccess: jest.fn().mockResolvedValue(undefined) } as unknown as EntitlementsService,
   );
   const run = async (
     user: Record<string, unknown>,

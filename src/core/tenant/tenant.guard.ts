@@ -9,6 +9,7 @@ import { SKIP_TENANT_KEY } from './skip-tenant.decorator';
 import { TenantContext } from './tenant-context';
 import { BranchValidatorService } from '../security/branch-validator.service';
 import { TenantIsolationService } from '../security/tenant-isolation.service';
+import { EntitlementsService } from '../security/entitlements.service';
 
 interface GuardUser {
   tenant_id?: string;
@@ -20,6 +21,8 @@ interface GuardUser {
 interface GuardRequest {
   user?: GuardUser;
   headers: Record<string, string | undefined>;
+  originalUrl?: string;
+  url?: string;
   tenantContext?: TenantContext;
 }
 
@@ -29,6 +32,7 @@ export class TenantGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly branchValidator: BranchValidatorService,
     private readonly isolation: TenantIsolationService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -66,6 +70,11 @@ export class TenantGuard implements CanActivate {
     const headerBranchId: string | null =
       request.headers['x-branch-id'] ?? null;
     const ownBranchId: string | null = user?.branch_id ?? null;
+    // Plan ended => the tenant is fully suspended (402). Behind SUBSCRIPTION_ENFORCEMENT, off by default.
+    await this.entitlements.assertAccess(
+      tenantId,
+      request.originalUrl ?? request.url ?? '',
+    );
     const iso = await this.isolation.get(tenantId);
 
     let branchId: string | null;

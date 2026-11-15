@@ -26,7 +26,11 @@ describe('SubscriptionsService.upgrade plan validation (T2)', () => {
     };
     return {
       billing,
-      svc: new SubscriptionsService(billing as never, supabase as never),
+      svc: new SubscriptionsService(
+        billing as never,
+        { get: jest.fn(), invalidate: jest.fn() } as never,
+        supabase as never,
+      ),
     };
   };
 

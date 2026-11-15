@@ -49,7 +49,11 @@ const mk = (existing: any, paymentStatus: string) => {
     generateInvoice: jest.fn().mockResolvedValue({ invoiceId: 'inv1' }),
     processPayment: jest.fn().mockResolvedValue({ status: paymentStatus }),
   };
-  const svc = new BillingService(supabase as never, invoices as never);
+  const svc = new BillingService(
+    supabase as never,
+    invoices as never,
+    { get: jest.fn(), invalidate: jest.fn() } as never,
+  );
   return { svc, writes, invoices };
 };
 const subWrites = (w: any[]) => w.filter((x) => x.table === 'subscriptions');

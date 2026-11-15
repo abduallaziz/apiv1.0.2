@@ -37,6 +37,13 @@ export class SubscriptionsController {
     );
   }
 
+  @Get('entitlements')
+  getEntitlements(@GetTenant() tenant: TenantContext, @Req() req: Request) {
+    return this.subscriptionsService.getEntitlements(
+      this.resolveTenant(tenant, req),
+    );
+  }
+
   @Post('upgrade')
   @UseGuards(TenantOwnerGuard)
   upgrade(

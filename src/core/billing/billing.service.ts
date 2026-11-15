@@ -18,6 +18,7 @@ import {
 } from './billing.types';
 import { BillingInvoiceService } from './billing-invoice.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { EntitlementsService } from '../security/entitlements.service';
 
 @Injectable()
 export class BillingService {
@@ -26,6 +27,7 @@ export class BillingService {
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     private readonly billingInvoiceService: BillingInvoiceService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   async initTrialSubscription(
@@ -97,15 +99,10 @@ export class BillingService {
     return false;
   }
 
+  /** Plan limits PLUS purchased/granted extra users and branches (see EntitlementsService). */
   async getPlanLimits(tenantId: string): Promise<PlanLimits> {
-    const sub = await this.getActiveSubscription(tenantId);
-    if (!sub) return { max_users: 0, max_branches: 0 };
-
-    const plan = await this.getPlanById(sub.plan_id);
-    return {
-      max_users: plan.max_users,
-      max_branches: plan.max_branches,
-    };
+    const ent = await this.entitlements.get(tenantId);
+    return { max_users: ent.limits.max_users, max_branches: ent.limits.max_branches };
   }
 
   async checkUserLimit(tenantId: string): Promise<void> {
@@ -387,6 +384,22 @@ export class BillingService {
       this.logger.error(
         `Grace period expiry cron error: ${graceError.message}`,
       );
+    }
+
+    // A paid period that ran out is now persisted as ended (the lock itself is computed from the dates by
+    // EntitlementsService, this only keeps the stored status honest for reports and the super admin).
+    const { error: activeError } = await this.supabase
+      .from('subscriptions')
+      .update({
+        status: SubscriptionStatus.EXPIRED,
+        locked_at: now,
+        updated_at: now,
+      })
+      .eq('status', SubscriptionStatus.ACTIVE)
+      .lt('current_period_end', now);
+
+    if (activeError) {
+      this.logger.error(`Active expiry cron error: ${activeError.message}`);
     }
 
     this.logger.log('Subscription expiry check completed');
