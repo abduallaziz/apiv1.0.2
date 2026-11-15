@@ -2,7 +2,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { TenantContext } from '../../core/tenant/tenant.context';
-import { scopeToBranch } from '../../core/tenant/branch-scope.util';
 
 const COLS = 'id, tenant_id, branch_id, name, is_active, sort_order, created_at';
 
@@ -12,9 +11,10 @@ export class PosRegistersRepository {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
-  /** Registers of a branch (scoped to the working branch under isolation). */
+  /** Registers of a branch. The caller passes the already-authorized branch (central = any tenant branch,
+   *  restricted = own), so no extra isolation filter is applied here. */
   async listByBranch(tenant: TenantContext, branchId: string) {
-    const q = this.supabase
+    const { data, error } = await this.supabase
       .from('pos_registers')
       .select(COLS)
       .eq('tenant_id', tenant.tenantId)
@@ -22,7 +22,6 @@ export class PosRegistersRepository {
       .is('deleted_at', null)
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
-    const { data, error } = await scopeToBranch(q, tenant);
     if (error) throw error;
     return data ?? [];
   }

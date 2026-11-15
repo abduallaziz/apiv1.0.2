@@ -6,7 +6,6 @@ import {
   Delete,
   Body,
   Param,
-  Query,
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
@@ -17,10 +16,14 @@ import { PermissionGuard } from '../../core/permissions/permission.guard';
 import { RequirePermission } from '../../core/permissions/require-permission.decorator';
 import { GetTenant } from '../../core/tenant/get-tenant.decorator';
 import { TenantContext } from '../../core/tenant/tenant.context';
+import { BranchScoped } from '../../core/security/branch-scoped.decorator';
+import { EffectiveBranchId } from '../../core/security/effective-branch-id.decorator';
 import { CreatePosRegisterDto } from './dto/create-pos-register.dto';
 import { UpdatePosRegisterDto } from './dto/update-pos-register.dto';
 
 // Registers are a branch-management concern: reuse the branches permissions (owner/manager).
+// @BranchScoped resolves the server-authoritative branch — a central owner may manage ANY branch of the
+// tenant, a branch-restricted user only their own (never the raw query/body branch_id).
 @Controller('pos-registers')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionGuard)
 export class PosRegistersController {
@@ -28,15 +31,25 @@ export class PosRegistersController {
 
   @Get()
   @RequirePermission('branches.view')
-  list(@GetTenant() tenant: TenantContext, @Query('branch_id') branchId?: string) {
+  @BranchScoped({ source: 'query', mode: 'read' })
+  list(
+    @GetTenant() tenant: TenantContext,
+    @EffectiveBranchId() branchId: string | null | undefined,
+  ) {
     if (!branchId) throw new BadRequestException('branch_id is required');
     return this.service.listByBranch(tenant, branchId);
   }
 
   @Post()
   @RequirePermission('branches.manage')
-  create(@Body() dto: CreatePosRegisterDto, @GetTenant() tenant: TenantContext) {
-    return this.service.create(dto, tenant);
+  @BranchScoped({ source: 'body', mode: 'write' })
+  create(
+    @Body() dto: CreatePosRegisterDto,
+    @GetTenant() tenant: TenantContext,
+    @EffectiveBranchId() branchId: string | null | undefined,
+  ) {
+    if (!branchId) throw new BadRequestException('branch_id is required');
+    return this.service.create(dto, tenant, branchId);
   }
 
   @Patch(':id')

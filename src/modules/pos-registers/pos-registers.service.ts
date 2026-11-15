@@ -28,18 +28,16 @@ export class PosRegistersService {
     return this.repo.listByBranch(tenant, branchId);
   }
 
-  async create(dto: CreatePosRegisterDto, tenant: TenantContext) {
+  // `branchId` is the server-authorized branch (resolved by @BranchScoped in the controller): a central
+  // owner may target any branch of the tenant; a branch-restricted user is forced to their own.
+  async create(dto: CreatePosRegisterDto, tenant: TenantContext, branchId: string) {
     const name = dto.name?.trim();
     if (!name) throw new BadRequestException('name should not be empty');
-    // A restricted (branch) user can only add to their own branch.
-    if (tenant.isolated && tenant.branchId && dto.branch_id !== tenant.branchId) {
-      throw new BadRequestException('You can only add a register to your working branch');
-    }
     // Pool check across all branches (plan max_pos + extra_pos add-ons).
     await this.billing.checkPosLimit(tenant.tenantId);
     try {
       return await this.repo.create(tenant, {
-        branch_id: dto.branch_id,
+        branch_id: branchId,
         name,
         sort_order: dto.sort_order,
       });

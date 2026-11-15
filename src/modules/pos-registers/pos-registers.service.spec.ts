@@ -21,7 +21,7 @@ function make(overrides: Record<string, jest.Mock> = {}, billing: Record<string,
 describe('PosRegistersService', () => {
   it('checks the POS pool before creating a register', async () => {
     const { svc, bill } = make();
-    await svc.create({ branch_id: 'b1', name: 'صندوق 1' }, TENANT);
+    await svc.create({ branch_id: 'b1', name: 'صندوق 1' }, TENANT, 'b1');
     expect(bill.checkPosLimit).toHaveBeenCalledWith('t1');
   });
 
@@ -29,14 +29,13 @@ describe('PosRegistersService', () => {
     const { svc } = make({}, {
       checkPosLimit: jest.fn().mockRejectedValue(new ConflictException('POS limit reached')),
     });
-    await expect(svc.create({ branch_id: 'b1', name: 'x' }, TENANT)).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.create({ branch_id: 'b1', name: 'x' }, TENANT, 'b1')).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('a restricted user cannot add a register to another branch', async () => {
-    const { svc } = make();
-    await expect(
-      svc.create({ branch_id: 'other', name: 'x' }, new TenantContext('t1', 'b1', true)),
-    ).rejects.toBeInstanceOf(BadRequestException);
+  it('creates on the server-authorized branch', async () => {
+    const { svc, repo } = make();
+    await svc.create({ branch_id: 'ignored', name: 'x' }, TENANT, 'authorized-branch');
+    expect(repo.create).toHaveBeenCalledWith(TENANT, expect.objectContaining({ branch_id: 'authorized-branch' }));
   });
 
   it('refuses to deactivate a register with an open shift', async () => {
