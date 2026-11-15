@@ -16,6 +16,7 @@ function build() {
     {} as never,
     {} as never,
     {} as never,
+    { resolveForOpen: jest.fn().mockResolvedValue('reg-1') } as never,
   );
   return { service, repo };
 }

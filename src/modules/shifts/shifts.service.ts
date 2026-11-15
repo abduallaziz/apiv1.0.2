@@ -2,8 +2,10 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { ShiftsRepository } from './shifts.repository';
+import { PosRegistersService } from '../pos-registers/pos-registers.service';
 import {
   ShiftEngine,
   COUNTED_METHODS,
@@ -38,6 +40,7 @@ export class ShiftsService {
     private readonly notificationService: NotificationService,
     private readonly pdfRenderer: PdfRendererService,
     private readonly i18n: I18nService,
+    private readonly registers: PosRegistersService,
   ) {}
 
   /** The context branch when the tenant runs with branch isolation, else undefined (no filter). */
@@ -59,20 +62,34 @@ export class ShiftsService {
     const existing = await this.repo.findOpenByUser(actorId, tenant.tenantId, this.isolatedBranch(tenant));
     this.engine.validateNoDoubleShift(!!existing);
 
-    // S1 (phase 4): the check above is read-then-write; the partial UNIQUE
-    // index uq_shifts_one_open_per_cashier is what really guarantees one open
-    // register per cashier, so two simultaneous opens end here as a clean 400.
+    // Which register (صندوق) this shift opens on. A single-register branch resolves automatically.
+    const registerId = await this.registers.resolveForOpen(
+      tenant,
+      dto.branch_id,
+      dto.register_id,
+    );
+
+    // S1 (phase 4): the check above is read-then-write; two partial UNIQUE indexes really guarantee it —
+    // uq_shifts_one_open_per_cashier (one open shift per cashier) and uq_shifts_one_open_per_register
+    // (one open shift per register — the anti-chaos rule), so a race ends here as a clean 409/400.
     let shift;
     try {
       shift = await this.repo.create({
         tenant_id: tenant.tenantId,
         branch_id: dto.branch_id,
         cashier_id: actorId,
+        register_id: registerId,
         opening_cash: dto.opening_cash,
         notes: dto.notes,
       });
     } catch (e) {
-      if (/uq_shifts_one_open_per_cashier|duplicate key/i.test((e as Error).message)) {
+      const msg = (e as Error).message ?? '';
+      if (/uq_shifts_one_open_per_register/i.test(msg)) {
+        throw new ConflictException(
+          'This register already has an open shift. Close it before opening another.',
+        );
+      }
+      if (/uq_shifts_one_open_per_cashier|duplicate key/i.test(msg)) {
         throw new BadRequestException('A shift is already open for this cashier');
       }
       throw e;

@@ -22,6 +22,7 @@ export enum PaymentProviderName {
 export interface PlanLimits {
   max_users: number;
   max_branches: number;
+  max_pos: number;
 }
 
 export interface SubscriptionRecord {

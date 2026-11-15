@@ -37,6 +37,7 @@ import { SalesReturnsModule } from './modules/sales-returns/sales-returns.module
 import { WashQueueModule } from './modules/wash-queue/wash-queue.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
+import { PosRegistersModule } from './modules/pos-registers/pos-registers.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { ExpensesV2Module } from './modules/expenses-v2/expenses-v2.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -124,6 +125,7 @@ import { RootController } from './root.controller';
     WashQueueModule,
     AccountingModule,
     ShiftsModule,
+    PosRegistersModule,
     ExpensesModule,
     ExpensesV2Module,
     CustomersModule,

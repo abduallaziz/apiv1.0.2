@@ -6,9 +6,15 @@ import { ShiftEngineModule } from '../../engines/shift-engine/shift-engine.modul
 import { PermissionsModule } from '../../core/permissions/permissions.module';
 import { NotificationModule } from '../../core/notification/notification.module';
 import { PdfRendererService } from './report/pdf-renderer.service';
+import { PosRegistersModule } from '../pos-registers/pos-registers.module';
 
 @Module({
-  imports: [ShiftEngineModule, PermissionsModule, NotificationModule],
+  imports: [
+    ShiftEngineModule,
+    PermissionsModule,
+    NotificationModule,
+    PosRegistersModule,
+  ],
   controllers: [ShiftsController],
   providers: [ShiftsService, ShiftsRepository, PdfRendererService],
   exports: [ShiftsService],

@@ -49,6 +49,7 @@ function build(overrides: Record<string, jest.Mock> = {}) {
     notification as never,
     {} as never,
     {} as never,
+    { resolveForOpen: jest.fn().mockResolvedValue('reg-1') } as never,
   );
   return { service, repo, audit };
 }
@@ -113,6 +114,14 @@ describe('ShiftsService.openShift (S1: one open register per cashier)', () => {
       new Error('duplicate key value violates unique constraint "uq_shifts_one_open_per_cashier"'),
     );
     await expect(open(service)).rejects.toThrow('already open');
+  });
+
+  it('rejects opening a second shift on a busy register (one open per register)', async () => {
+    const { service, repo } = build();
+    repo.create.mockRejectedValue(
+      new Error('duplicate key value violates unique constraint "uq_shifts_one_open_per_register"'),
+    );
+    await expect(open(service)).rejects.toThrow('already has an open shift');
   });
 
   it('other database errors are not swallowed', async () => {

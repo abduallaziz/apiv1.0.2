@@ -20,8 +20,8 @@ export interface Entitlements {
   status: string | null;
   billing_cycle: string | null;
   plan: { id: string; name: string } | null;
-  /** Plan limits + purchased/granted extra users and branches. -1 = unlimited. */
-  limits: { max_users: number; max_branches: number };
+  /** Plan limits + purchased/granted extra users, branches and POS registers. -1 = unlimited. */
+  limits: { max_users: number; max_branches: number; max_pos: number };
   /** Features the tenant may use: plan features + active feature add-ons, after super-admin overrides. */
   features: string[];
 }
@@ -125,7 +125,7 @@ export class EntitlementsService {
       status: null,
       billing_cycle: null,
       plan: null,
-      limits: { max_users: 0, max_branches: 0 },
+      limits: { max_users: 0, max_branches: 0, max_pos: 0 },
       features: [],
     };
     try {
@@ -134,9 +134,15 @@ export class EntitlementsService {
 
       const { data: plan } = await this.supabase
         .from('plans')
-        .select('id, name, max_users, max_branches')
+        .select('id, name, max_users, max_branches, max_pos')
         .eq('id', sub.plan_id)
-        .maybeSingle<{ id: string; name: string; max_users: number; max_branches: number }>();
+        .maybeSingle<{
+          id: string;
+          name: string;
+          max_users: number;
+          max_branches: number;
+          max_pos: number;
+        }>();
 
       const end = this.endOf(sub);
       const now = Date.now();
@@ -178,6 +184,7 @@ export class EntitlementsService {
         limits: {
           max_users: limit(plan?.max_users ?? 0, extras.users),
           max_branches: limit(plan?.max_branches ?? 0, extras.branches),
+          max_pos: limit(plan?.max_pos ?? 0, extras.pos),
         },
         features: await this.featuresFor(tenantId, sub.plan_id, extras.features),
       };
@@ -237,7 +244,7 @@ export class EntitlementsService {
 
   private async activeAddons(
     tenantId: string,
-  ): Promise<{ users: number; branches: number; features: string[] }> {
+  ): Promise<{ users: number; branches: number; pos: number; features: string[] }> {
     const { data, error } = await this.supabase
       .from('subscription_addons')
       .select('quantity, status, ends_at, addons(type, feature_key)')
@@ -245,9 +252,10 @@ export class EntitlementsService {
       .is('deleted_at', null)
       .in('status', ['purchased', 'installing', 'active']);
     // Migration 316 not applied yet: no add-ons, nothing else changes.
-    if (error) return { users: 0, branches: 0, features: [] };
+    if (error) return { users: 0, branches: 0, pos: 0, features: [] };
     let users = 0;
     let branches = 0;
+    let pos = 0;
     const features: string[] = [];
     const now = Date.now();
     for (const r of (data ?? []) as unknown as {
@@ -261,9 +269,10 @@ export class EntitlementsService {
       if (!a) continue;
       if (a.type === 'extra_user') users += r.quantity;
       else if (a.type === 'extra_branch') branches += r.quantity;
+      else if (a.type === 'extra_pos') pos += r.quantity;
       else if (a.type === 'feature' && a.feature_key && r.status === 'active') features.push(a.feature_key);
     }
-    return { users, branches, features };
+    return { users, branches, pos, features };
   }
 
   private async featuresFor(tenantId: string, planId: string, addonFeatures: string[]): Promise<string[]> {

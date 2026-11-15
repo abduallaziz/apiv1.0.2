@@ -99,10 +99,14 @@ export class BillingService {
     return false;
   }
 
-  /** Plan limits PLUS purchased/granted extra users and branches (see EntitlementsService). */
+  /** Plan limits PLUS purchased/granted extra users, branches and POS registers (see EntitlementsService). */
   async getPlanLimits(tenantId: string): Promise<PlanLimits> {
     const ent = await this.entitlements.get(tenantId);
-    return { max_users: ent.limits.max_users, max_branches: ent.limits.max_branches };
+    return {
+      max_users: ent.limits.max_users,
+      max_branches: ent.limits.max_branches,
+      max_pos: ent.limits.max_pos,
+    };
   }
 
   async checkUserLimit(tenantId: string): Promise<void> {
@@ -160,6 +164,33 @@ export class BillingService {
     if (count >= limits.max_branches) {
       throw new ForbiddenException(
         `Branch limit reached. Your plan allows ${limits.max_branches} branches.`,
+      );
+    }
+  }
+
+  // POS registers are a tenant-wide pool (plan max_pos + extra_pos add-ons). Counts active, non-deleted
+  // registers across ALL branches — the owner distributes the pool; the limit is on how many exist, not
+  // how many are open at once (that is the one-open-per-register index on shifts).
+  async countActiveRegisters(tenantId: string): Promise<number> {
+    const { count, error } = await this.supabase
+      .from('pos_registers')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .eq('is_active', true);
+
+    if (error) throw new Error(error.message);
+    return count ?? 0;
+  }
+
+  async checkPosLimit(tenantId: string): Promise<void> {
+    const limits = await this.getPlanLimits(tenantId);
+    if (limits.max_pos === -1) return;
+
+    const count = await this.countActiveRegisters(tenantId);
+    if (count >= limits.max_pos) {
+      throw new ForbiddenException(
+        `POS register limit reached. Your plan allows ${limits.max_pos} registers.`,
       );
     }
   }

@@ -60,6 +60,7 @@ export class ShiftsRepository {
     tenant_id: string;
     branch_id: string;
     cashier_id: string;
+    register_id?: string | null;
     opening_cash: number;
     notes?: string;
   }) {
@@ -72,7 +73,7 @@ export class ShiftsRepository {
       })
       .select()
       .single();
-    if (error) throw new Error(error.message);
+    if (error) throw error;
     return data;
   }
 
