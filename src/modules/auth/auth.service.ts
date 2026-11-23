@@ -826,20 +826,24 @@ export class AuthService {
 
     // Single-use consumption must be ATOMIC: a plain "read is_used, then set
     // it" lets parallel requests holding the same refresh token all succeed.
-    // The conditional update claims the token for exactly one caller; a loser
-    // is treated exactly like a replay (session revoked).
+    // The conditional update claims the token for exactly one caller.
+    // - A token that was ALREADY used when we read it is a real replay (handled
+    //   above: session revoked).
+    // - The loser of a race (two tabs / a client retry refreshing at the same
+    //   instant) gets a plain 401 and must NOT revoke the session: the winner
+    //   holds a valid new token and the user must stay signed in.
+    // - A database error on the claim is not evidence of reuse: no revocation.
     const { data: claimed, error: claimError } = await this.supabase
       .from('refresh_tokens')
       .update({ is_used: true })
       .eq('id', tokenRecord.id)
       .eq('is_used', false)
       .select<string, IdRow>('id');
-    if (claimError || !claimed || claimed.length !== 1) {
-      await this.supabase
-        .from('device_sessions')
-        .update({ is_revoked: true })
-        .eq('id', tokenRecord.session_id);
-      throw new UnauthorizedException('Token reuse detected. Session revoked.');
+    if (claimError) {
+      throw new UnauthorizedException('Could not refresh the session');
+    }
+    if (!claimed || claimed.length !== 1) {
+      throw new UnauthorizedException('Refresh already in progress');
     }
 
     const { business_type, activity } = await this.getTenantBusinessType(

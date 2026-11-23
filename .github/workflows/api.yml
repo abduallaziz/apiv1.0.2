@@ -86,7 +86,9 @@ jobs:
       # Blocks DROP TABLE/COLUMN, TRUNCATE, DELETE/UPDATE without WHERE and non-idempotent DDL in
       # migration files added/changed by this PR unless annotated `-- lint:allow <reason>`.
       - name: Lint migration files changed in this PR
-        run: node scripts/lint-migrations.js --changed "origin/${{ github.base_ref }}"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/lint-migrations.js --changed "origin/$BASE_REF"
 
   migrations-approval:
     name: No migration change without owner approval

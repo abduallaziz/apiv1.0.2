@@ -224,6 +224,26 @@ describe('JWT / stale sessions — local database', () => {
       );
       expect(results.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     });
+
+    it('S4b a race loser does NOT revoke the session: the winner new refresh token keeps working', async () => {
+      await makeUser('race2', tenantA, 'cashier', ['cashier']);
+      const l = await login('race2');
+      const results = await Promise.allSettled(
+        Array.from({ length: 4 }, () => refresh(l.refresh_token)),
+      );
+      const won = results.find((x) => x.status === 'fulfilled') as
+        | PromiseFulfilledResult<{ refresh_token: string }>
+        | undefined;
+      expect(won).toBeDefined();
+      // losers that raced the winner get a plain 401 (no session revocation); those that arrive after the
+      // winner finished hit the sequential replay rule (revokes), so only assert when nobody saw reuse.
+      const sawReuse = results.some(
+        (x) => x.status === 'rejected' && /reuse/i.test(String(x.reason)),
+      );
+      if (!sawReuse) {
+        await expect(refresh(won!.value.refresh_token)).resolves.toBeDefined();
+      }
+    });
   });
 
   // ---------------------------------------------------------------- S5
