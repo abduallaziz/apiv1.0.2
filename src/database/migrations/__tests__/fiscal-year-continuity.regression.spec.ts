@@ -475,10 +475,16 @@ describe('WP-B fiscal-year continuity and year-boundary sale integrity', () => {
 
   // ===================================================================== time zones
   describe('time zones and the accounting date', () => {
-    it('fn_tenant_posting_date converts to the tenant zone and falls back to UTC on an unknown zone', async () => {
+    it('fn_tenant_posting_date converts to the tenant zone and FAILS CLOSED (no silent UTC) on an invalid zone', async () => {
       const riyadh = await makeTenant({ label: 'tz1', tz: 'Asia/Riyadh' });
       const la = await makeTenant({ label: 'tz2', tz: 'America/Los_Angeles' });
-      const bad = await makeTenant({ label: 'tz3', tz: 'Not/AZone' });
+      const bad = await makeTenant({ label: 'tz3', tz: 'Asia/Riyadh' });
+      // simulate a legacy bad row (migration 327's write-guard would reject it on a normal UPDATE)
+      await q("SET session_replication_role = 'replica'");
+      await q("UPDATE tenants SET timezone='Not/AZone' WHERE id=$1", [
+        bad.tenantId,
+      ]);
+      await q("SET session_replication_role = 'origin'");
       const d = async (t: string, ts: string) =>
         (
           await q(
@@ -494,7 +500,9 @@ describe('WP-B fiscal-year continuity and year-boundary sale integrity', () => {
       );
       expect(await d(la.tenantId, '2027-01-01T07:59:59Z')).toBe('2026-12-31');
       expect(await d(la.tenantId, '2027-01-01T08:00:00Z')).toBe('2027-01-01');
-      expect(await d(bad.tenantId, '2026-12-31T23:59:59Z')).toBe('2026-12-31');
+      await expect(d(bad.tenantId, '2026-12-31T23:59:59Z')).rejects.toThrow(
+        /invalid_tenant_timezone/,
+      );
     });
   });
 

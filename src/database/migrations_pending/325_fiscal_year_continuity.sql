@@ -35,12 +35,13 @@ DECLARE
   v_tz TEXT;
 BEGIN
   SELECT nullif(btrim(timezone), '') INTO v_tz FROM tenants WHERE id = p_tenant_id;
-  BEGIN
-    RETURN (p_at AT TIME ZONE coalesce(v_tz, 'UTC'))::date;
-  EXCEPTION WHEN invalid_parameter_value OR undefined_object THEN
-    -- unknown time-zone name stored on the tenant: fall back to UTC instead of failing a sale
-    RETURN (p_at AT TIME ZONE 'UTC')::date;
-  END;
+  -- STRICT: no silent fallback. The zone must be a real IANA zone (pg_timezone_names); otherwise the
+  -- caller (and any enclosing sale transaction) fails closed with a clear, greppable error.
+  IF v_tz IS NULL OR NOT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = v_tz) THEN
+    RAISE EXCEPTION 'invalid_tenant_timezone: tenant % has no valid IANA time zone (value: %)', p_tenant_id, coalesce(v_tz, '<blank>')
+      USING ERRCODE = 'P0001';
+  END IF;
+  RETURN (p_at AT TIME ZONE v_tz)::date;
 END;
 $$;
 
