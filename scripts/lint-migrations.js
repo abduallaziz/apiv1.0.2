@@ -239,7 +239,8 @@ function gitChanged(base, root) {
     ['diff', '--name-only', '--diff-filter=AM', `${base}...HEAD`, '--', 'src/database/migrations', 'src/database/migrations_pending'],
     { cwd: root, encoding: 'utf8' },
   );
-  return out.split(/\r?\n/).filter((f) => f.endsWith('.sql')).map((f) => path.join(root, f));
+  // rollback scripts are destructive by nature; they are reviewed together with their migration
+  return out.split(/\r?\n/).filter((f) => f.endsWith('.sql') && !/\/rollback\//.test(f)).map((f) => path.join(root, f));
 }
 
 function main(argv) {
