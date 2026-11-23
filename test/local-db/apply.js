@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 
-const URL_ = process.env.LOCAL_TEST_DATABASE_URL || 'postgres://postgres:postgres@127.0.0.1:54332/sefay_test';
+const URL_ = process.env.LOCAL_TEST_DATABASE_URL || `postgres://postgres:postgres@127.0.0.1:${process.env.LOCAL_DB_PORT || 54332}/sefay_test`;
 const host = new URL(URL_).hostname;
 if (!['127.0.0.1', 'localhost', '::1', '[::1]'].includes(host)) {
   console.error('Refusing: local test DB script only talks to loopback.');

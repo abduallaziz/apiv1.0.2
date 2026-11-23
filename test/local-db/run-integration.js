@@ -7,10 +7,10 @@ const jwt = require('jsonwebtoken');
 const SECRET = 'local-test-only-jwt-secret-0123456789abcdef'; // same as docker-compose (dev-only)
 const env = {
   ...process.env,
-  TEST_SUPABASE_URL: 'http://127.0.0.1:54331',
+  TEST_SUPABASE_URL: `http://127.0.0.1:${process.env.LOCAL_REST_PORT || 54331}`,
   TEST_SUPABASE_SERVICE_ROLE_KEY: jwt.sign({ role: 'service_role' }, SECRET, { expiresIn: '2h' }),
   TEST_TENANT_ID: '9bcd3369-d664-47c8-b297-3bc9b429aacf',
-  TEST_DATABASE_URL: 'postgres://postgres:postgres@127.0.0.1:54332/sefay_test',
+  TEST_DATABASE_URL: `postgres://postgres:postgres@127.0.0.1:${process.env.LOCAL_DB_PORT || 54332}/sefay_test`,
   // the test tenant + the seeded 'other' tenant (isolation specs address it on purpose)
   TEST_ALLOWED_TENANT_IDS: '*', // loopback DB is disposable: negative isolation specs may use any id
   ALLOW_DB_WRITE_TESTS: 'local',
