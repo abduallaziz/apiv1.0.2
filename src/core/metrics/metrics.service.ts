@@ -14,6 +14,8 @@ import {
   BUSINESS_SHIFTS_TOTAL,
   BUSINESS_EXPENSES_TOTAL,
   BUSINESS_ACTIVE_TENANTS,
+  FISCAL_COVERAGE_DAYS_MIN,
+  FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD,
 } from './metrics.constants';
 
 @Injectable()
@@ -28,6 +30,9 @@ export class MetricsService implements OnModuleInit {
   readonly shiftsTotal: Counter<string>;
   readonly expensesTotal: Counter<string>;
   readonly activeTenantsGauge: Gauge<string>;
+  // WP-B: aggregate only (no tenant labels — /metrics is not tenant-scoped).
+  readonly fiscalCoverageDaysMin: Gauge<string>;
+  readonly fiscalTenantsBelowThreshold: Gauge<string>;
 
   constructor() {
     this.registry = new Registry();
@@ -80,6 +85,23 @@ export class MetricsService implements OnModuleInit {
       help: 'Number of active tenants',
       registers: [this.registry],
     });
+
+    this.fiscalCoverageDaysMin = new Gauge({
+      name: FISCAL_COVERAGE_DAYS_MIN,
+      help: 'Smallest number of days of fiscal-year coverage left among tenants below the alert threshold',
+      registers: [this.registry],
+    });
+
+    this.fiscalTenantsBelowThreshold = new Gauge({
+      name: FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD,
+      help: 'Number of tenants whose fiscal-year coverage is below the alert threshold',
+      registers: [this.registry],
+    });
+  }
+
+  setFiscalCoverage(daysMin: number, tenantsBelow: number): void {
+    this.fiscalCoverageDaysMin.set(daysMin);
+    this.fiscalTenantsBelowThreshold.set(tenantsBelow);
   }
 
   onModuleInit(): void {
