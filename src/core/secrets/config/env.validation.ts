@@ -40,6 +40,9 @@ export const envValidationSchema = Joi.object({
   // per line so healthy lines keep their movements, and restock inside the pooled cancel. OFF by default: with false the sale
   // and cancel paths are exactly as before. Needs migration 335 applied; if it is missing the code falls back to the old path.
   SALE_EXCEPTION_RECORDING_ENABLED: Joi.boolean().default(false),
+  // Bounds for the retry scheduler that runs only while SALE_EXCEPTION_RECORDING_ENABLED=true (every 5 minutes).
+  SALE_EXCEPTION_RETRY_BATCH_SIZE: Joi.number().integer().min(1).max(500).default(50),
+  SALE_EXCEPTION_RETRY_MAX_TENANTS: Joi.number().integer().min(1).max(200).default(25),
   // R-UNPOOLED opt-in hard fail: with true, a production boot is refused when
   // DATABASE_URL is missing, POOLED_INVOICE_WRITES_ENABLED is off, or pooled
   // writes are on while POOLED_STOCK_IN_TX_ENABLED is off; the non-pooled

@@ -1,3 +1,5 @@
+-- ROLLBACK ORDER (strict reverse of the apply order; never skip or reorder): 335, 333, 332, 330, 328, 327, 326, 325.
+-- (329 and 331 are read-only / scratch-only and independent; roll 329 back only after 335.) Rolling back an earlier step while a later one is applied is NOT supported.
 -- ROLLBACK for 330_historical_sales_reconciliation.sql (exercised locally).
 -- Removes the functions and views. It does NOT and CANNOT undo journal entries already posted by the apply
 -- function: posted entries are immutable by design; correct them only with the normal reversal function.

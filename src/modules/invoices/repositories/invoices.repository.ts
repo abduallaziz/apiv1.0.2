@@ -382,14 +382,16 @@ export class InvoicesRepository extends ScopedRepository {
       await client.query('SAVEPOINT reverse_sale');
       try {
         await client.query(
-          'SELECT fn_reverse_sales_order($1, $2, $3, $4, $5)',
-          [
-            tenant.tenantId,
-            id,
-            cancelledBy,
-            new Date().toISOString().slice(0, 10),
-            'Order cancelled',
-          ],
+          // Posting date: NULL lets the 328 cancel policy decide (tenant-local date of now, floored at the original entry), so
+          // a tenant east of UTC cancelling just after local midnight never posts on the earlier UTC date. Before 328 the
+          // function does not accept NULL, so there the date stays the UTC session date exactly as before.
+          `SELECT fn_reverse_sales_order($1, $2, $3,
+             (SELECT CASE WHEN p.prosrc LIKE '%fn_posting_date_for_event%' THEN NULL::date
+                          ELSE (now() AT TIME ZONE 'UTC')::date END
+                FROM pg_proc p
+               WHERE p.oid = 'public.fn_reverse_sales_order(uuid,uuid,uuid,date,text)'::regprocedure),
+             $4)`,
+          [tenant.tenantId, id, cancelledBy, 'Order cancelled'],
         );
       } catch (err: any) {
         await client.query('ROLLBACK TO SAVEPOINT reverse_sale');
@@ -415,13 +417,9 @@ export class InvoicesRepository extends ScopedRepository {
         await client.query('SAVEPOINT cancel_wpe');
         try {
           await client.query(
-            'SELECT fn_financial_exception_on_order_cancel($1, $2, $3, $4)',
-            [
-              tenant.tenantId,
-              id,
-              cancelledBy,
-              new Date().toISOString().slice(0, 10),
-            ],
+            // NULL date: the SQL derives it from the same 328 policy as the sale reversal
+            'SELECT fn_financial_exception_on_order_cancel($1, $2, $3, NULL::date)',
+            [tenant.tenantId, id, cancelledBy],
           );
           await client.query('SAVEPOINT cancel_restock');
           try {

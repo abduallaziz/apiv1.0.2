@@ -20,6 +20,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { ItemsModule } from '../items/items.module';
 import { BranchReferenceValidator } from './branch-reference.validator';
 import { ZatcaModule } from '../zatca/zatca.module';
+import { FinancialExceptionRetryScheduler } from './financial-exception-retry.scheduler';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ZatcaModule } from '../zatca/zatca.module';
     TenantsRepository,
     JwtAuthGuard,
     BranchReferenceValidator,
+    FinancialExceptionRetryScheduler,
   ],
   exports: [InvoicesService, BranchReferenceValidator],
 })
