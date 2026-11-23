@@ -770,6 +770,7 @@ export class InvoicesService {
       invoice_no?: string | null;
       stockDeducted?: boolean;
       stockError?: string;
+      stockExceptions?: number;
     };
     try {
       if (usePooledWrite) {
@@ -835,7 +836,15 @@ export class InvoicesService {
             vehicle_size: capturedVehicle?.size ?? null,
           },
           pooledItems,
-          stockInTxWarehouse ? { warehouseId: stockInTxWarehouse } : undefined,
+          stockInTxWarehouse
+            ? {
+                warehouseId: stockInTxWarehouse,
+                // WP-E: per-line savepoints + durable exception rows. Off by default; absent key = original behaviour.
+                ...(this.config.get<boolean>('SALE_EXCEPTION_RECORDING_ENABLED')
+                  ? { recordExceptions: true }
+                  : {}),
+              }
+            : undefined,
           await this.repo.getInvoiceNumberFormat(tenant.tenantId, branchId),
           // ZATCA: issue the signed legal document inside the sale (off unless ZATCA_ENABLED).
           this.zatca.enabled
@@ -1172,7 +1181,20 @@ export class InvoicesService {
       try {
         // Already deducted inside the sale transaction (before the journal
         // entry) — deducting again would double-count the sale.
-        if (!invoice.stockDeducted) {
+        // WP-E: lines that failed in the transaction are already recorded durably (financial_exceptions) and are caught up by
+        // fn_financial_exception_retry; a whole-order replay here would be a no-op for them (333) at best.
+        if (invoice.stockExceptions) {
+          this.logger.warn(
+            `Stock deduction failed for ${invoice.stockExceptions} line(s) of invoice ${invoice.id}; recorded in financial_exceptions: ${invoice.stockError ?? ''}`,
+          );
+          this.metricsService.recordFinancialException?.(
+            'stock_deduction_failed',
+            invoice.stockExceptions,
+          );
+          stockWarning = [stockWarning, invoice.stockError]
+            .filter(Boolean)
+            .join(' | ');
+        } else if (!invoice.stockDeducted) {
           await this.repo.deductStockForSale(
             tenant.tenantId,
             warehouseId,
@@ -1513,8 +1535,15 @@ export class InvoicesService {
     const usePooledCancel = this.config.get<boolean>(
       'POOLED_INVOICE_WRITES_ENABLED',
     );
+    const recordExceptions =
+      usePooledCancel &&
+      this.config.get<boolean>('SALE_EXCEPTION_RECORDING_ENABLED');
     const updated = usePooledCancel
-      ? await this.repo.cancelPooled(tenant, id, actorId, dto.reason)
+      ? recordExceptions
+        ? await this.repo.cancelPooled(tenant, id, actorId, dto.reason, {
+            recordExceptions: true,
+          })
+        : await this.repo.cancelPooled(tenant, id, actorId, dto.reason)
       : await this.repo.cancel(tenant, id, actorId, dto.reason);
 
     if (!updated) {
@@ -1546,9 +1575,13 @@ export class InvoicesService {
     }
 
     // يعكس أي خصم مخزون تم فعليًا عند البيع (لا شيء إن لم يُخصَم أصلًا) — best-effort أيضًا
-    this.repo
-      .reverseSaleStockDeduction(tenant.tenantId, id, actorId)
-      .catch((err) => {
+    // WP-E: when the pooled cancel already restocked in its own transaction (or recorded the failure durably), skip this call.
+    const restockHandled = (updated as { restockHandled?: boolean })
+      .restockHandled;
+    (restockHandled
+      ? Promise.resolve()
+      : this.repo.reverseSaleStockDeduction(tenant.tenantId, id, actorId)
+    ).catch((err) => {
         this.logger.warn(
           `Stock restock failed for cancelled invoice ${id}: ${err?.message ?? err}`,
         );

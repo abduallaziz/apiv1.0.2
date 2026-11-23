@@ -18,6 +18,7 @@ import {
   FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD,
   POOLED_SALES_GUARD_VIOLATION,
   UNPOOLED_SALE_ATTEMPTS_TOTAL,
+  FINANCIAL_EXCEPTIONS_RECORDED_TOTAL,
 } from './metrics.constants';
 
 @Injectable()
@@ -38,6 +39,7 @@ export class MetricsService implements OnModuleInit {
   // R-UNPOOLED: 1 per active violation reason (no tenant labels).
   readonly pooledSalesGuardViolation: Gauge<string>;
   readonly unpooledSaleAttempts: Counter<string>;
+  readonly financialExceptionsRecorded: Counter<string>;
 
   constructor() {
     this.registry = new Registry();
@@ -116,6 +118,21 @@ export class MetricsService implements OnModuleInit {
       labelNames: ['outcome'],
       registers: [this.registry],
     });
+
+    // WP-E: durable financial exceptions recorded in the sale path. Label = the exception kind only (no tenant, no ids).
+    this.financialExceptionsRecorded = new Counter({
+      name: FINANCIAL_EXCEPTIONS_RECORDED_TOTAL,
+      help: 'Financial exceptions durably recorded (swallowed stock/COGS/restock failures), by kind',
+      labelNames: ['kind'],
+      registers: [this.registry],
+    });
+  }
+
+  recordFinancialException(
+    kind: 'stock_deduction_failed' | 'cogs_missing' | 'restock_failed',
+    count = 1,
+  ): void {
+    this.financialExceptionsRecorded.inc({ kind }, count);
   }
 
   setPooledSalesGuard(active: readonly string[]): void {

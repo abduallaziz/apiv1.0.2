@@ -36,6 +36,10 @@ export const envValidationSchema = Joi.object({
   // Only meaningful with POOLED_INVOICE_WRITES_ENABLED=true. A stock failure
   // never fails the sale (SAVEPOINT), it only falls back to the old behaviour.
   POOLED_STOCK_IN_TX_ENABLED: Joi.boolean().default(false),
+  // WP-E (migration 335): record swallowed stock failures durably (financial_exceptions) instead of dropping them, deduct
+  // per line so healthy lines keep their movements, and restock inside the pooled cancel. OFF by default: with false the sale
+  // and cancel paths are exactly as before. Needs migration 335 applied; if it is missing the code falls back to the old path.
+  SALE_EXCEPTION_RECORDING_ENABLED: Joi.boolean().default(false),
   // R-UNPOOLED opt-in hard fail: with true, a production boot is refused when
   // DATABASE_URL is missing, POOLED_INVOICE_WRITES_ENABLED is off, or pooled
   // writes are on while POOLED_STOCK_IN_TX_ENABLED is off; the non-pooled

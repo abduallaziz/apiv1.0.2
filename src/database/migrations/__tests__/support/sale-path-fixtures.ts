@@ -235,6 +235,8 @@ export class Harness {
       amounts?: { subtotal: number; discount: number; tax: number; total: number };
       payment?: 'cash' | 'card' | 'tab' | 'split';
       skipPostCommitDeduction?: boolean;
+      /** WP-E: SALE_EXCEPTION_RECORDING_ENABLED (default off) */
+      recordExceptions?: boolean;
       afterPost?: (c: any, orderId: string) => Promise<void>;
     },
   ) {
@@ -297,13 +299,15 @@ export class Harness {
         tenantCtx,
         payload,
         items as never,
-        o.mode === 'pooled_stock_on' ? { warehouseId: f.warehouseId } : undefined,
+        o.mode === 'pooled_stock_on'
+          ? { warehouseId: f.warehouseId, ...(o.recordExceptions ? { recordExceptions: true } : {}) }
+          : undefined,
         undefined,
         o.afterPost,
       );
       let stockError = inv.stockError;
       let stockDeducted = inv.stockDeducted;
-      if (!inv.stockDeducted && !o.skipPostCommitDeduction) {
+      if (!inv.stockDeducted && !inv.stockExceptions && !o.skipPostCommitDeduction) {
         // identical to InvoicesService.create: post-commit retry of the deduction
         try {
           await this.repo.deductStockForSale(f.tenantId, f.warehouseId, inv.id, null as never, stockItems);
@@ -313,23 +317,24 @@ export class Harness {
           stockError = e.message;
         }
       }
-      return { ok: true as const, id: inv.id, stockDeducted, stockError };
+      return { ok: true as const, id: inv.id, stockDeducted, stockError, stockExceptions: inv.stockExceptions };
     } catch (e: any) {
       return { ok: false as const, error: e.message as string, code: e.code as string | undefined };
     }
   }
 
   /** Mirrors InvoicesService.cancel(): pooled status+entry reversal, then (separately, after commit) the stock restore. */
-  async runCancel(f: Fx, orderId: string, o: { failRestock?: boolean } = {}) {
+  async runCancel(f: Fx, orderId: string, o: { failRestock?: boolean; recordExceptions?: boolean } = {}) {
     try {
       const upd = await this.repo.cancelPooled(
         { tenantId: f.tenantId } as never,
         orderId,
         null as never,
         'test',
+        ...(o.recordExceptions ? [{ recordExceptions: true }] : []),
       );
       let restockError: string | undefined;
-      if (!o.failRestock) {
+      if (!o.failRestock && !upd.restockHandled) {
         try {
           await this.repo.reverseSaleStockDeduction(f.tenantId, orderId, null as never);
         } catch (e: any) {

@@ -80,7 +80,9 @@ export class InvoicesRepository extends ScopedRepository {
     items: PooledInvoiceItem[],
     // When set, the sale's stock is deducted in THIS transaction, before the
     // journal entry is posted, so fn_post_sales_order sees the inventory cost.
-    stockInTx?: { warehouseId: string },
+    // recordExceptions (SALE_EXCEPTION_RECORDING_ENABLED, WP-E, default off): deduct PER LINE with its own savepoint and record
+    // each failing line durably in financial_exceptions (same transaction). Omitted/false = the original all-or-nothing savepoint.
+    stockInTx?: { warehouseId: string; recordExceptions?: boolean },
     // Sequential legal number (fn_next_invoice_no), taken INSIDE this transaction:
     // a failed sale rolls the counter back too, so there are no gaps or duplicates.
     invoiceNumber?: { prefix: string; padding: number },
@@ -92,6 +94,8 @@ export class InvoicesRepository extends ScopedRepository {
     invoice_no: string | null;
     stockDeducted: boolean;
     stockError?: string;
+    // WP-E: number of lines recorded in financial_exceptions (only set when recordExceptions was on and succeeded).
+    stockExceptions?: number;
   }> {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
       let invoiceNo: string | null = null;
@@ -147,6 +151,7 @@ export class InvoicesRepository extends ScopedRepository {
       // insert, still inside this callback, before the outer runInTenantContext
       // COMMIT. Any failure at any point — order, any order_item, any audit —
       // rolls back everything via that same outer BEGIN/COMMIT/ROLLBACK.
+      const orderItemIds: string[] = [];
       for (const item of items) {
         const itemResult = await client.query<{ id: string }>(
           `INSERT INTO order_items (
@@ -172,6 +177,7 @@ export class InvoicesRepository extends ScopedRepository {
           ],
         );
         const orderItemId = itemResult.rows[0].id;
+        orderItemIds.push(orderItemId);
 
         if (item.override) {
           await client.query(
@@ -212,7 +218,81 @@ export class InvoicesRepository extends ScopedRepository {
       // deduction after commit.
       let stockDeducted = false;
       let stockError: string | undefined;
-      if (stockInTx) {
+      let stockExceptions: number | undefined;
+      if (stockInTx?.recordExceptions) {
+        // WP-E. Outer savepoint = the original safety net: if ANYTHING in this block fails (including the recording of an
+        // exception, e.g. migration 335 not applied) we roll back to it and behave exactly as the original code (no movements
+        // in the transaction, post-commit retry by the caller). Per-line savepoints keep the healthy lines.
+        await client.query('SAVEPOINT sale_stock');
+        try {
+          const groups = new Map<
+            string,
+            { item_id: string; variant_id: string | null; quantity: number; lineRef: string }
+          >();
+          items.forEach((i, idx) => {
+            const key = `${i.item_id}|${i.variant_id ?? ''}`;
+            const g = groups.get(key);
+            if (g) g.quantity += Number(i.quantity);
+            else
+              groups.set(key, {
+                item_id: i.item_id,
+                variant_id: i.variant_id ?? null,
+                quantity: Number(i.quantity),
+                lineRef: orderItemIds[idx],
+              });
+          });
+          let failed = 0;
+          let n = 0;
+          for (const g of groups.values()) {
+            const sp = `sale_stock_line_${n++}`;
+            await client.query(`SAVEPOINT ${sp}`);
+            try {
+              await client.query(
+                'SELECT fn_process_sale_stock_deduction_line($1, $2, $3, $4, $5, $6, $7)',
+                [
+                  tenant.tenantId,
+                  stockInTx.warehouseId,
+                  orderId,
+                  orderPayload.cashier_id,
+                  g.item_id,
+                  g.variant_id,
+                  g.quantity,
+                ],
+              );
+              await client.query(`RELEASE SAVEPOINT ${sp}`);
+            } catch (lineErr) {
+              await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+              const msg =
+                lineErr instanceof Error ? lineErr.message : String(lineErr);
+              await client.query(
+                'SELECT fn_record_financial_exception($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+                [
+                  tenant.tenantId,
+                  'stock_deduction_failed',
+                  'order',
+                  orderId,
+                  g.lineRef,
+                  g.item_id,
+                  g.variant_id,
+                  g.quantity,
+                  stockInTx.warehouseId,
+                  msg,
+                ],
+              );
+              failed++;
+              stockError = stockError ?? msg;
+            }
+          }
+          await client.query('RELEASE SAVEPOINT sale_stock');
+          stockDeducted = failed === 0;
+          stockExceptions = failed;
+        } catch (e) {
+          await client.query('ROLLBACK TO SAVEPOINT sale_stock');
+          stockDeducted = false;
+          stockExceptions = undefined;
+          stockError = e instanceof Error ? e.message : String(e);
+        }
+      } else if (stockInTx) {
         await client.query('SAVEPOINT sale_stock');
         try {
           await client.query(
@@ -256,7 +336,13 @@ export class InvoicesRepository extends ScopedRepository {
 
       if (afterPost) await afterPost(client, orderId, invoiceNo);
 
-      return { id: orderId, invoice_no: invoiceNo, stockDeducted, stockError };
+      return {
+        id: orderId,
+        invoice_no: invoiceNo,
+        stockDeducted,
+        stockError,
+        ...(stockExceptions !== undefined ? { stockExceptions } : {}),
+      };
     });
   }
 
@@ -272,7 +358,10 @@ export class InvoicesRepository extends ScopedRepository {
     id: string,
     cancelledBy: string,
     reason?: string | null,
-  ): Promise<{ id: string; status: string }> {
+    // WP-E (SALE_EXCEPTION_RECORDING_ENABLED, default off): restock INSIDE this transaction under its own savepoint and record a
+    // failure durably (financial_exceptions) instead of the separate best-effort call; also closes/reverses catch-up COGS.
+    opts?: { recordExceptions?: boolean },
+  ): Promise<{ id: string; status: string; restockHandled?: boolean }> {
     return this.tenantSession.runInTenantContext(tenant, async (client) => {
       const result = await client.query<{ id: string; status: string }>(
         `UPDATE orders
@@ -317,6 +406,61 @@ export class InvoicesRepository extends ScopedRepository {
             : String(err);
         if (!message.includes('nothing to reverse')) {
           throw err;
+        }
+      }
+
+      if (opts?.recordExceptions) {
+        // Outer savepoint: any problem in the WP-E block (e.g. migration 335 missing) restores today's behaviour exactly
+        // (the caller then does the separate best-effort restock).
+        await client.query('SAVEPOINT cancel_wpe');
+        try {
+          await client.query(
+            'SELECT fn_financial_exception_on_order_cancel($1, $2, $3, $4)',
+            [
+              tenant.tenantId,
+              id,
+              cancelledBy,
+              new Date().toISOString().slice(0, 10),
+            ],
+          );
+          await client.query('SAVEPOINT cancel_restock');
+          try {
+            await client.query(
+              'SELECT fn_reverse_sale_stock_deduction($1, $2, $3)',
+              [tenant.tenantId, id, cancelledBy],
+            );
+            await client.query('RELEASE SAVEPOINT cancel_restock');
+          } catch (restockErr) {
+            await client.query('ROLLBACK TO SAVEPOINT cancel_restock');
+            await client.query(
+              'SELECT fn_record_financial_exception($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+              [
+                tenant.tenantId,
+                'restock_failed',
+                'order',
+                id,
+                null,
+                null,
+                null,
+                null,
+                null,
+                restockErr instanceof Error
+                  ? restockErr.message
+                  : String(restockErr),
+              ],
+            );
+          }
+          await client.query('RELEASE SAVEPOINT cancel_wpe');
+          return { ...result.rows[0], restockHandled: true };
+        } catch (wpeErr) {
+          await client.query('ROLLBACK TO SAVEPOINT cancel_wpe');
+          // Only "WP-E objects are missing" (migration 335 not applied: undefined function / table) falls back to the old
+          // behaviour. Any other failure (e.g. closed period on the catch-up reversal) rolls the whole cancel back, exactly as a
+          // failing sale-entry reversal does: never a cancelled order with a live catch-up COGS entry.
+          const code = (wpeErr as { code?: string } | null)?.code;
+          if (code !== '42883' && code !== '42P01') {
+            throw wpeErr;
+          }
         }
       }
 
