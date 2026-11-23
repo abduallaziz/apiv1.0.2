@@ -2,6 +2,7 @@ import { ForbiddenException, Logger } from '@nestjs/common';
 import { PermissionsService } from './permissions.service';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
 import { isQaTenant } from '../security/qa-tenant';
+import { isPlatformAdmin } from '../security/platform-identity';
 
 // Single source of truth for "is this authenticated user allowed
 // requiredPermission" — extracted verbatim from PermissionGuard.canActivate
@@ -46,14 +47,9 @@ export async function resolveUserPermission(
 ): Promise<boolean> {
   if (!user) throw new ForbiddenException('No authenticated user');
 
-  const roles: string[] = Array.isArray(user.roles)
-    ? user.roles
-    : user.role
-      ? [user.role]
-      : [];
-
-  // Superadmin bypasses all permission checks
-  if (roles.includes('superadmin')) return true;
+  // Platform administrator bypasses all permission checks. R-01: decided by
+  // isPlatformAdmin() (tenant-less + global superadmin), not by a role name.
+  if (isPlatformAdmin(user)) return true;
 
   // Internal QA/demo tenant bypasses permission checks OUTSIDE production only
   // (see core/security/qa-tenant.ts). user comes from a verified JWT.

@@ -22,6 +22,10 @@ import { RefreshDto } from './dto/refresh.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+import {
+  buildRoleClaims,
+  RoleClaims,
+} from '../../core/security/platform-identity';
 
 // Narrow row shapes for the two `users` selects below — passed as the
 // postgrest-js select() generic so `data`/`error` come back properly typed
@@ -55,7 +59,7 @@ interface MeUserRow {
 // MeUserRow above, kept minimal and query-local rather than one shared "User"
 // type, since each query selects different columns.
 interface RoleNameRow {
-  role: { name: string } | null;
+  role: { name: string; tenant_id: string | null } | null;
 }
 
 interface TenantBusinessTypeRow {
@@ -243,22 +247,35 @@ export class AuthService {
     }
   }
 
-  // Phase 2 of the multi-role migration — reads the full role set from
-  // user_roles (joined to roles.name, not the FK's UUID, since every Guard
-  // matches against string literals like 'superadmin'/'owner'). Falls back
-  // to [] on any error so a lookup failure degrades to "no extra roles"
-  // rather than breaking login; callers always OR this with the existing
-  // primary `role` before trusting the result.
-  private async getUserRoleNames(userId: string): Promise<string[]> {
+  // R-01: reads the user's roles from user_roles (joined to roles.name and
+  // roles.tenant_id) and turns them into token claims through buildRoleClaims().
+  // Names of tenant-scoped roles that collide with a reserved/system name are
+  // dropped and `platform_admin` is derived only from (no tenant + GLOBAL
+  // superadmin role) — never from a name a tenant could have chosen.
+  // A lookup failure degrades to the legacy single role (never to extra
+  // privilege).
+  private async resolveRoleClaims(user: {
+    id: string;
+    role: string;
+    tenant_id: string | null;
+  }): Promise<RoleClaims> {
     const { data, error } = await this.supabase
       .from('user_roles')
-      .select<string, RoleNameRow>('role:roles!user_roles_role_id_fkey(name)')
-      .eq('user_id', userId);
+      .select<
+        string,
+        RoleNameRow
+      >('role:roles!user_roles_role_id_fkey(name, tenant_id)')
+      .eq('user_id', user.id);
 
-    if (error || !data) return [];
-    return data
-      .map((row) => row.role?.name)
-      .filter((name): name is string => !!name);
+    const rows =
+      error || !data
+        ? []
+        : data.flatMap((row) =>
+            row.role?.name
+              ? [{ name: row.role.name, tenant_id: row.role.tenant_id }]
+              : [],
+          );
+    return buildRoleClaims(rows, user);
   }
 
   private async getUserPermissions(role: string): Promise<string[]> {
@@ -403,13 +420,14 @@ export class AuthService {
     const { business_type, activity } = await this.getTenantBusinessType(
       user.tenant_id,
     );
-    const roleNames = await this.getUserRoleNames(user.id);
+    const roleClaims = await this.resolveRoleClaims(user);
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
-      roles: roleNames.length > 0 ? roleNames : [user.role],
+      roles: roleClaims.roles,
+      platform_admin: roleClaims.platform_admin,
       tenant_id: user.tenant_id,
       session_id: session.id,
       business_type,
@@ -656,13 +674,14 @@ export class AuthService {
         throw new ServiceUnavailableException('Failed to create session');
       }
 
-      const roleNames = await this.getUserRoleNames(user.id);
+      const roleClaims = await this.resolveRoleClaims(user);
 
       const payload: JwtPayload = {
         sub: user.id,
         email: user.email,
         role: user.role,
-        roles: roleNames.length > 0 ? roleNames : [user.role],
+        roles: roleClaims.roles,
+        platform_admin: roleClaims.platform_admin,
         tenant_id: user.tenant_id,
         session_id: session.id,
         business_type: businessType,
@@ -803,13 +822,14 @@ export class AuthService {
     const { business_type, activity } = await this.getTenantBusinessType(
       user.tenant_id,
     );
-    const roleNames = await this.getUserRoleNames(user.id);
+    const roleClaims = await this.resolveRoleClaims(user);
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
-      roles: roleNames.length > 0 ? roleNames : [user.role],
+      roles: roleClaims.roles,
+      platform_admin: roleClaims.platform_admin,
       tenant_id: user.tenant_id,
       session_id: session.id,
       business_type,

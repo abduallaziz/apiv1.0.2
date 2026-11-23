@@ -10,6 +10,7 @@ import { TenantContext } from './tenant-context';
 import { BranchValidatorService } from '../security/branch-validator.service';
 import { TenantIsolationService } from '../security/tenant-isolation.service';
 import { EntitlementsService } from '../security/entitlements.service';
+import { isPlatformAdmin } from '../security/platform-identity';
 
 interface GuardUser {
   tenant_id?: string;
@@ -45,15 +46,10 @@ export class TenantGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<GuardRequest>();
     const user = request.user;
 
-    // Phase 2 of the multi-role migration — user.roles may be absent on a
-    // JWT signed before this field existed, so fall back to [user.role].
-    const roles: string[] = Array.isArray(user?.roles)
-      ? user.roles
-      : user?.role
-        ? [user.role]
-        : [];
-
-    if (roles.includes('superadmin')) {
+    // R-01: "platform" is decided by isPlatformAdmin() (tenant-less identity
+    // holding the GLOBAL superadmin role), never by a role name in the token
+    // — a tenant can create a role with any name.
+    if (isPlatformAdmin(user)) {
       const superadminTenantId: string | null =
         request.headers['x-tenant-id'] ?? null;
       const branchId: string | null = request.headers['x-branch-id'] ?? null;

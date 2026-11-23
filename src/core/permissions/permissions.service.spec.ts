@@ -70,7 +70,11 @@ function buildFakeSupabase(fixtures: {
             const userId = builder._eqs['user_id'] as string;
             const names = fixtures.userRoles?.[userId] ?? [];
             return resolve({
-              data: names.map((name) => ({ role: { name } })),
+              // R-01: roles are resolved by identity; fixtures model SYSTEM roles
+              // (tenant_id null) exactly as PostgREST returns them.
+              data: names.map((name) => ({
+                role: { id: `sys-${name}`, name, tenant_id: null },
+              })),
               error: null,
             });
           }
@@ -325,7 +329,15 @@ describe('PermissionsService — S5 Stage B (per-permission merge)', () => {
               select: () => ({
                 eq: () =>
                   Promise.resolve({
-                    data: [{ role: { name: 'owner' } }],
+                    data: [
+                      {
+                        role: {
+                          id: 'sys-owner',
+                          name: 'owner',
+                          tenant_id: null,
+                        },
+                      },
+                    ],
                     error: null,
                   }),
               }),

@@ -124,6 +124,9 @@ describe('ActionExecutorService', () => {
       ...MANAGER_USER,
       role: 'superadmin',
       roles: ['superadmin'],
+      // R-01: platform identity = tenant-less + platform claim.
+      platform_admin: true,
+      tenant_id: null,
     };
     const result = await executor.execute(makeRequest({ user: superadmin }));
     expect(result.success).toBe(true);

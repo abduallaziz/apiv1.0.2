@@ -15,6 +15,7 @@ import { CreatePlanDto } from './dto/create-plan.dto';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { SuperAdminGuard } from '../superadmin/guards/superadmin.guard';
 import { SkipTenant } from '../../core/tenant/skip-tenant.decorator';
+import { isPlatformAdmin } from '../../core/security/platform-identity';
 
 @Controller('plans')
 @UseGuards(JwtAuthGuard)
@@ -25,13 +26,16 @@ export class PlansController {
   // Read access: any authenticated user, but only ACTIVE plans. A superadmin
   // (verified JWT roles) also sees deactivated plans, for management.
   private isSuperAdmin(req: Request): boolean {
-    const user = req.user as { role?: string; roles?: string[] } | undefined;
-    const roles = Array.isArray(user?.roles)
-      ? user.roles
-      : user?.role
-        ? [user.role]
-        : [];
-    return roles.includes('superadmin');
+    return isPlatformAdmin(
+      req.user as
+        | {
+            role?: string;
+            roles?: string[];
+            platform_admin?: boolean;
+            tenant_id?: string | null;
+          }
+        | undefined,
+    );
   }
 
   @Get()

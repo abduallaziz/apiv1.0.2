@@ -8,6 +8,12 @@ export interface JwtPayload {
   // multi-role migration (see STATUS.md). Optional so tokens signed before
   // this field existed still decode correctly.
   roles?: string[];
+  // R-01: platform-administrator identity, set ONLY by AuthService from
+  // (users.tenant_id IS NULL AND global `superadmin` role). Guards decide
+  // "platform" through isPlatformAdmin() (core/security/platform-identity),
+  // never from a role name. Optional: tokens issued before this field existed
+  // are honoured transitionally and only when they carry no tenant.
+  platform_admin?: boolean;
   tenant_id: string | null;
   session_id: string;
   business_type: string | null;

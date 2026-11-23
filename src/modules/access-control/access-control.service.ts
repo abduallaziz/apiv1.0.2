@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -10,6 +11,11 @@ import { PermissionsService } from '../../core/permissions/permissions.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { TenantContext } from '../../core/tenant/tenant-context';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+import {
+  isPlatformAdmin,
+  isReservedRoleName,
+  normalizeRoleName,
+} from '../../core/security/platform-identity';
 
 // Roles that can never be mutated through this API, even by an owner acting
 // on their own tenant — approved S5 Stage C decision #2. An owner editing
@@ -39,7 +45,8 @@ export class AccessControlService {
   }
 
   async listPermissions(actor: JwtPayload) {
-    const includeSuperadmin = actor.role === 'superadmin';
+    // R-01: platform identity, not the legacy users.role value.
+    const includeSuperadmin = isPlatformAdmin(actor);
     return this.repo.listPermissionsCatalog(includeSuperadmin);
   }
 
@@ -86,6 +93,24 @@ export class AccessControlService {
     const tenantId = this.requireTenantId(tenant);
     const trimmed = name.trim();
     if (!trimmed) throw new ForbiddenException('Role name is required');
+
+    // R-01: a tenant can never mint a role whose (normalised) name equals a
+    // system/reserved role name — by-name lookups and look-alikes were the
+    // root of the privilege-escalation chain. The live list of global role
+    // names is merged with the static fail-closed list.
+    if (!normalizeRoleName(trimmed)) {
+      throw new BadRequestException({
+        message: 'Role name is not valid',
+        reasonCode: 'invalid_role_name',
+      });
+    }
+    const systemNames = await this.repo.listSystemRoleNames();
+    if (isReservedRoleName(trimmed, systemNames)) {
+      throw new BadRequestException({
+        message: `"${trimmed}" is a reserved role name`,
+        reasonCode: 'reserved_role_name',
+      });
+    }
 
     let role: RoleRow;
     try {
