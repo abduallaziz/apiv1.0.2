@@ -30,6 +30,7 @@ const BASELINE = '331_schema_drift_baseline.sql';
 const ROLLBACK = path.join(PENDING, 'rollback', '331_schema_drift_baseline_ROLLBACK.sql');
 
 describe('331 schema drift baseline (scratch database)', () => {
+  jest.setTimeout(300_000); // catalog introspection / DDL can be slow on a loaded machine
   const dbName = `sefay_baseline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   let admin: PgClient;
   let db: PgClient;

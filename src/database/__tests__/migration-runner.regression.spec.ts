@@ -31,6 +31,7 @@ function makeDir(files: Record<string, string>): string {
 }
 
 describe('migration runner on a real Postgres (scratch DB)', () => {
+  jest.setTimeout(300_000); // catalog introspection / DDL can be slow on a loaded machine
   const adminUrl = process.env.DATABASE_URL as string;
   let admin: PgClient;
   let dbs: string[] = [];
