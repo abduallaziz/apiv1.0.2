@@ -163,8 +163,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build schema (migrations + pending) on the local DB
-        run: node test/local-db/apply.js --with-pending
+      - name: Build schema (migrations + pending) and load the test seed on the local DB
+        run: node test/local-db/apply.js --with-pending --with-seed
 
       # PostgREST needs the roles created by bootstrap.sql, so it is started after the schema exists
       # (a service container would start before them and exit). Same image and settings as docker-compose.yml.

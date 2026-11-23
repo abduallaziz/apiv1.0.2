@@ -86,7 +86,7 @@ describe('loadConfig', () => {
     const c = baseCfg();
     expect(c.targetRef).toBe(DEFAULT_PROJECT_REF);
     expect(c.migrationsOnBoot).toBe(true);
-    expect(c.checksumMode).toBe('record');
+    expect(c.checksumMode).toBe('off');
     expect(c.transactionMode).toBe('off');
     expect(c.dryRun).toBe(false);
     expect(shouldSkipOnBoot(c)).toBe(false);
@@ -161,16 +161,40 @@ describe('planTransaction', () => {
 });
 
 describe('runMigrations', () => {
-  it('applies pending files in filename order, records checksum; default mode = separate requests', async () => {
+  it('default mode = today: filename order, separate requests, no checksum columns or bookkeeping', async () => {
     const dir = makeDir({ '002_b.sql': 'SELECT 2;', '001_a.sql': 'SELECT 1;', 'notes.txt': 'x' });
     const fake = makeFake();
     const api = createApi(baseCfg(), 'tok', fake.fetchImpl);
     const r = await runMigrations(baseCfg(), { api, dir, log: silent });
     expect(r.applied).toEqual(['001_a.sql', '002_b.sql']);
-    expect(fake.rows.get('001_a.sql')).toBe(checksumOf('SELECT 1;'));
+    expect(fake.rows.get('001_a.sql')).toBeNull();
     expect(fake.requests.some((x) => /^BEGIN/.test(x.sql))).toBe(false);
+    expect(fake.requests.some((x) => /ALTER TABLE|UPDATE schema_migrations/.test(x.sql))).toBe(false);
+    expect(fake.requests.some((x) => /INSERT INTO schema_migrations \(filename\) VALUES \('001_a.sql'\) ON CONFLICT/.test(x.sql))).toBe(true);
     expect(fake.requests[0].url).toContain(`/projects/${DEFAULT_PROJECT_REF}/`);
     expect(fake.requests[0].auth).toBe('Bearer tok');
+  });
+
+  it('record mode adds the columns and stores checksum, applied_by, applied_from', async () => {
+    const dir = makeDir({ '001_a.sql': 'SELECT 1;' });
+    const fake = makeFake();
+    const cfg = loadConfig({ MIGRATION_CHECKSUM_MODE: 'record' }, []);
+    await runMigrations(cfg, { api: createApi(cfg, 't', fake.fetchImpl), dir, log: silent });
+    expect(fake.rows.get('001_a.sql')).toBe(checksumOf('SELECT 1;'));
+    expect(fake.requests.some((x) => /ADD COLUMN IF NOT EXISTS checksum/.test(x.sql))).toBe(true);
+  });
+
+  it('default mode ignores a changed applied file entirely (no warning, no failure)', async () => {
+    const dir = makeDir({ '001_a.sql': 'SELECT 1; -- edited' });
+    const fake = makeFake({ applied: { '001_a.sql': checksumOf('SELECT 1;') } });
+    const logs: string[] = [];
+    const r = await runMigrations(baseCfg(), {
+      api: createApi(baseCfg(), 't', fake.fetchImpl),
+      dir,
+      log: (m) => logs.push(m),
+    });
+    expect(r.checksumMismatches).toEqual([]);
+    expect(logs.join(String.fromCharCode(10))).not.toMatch(/WARNING/);
   });
 
   it('skips already applied files', async () => {
@@ -238,12 +262,13 @@ describe('runMigrations', () => {
     expect(fake.rows.has('002_b.sql')).toBe(false);
   });
 
-  it('default (record) mode only warns on a changed applied file and keeps going', async () => {
+  it('record mode only warns on a changed applied file and keeps going', async () => {
     const dir = makeDir({ '001_a.sql': 'SELECT 1; -- edited', '002_b.sql': 'SELECT 2;' });
     const fake = makeFake({ applied: { '001_a.sql': checksumOf('SELECT 1;') } });
     const logs: string[] = [];
-    const r = await runMigrations(baseCfg(), {
-      api: createApi(baseCfg(), 't', fake.fetchImpl),
+    const cfg = loadConfig({ MIGRATION_CHECKSUM_MODE: 'record' }, []);
+    const r = await runMigrations(cfg, {
+      api: createApi(cfg, 't', fake.fetchImpl),
       dir,
       log: (m) => logs.push(m),
     });
@@ -252,11 +277,12 @@ describe('runMigrations', () => {
     expect(logs.join('\n')).toMatch(/WARNING/);
   });
 
-  it('continues without checksums when the columns cannot be added (default mode)', async () => {
+  it('record mode continues without checksums when the columns cannot be added', async () => {
     const dir = makeDir({ '001_a.sql': 'SELECT 1;' });
     const fake = makeFake({ noChecksumColumns: true });
-    const r = await runMigrations(baseCfg(), {
-      api: createApi(baseCfg(), 't', fake.fetchImpl),
+    const cfg = loadConfig({ MIGRATION_CHECKSUM_MODE: 'record' }, []);
+    const r = await runMigrations(cfg, {
+      api: createApi(cfg, 't', fake.fetchImpl),
       dir,
       log: silent,
     });

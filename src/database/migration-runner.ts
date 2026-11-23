@@ -9,7 +9,7 @@ import * as path from 'path';
  * original runner (hard-coded target, apply every un-recorded file in `migrations/`, one request
  * per file plus one for the record, never fail because of checksums). Stricter behaviour is opt-in:
  *   MIGRATION_TARGET_REF / MIGRATION_ALLOWED_REFS   target allow-list
- *   MIGRATION_CHECKSUM_MODE = record (default) | enforce
+ *   MIGRATION_CHECKSUM_MODE = off (default: no checksum columns/bookkeeping) | record (add columns, record, warn) | enforce (also refuse on change)
  *   MIGRATION_TRANSACTION_MODE = off (default) | auto
  *   MIGRATIONS_ON_BOOT = true (default) | false
  */
@@ -37,7 +37,7 @@ export class RunnerError extends Error {
   }
 }
 
-export type ChecksumMode = 'record' | 'enforce';
+export type ChecksumMode = 'off' | 'record' | 'enforce';
 export type TransactionMode = 'off' | 'auto';
 
 export interface RunnerConfig {
@@ -83,10 +83,10 @@ export function loadConfig(
     );
   }
 
-  const checksumRaw = (env.MIGRATION_CHECKSUM_MODE || 'record').trim().toLowerCase();
-  if (checksumRaw !== 'record' && checksumRaw !== 'enforce') {
+  const checksumRaw = (env.MIGRATION_CHECKSUM_MODE || 'off').trim().toLowerCase();
+  if (checksumRaw !== 'off' && checksumRaw !== 'record' && checksumRaw !== 'enforce') {
     throw new RunnerError(
-      'MIGRATION_CHECKSUM_MODE must be "record" or "enforce".',
+      'MIGRATION_CHECKSUM_MODE must be "off", "record" or "enforce".',
       EXIT.CONFIG,
     );
   }
@@ -270,11 +270,13 @@ export async function runMigrations(cfg: RunnerConfig, deps: RunDeps): Promise<R
     );
   `);
     try {
-      await api.run(
-        'ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT, ' +
-          'ADD COLUMN IF NOT EXISTS applied_by TEXT, ADD COLUMN IF NOT EXISTS applied_from TEXT',
-      );
-      checksumReady = true;
+      if (cfg.checksumMode !== 'off') {
+        await api.run(
+          'ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT, ' +
+            'ADD COLUMN IF NOT EXISTS applied_by TEXT, ADD COLUMN IF NOT EXISTS applied_from TEXT',
+        );
+        checksumReady = true;
+      }
     } catch (e) {
       if (cfg.checksumMode === 'enforce') {
         throw new RunnerError(
@@ -300,8 +302,9 @@ export async function runMigrations(cfg: RunnerConfig, deps: RunDeps): Promise<R
 
   // Verify / record checksums of files that are already applied.
   const toRecord: string[] = [];
+  const verify = cfg.checksumMode !== 'off' || cfg.dryRun; // 'off' + real run = today's behaviour, no bookkeeping
   for (const [f, { sum }] of contents) {
-    if (!appliedMap.has(f)) continue;
+    if (!verify || !appliedMap.has(f)) continue;
     const stored = appliedMap.get(f);
     if (!stored) toRecord.push(f);
     else if (stored !== sum) result.checksumMismatches.push(f);
@@ -316,7 +319,7 @@ export async function runMigrations(cfg: RunnerConfig, deps: RunDeps): Promise<R
         EXIT.CHECKSUM,
       );
     }
-    log(`  ! WARNING: already-applied file(s) differ from what was recorded (mode=record, not blocking):\n${list}`);
+    log(`  ! WARNING: already-applied file(s) differ from what was recorded (mode=${cfg.checksumMode}, not blocking):\n${list}`);
   }
 
   if (!cfg.dryRun && checksumReady && toRecord.length > 0) {
