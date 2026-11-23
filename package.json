@@ -28,7 +28,11 @@
     "seed:permissions": "ts-node -r tsconfig-paths/register src/database/seeds/permissions.seed.ts",
     "seed:full": "ts-node -r tsconfig-paths/register src/seeds/full-setup.seed.ts",
     "gen:tokens": "ts-node -r tsconfig-paths/register src/database/seeds/generate-token.ts",
-    "migrate": "ts-node -r tsconfig-paths/register src/database/migrate.ts"
+    "migrate": "ts-node -r tsconfig-paths/register src/database/migrate.ts",
+    "migrate:dry-run": "ts-node -r tsconfig-paths/register src/database/migrate.ts --dry-run",
+    "migrate:release": "ts-node -r tsconfig-paths/register src/database/migrate.ts --release",
+    "migrations:lint": "node scripts/lint-migrations.js",
+    "schema:drift": "node scripts/schema-drift.js"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",
