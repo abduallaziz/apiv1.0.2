@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ServiceUnavailableException,
   Logger,
   Optional,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { InvoicesRepository } from './repositories/invoices.repository';
 import { PosEngine } from '../../engines/pos-engine/pos.engine';
 import { PaymentEngine } from '../../engines/payment-engine/payment.engine';
 import { AuditService } from '../../core/audit/audit.service';
+import { isPooledSalesRequired } from '../../core/security/pooled-sales-guard';
 import { MetricsService } from '../../core/metrics/metrics.service';
 import { TenantsRepository } from '../tenants/repositories/tenants.repository';
 import { LoyaltyService } from '../../core/loyalty/loyalty.service';
@@ -432,6 +434,30 @@ export class InvoicesService {
     const usePooledWrite = this.config.get<boolean>(
       'POOLED_INVOICE_WRITES_ENABLED',
     );
+
+    // R-UNPOOLED — the non-pooled path saves the sale with NO accounting
+    // entry. In production: always log loudly; refuse only when the owner
+    // opted in with REQUIRE_POOLED_SALES=true (default behaviour unchanged).
+    if (!usePooledWrite && process.env.NODE_ENV === 'production') {
+      const required = isPooledSalesRequired({
+        REQUIRE_POOLED_SALES: this.config.get('REQUIRE_POOLED_SALES'),
+      });
+      this.logger.error(
+        `CRITICAL R-UNPOOLED: non-pooled sale (no accounting entry) ${
+          required ? 'REFUSED' : 'accepted'
+        } for tenant ${tenant.tenantId}`,
+      );
+      this.metricsService.recordUnpooledSaleAttempt?.(
+        required ? 'refused' : 'flagged',
+      );
+      if (required) {
+        throw new ServiceUnavailableException({
+          message:
+            'Sales require the pooled (accounting) write path, which is not enabled',
+          reasonCode: 'pooled_sales_required',
+        });
+      }
+    }
 
     // D01-M7 — an approved Price Override can only be committed atomically
     // with its price_override_audit row, which only the pooled transaction

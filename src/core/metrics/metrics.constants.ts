@@ -11,3 +11,5 @@ export const BUSINESS_ACTIVE_TENANTS = 'sefay_active_tenants_total';
 export const FISCAL_COVERAGE_DAYS_MIN = 'sefay_fiscal_coverage_days_min';
 export const FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD =
   'sefay_fiscal_coverage_tenants_below_threshold';
+export const POOLED_SALES_GUARD_VIOLATION = 'sefay_pooled_sales_guard_violation';
+export const UNPOOLED_SALE_ATTEMPTS_TOTAL = 'sefay_unpooled_sale_attempts_total';

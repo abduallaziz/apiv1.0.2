@@ -173,6 +173,36 @@ export function buildRoleClaims(
   };
 }
 
+export interface RoleIdRow {
+  id: string;
+  name: string;
+  /** NULL = global (system) role, otherwise the owning tenant. */
+  tenant_id: string | null;
+}
+
+/**
+ * Role ids (not names) that really apply to a user inside `tenantId`, from the
+ * user's user_roles rows joined to roles (R-DOC-01).
+ *  - GLOBAL roles count.
+ *  - TENANT roles count only when owned by THIS tenant and not reserved (a
+ *    look-alike of a system/platform name grants nothing, same rule as
+ *    buildRoleClaims()).
+ *  - Roles of any other tenant never count.
+ */
+export function selectEffectiveRoleIds(
+  rows: RoleIdRow[],
+  tenantId: string,
+): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    if (!r || !r.id || !r.name) continue;
+    if (r.tenant_id === null || r.tenant_id === undefined) out.push(r.id);
+    else if (r.tenant_id === tenantId && !isReservedRoleName(r.name))
+      out.push(r.id);
+  }
+  return out;
+}
+
 interface IdentityLike {
   platform_admin?: boolean;
   role?: string;

@@ -105,6 +105,7 @@ interface RefreshUserRow {
   role: string;
   tenant_id: string | null;
   branch_id: string | null;
+  is_active: boolean;
 }
 
 interface DeviceSessionWithJoinsRow {
@@ -805,7 +806,10 @@ export class AuthService {
 
     const { data: user } = await this.supabase
       .from('users')
-      .select<string, RefreshUserRow>('id, email, role, tenant_id, branch_id')
+      .select<
+        string,
+        RefreshUserRow
+      >('id, email, role, tenant_id, branch_id, is_active')
       .eq('id', tokenRecord.user_id)
       .is('deleted_at', null)
       .single();
@@ -814,10 +818,29 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    await this.supabase
+    // A deactivated account must not keep minting access tokens from a
+    // session opened before it was disabled (login already refuses it).
+    if (user.is_active === false) {
+      throw new UnauthorizedException('Account is inactive');
+    }
+
+    // Single-use consumption must be ATOMIC: a plain "read is_used, then set
+    // it" lets parallel requests holding the same refresh token all succeed.
+    // The conditional update claims the token for exactly one caller; a loser
+    // is treated exactly like a replay (session revoked).
+    const { data: claimed, error: claimError } = await this.supabase
       .from('refresh_tokens')
       .update({ is_used: true })
-      .eq('id', tokenRecord.id);
+      .eq('id', tokenRecord.id)
+      .eq('is_used', false)
+      .select<string, IdRow>('id');
+    if (claimError || !claimed || claimed.length !== 1) {
+      await this.supabase
+        .from('device_sessions')
+        .update({ is_revoked: true })
+        .eq('id', tokenRecord.session_id);
+      throw new UnauthorizedException('Token reuse detected. Session revoked.');
+    }
 
     const { business_type, activity } = await this.getTenantBusinessType(
       user.tenant_id,

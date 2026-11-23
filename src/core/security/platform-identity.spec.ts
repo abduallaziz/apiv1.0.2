@@ -5,6 +5,7 @@ import {
   isReservedRoleName,
   isTenantOwner,
   normalizeRoleName,
+  selectEffectiveRoleIds,
   RESERVED_ROLE_NAMES,
   SYSTEM_ROLE_NAMES,
 } from './platform-identity';
@@ -229,5 +230,46 @@ describe('buildRoleClaims (token claims from user_roles rows)', () => {
       { role: 'cashier', tenant_id: TENANT },
     );
     expect(c.roles).not.toContain('owner');
+  });
+});
+
+describe('selectEffectiveRoleIds (R-DOC-01)', () => {
+  const T = 'tenant-a';
+  it('keeps global roles and own non-reserved tenant roles', () => {
+    expect(
+      selectEffectiveRoleIds(
+        [
+          { id: '1', name: 'manager', tenant_id: null },
+          { id: '2', name: 'Supervisor', tenant_id: T },
+        ],
+        T,
+      ),
+    ).toEqual(['1', '2']);
+  });
+  it.each([
+    'manager',
+    'Manager',
+    'MANAGER',
+    `m${String.fromCharCode(0x0430)}nager`,
+    `man${String.fromCharCode(0x200b)}ager`,
+    'man_ager',
+    'ADMIN',
+    'superadmin',
+  ])('drops a tenant look-alike %j', (name) => {
+    expect(selectEffectiveRoleIds([{ id: 'x', name, tenant_id: T }], T)).toEqual(
+      [],
+    );
+  });
+  it("drops another tenant's roles and malformed rows", () => {
+    expect(
+      selectEffectiveRoleIds(
+        [
+          { id: 'x', name: 'Supervisor', tenant_id: 'tenant-b' },
+          { id: '', name: 'a', tenant_id: null },
+          { id: 'y', name: '', tenant_id: null },
+        ],
+        T,
+      ),
+    ).toEqual([]);
   });
 });
