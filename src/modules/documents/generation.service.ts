@@ -27,6 +27,11 @@ import {
   type Lang,
   type ResolvedDocument,
 } from './document-sources';
+import {
+  PLATFORM_ONLY_ROLE_NAMES,
+  selectEffectiveRoleIds,
+  type RoleIdRow,
+} from '../../core/security/platform-identity';
 import { referencedAssetIds } from './template-body.util';
 import { SENSITIVE_ASSET_CATEGORIES } from './dto/asset.dto';
 import type {
@@ -37,7 +42,7 @@ import type {
 
 export interface Actor {
   userId: string;
-  /** Role NAMES from the JWT (asset permissions reference role ids; resolved per request). */
+  /** Role NAMES from the JWT. Only a hint for legacy users with no user_roles row; roles are resolved by identity from userId. */
   roles: string[];
 }
 
@@ -210,15 +215,11 @@ export class GenerationService {
       );
     }
 
-    // 2) the issuer may use each sensitive asset
-    const roleIds = actor.roles.length
-      ? (
-          await client.query<{ id: string }>(
-            `SELECT id FROM roles WHERE name = ANY($1::text[]) AND (tenant_id IS NULL OR tenant_id = $2)`,
-            [actor.roles, tenantId],
-          )
-        ).rows.map((x) => x.id)
-      : [];
+    // 2) the issuer may use each sensitive asset. R-DOC-01: the issuer's roles
+    //    are resolved by IDENTITY (user_roles -> role id), never by the role
+    //    NAME in the JWT, so a tenant role named like a system role (or a role
+    //    since removed from the user) cannot match a permission row.
+    const roleIds = await this.resolveActorRoleIds(client, tenantId, actor);
     for (const asset of sensitive) {
       const perms = await client.query<{
         role_id: string | null;
@@ -243,6 +244,39 @@ export class GenerationService {
       }
     }
     return r.rows;
+  }
+
+  /**
+   * Role ids the actor really holds in this tenant (identity based). A user
+   * with no user_roles row at all (legacy mirror: token role = users.role) maps
+   * to the GLOBAL system role of that name only.
+   */
+  private async resolveActorRoleIds(
+    client: PoolClient,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<string[]> {
+    if (!actor.userId) return [];
+    // every row of the user (other tenants' roles are dropped by
+    // selectEffectiveRoleIds, so they can never count nor trigger the fallback)
+    const held = await client.query<RoleIdRow>(
+      `SELECT r.id, r.name, r.tenant_id
+         FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id = $1`,
+      [actor.userId],
+    );
+    if (held.rows.length > 0) {
+      return selectEffectiveRoleIds(held.rows, tenantId);
+    }
+    const legacy = actor.roles.filter(
+      (n) => !PLATFORM_ONLY_ROLE_NAMES.includes(n),
+    );
+    if (legacy.length === 0) return [];
+    const g = await client.query<{ id: string }>(
+      `SELECT id FROM roles WHERE name = ANY($1::text[]) AND tenant_id IS NULL`,
+      [legacy],
+    );
+    return g.rows.map((x) => x.id);
   }
 
   // ------------------------------------------------------------------ issue
