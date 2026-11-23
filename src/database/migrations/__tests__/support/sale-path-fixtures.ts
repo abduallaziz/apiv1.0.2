@@ -236,9 +236,9 @@ export class Harness {
       card_amount: payment === 'split' ? round2(total - round2(total / 2)) : null,
     };
     const tenantCtx = { tenantId: f.tenantId } as never;
-    const items = lines.map((l) => ({
+    const items = lines.map((l, i) => ({
       item_id: l.itemId,
-      item_name: 'line',
+      item_name: `line-${String(i).padStart(3, '0')}`,
       quantity: l.qty,
       unit_price: l.price,
       official_price_snapshot: l.price,
@@ -256,10 +256,10 @@ export class Harness {
           [f.tenantId, f.branchId, subtotal, discount, tax, total, payment, payload.sale_attempt_id],
         );
         const id = ins.rows[0].id as string;
-        for (const l of lines) {
+        for (const [i, l] of lines.entries()) {
           await this.pool.query(
             'INSERT INTO order_items (order_id, item_id, item_name, qty, price, total_price) VALUES ($1,$2,$3,$4,$5,$6)',
-            [id, l.itemId, 'line', l.qty, l.price, l.qty * l.price],
+            [id, l.itemId, `line-${String(i).padStart(3, '0')}`, l.qty, l.price, l.qty * l.price],
           );
         }
         let stockError: string | undefined;
@@ -359,7 +359,7 @@ export class Harness {
   // ------------------------------------------------------------------ read model
   async orderItemIds(orderId: string): Promise<string[]> {
     return (
-      await this.q('SELECT id FROM order_items WHERE order_id=$1 ORDER BY created_at, id', [orderId])
+      await this.q('SELECT id FROM order_items WHERE order_id=$1 ORDER BY item_name, id', [orderId])
     ).map((r) => r.id);
   }
   async count(table: string, f: Fx): Promise<number> {

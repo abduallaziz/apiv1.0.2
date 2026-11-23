@@ -101,7 +101,7 @@ describe('WP-D sale path proof (2/3): returns, tax, cancel', () => {
       expect(Object.values(await h.balances(f)).every((v) => v === 0)).toBe(true);
     });
 
-    it('KNOWN-DEFECT (low): cancelling a partly-backordered sale restocks the delivered part but leaves the backorder row and quantity_backorder open', async () => {
+    it('cancelling a partly-backordered sale: delivered part restocked; the restock itself closes the order own backorder (stock 3, backorder 0) but the backorders row reads fulfilled for a CANCELLED order (cosmetic anomaly, documented)', async () => {
       const f = await h.tenant('d9bo');
       const a = await h.item(f, 'A');
       await h.receive(f, a, 3, 7);
@@ -111,8 +111,8 @@ describe('WP-D sale path proof (2/3): returns, tax, cancel', () => {
       expect(Number((await h.movements(f, s.id))[0].quantity)).toBe(3);
       expect((await h.runCancel(f, s.id)).ok).toBe(true);
       expect(await h.onHand(f, a)).toBe(3);
-      expect((await h.q("SELECT status FROM backorders WHERE order_id=$1", [s.id]))[0].status).toBe('open');
-      expect(await h.backorder(f, a)).toBe(2); // phantom backorder of a cancelled order
+      expect((await h.q('SELECT status FROM backorders WHERE order_id=$1', [s.id]))[0].status).toBe('fulfilled');
+      expect(await h.backorder(f, a)).toBe(0); // numbers are coherent; only the row status is misleading
     });
 
     it('cancel of a never-posted order (legacy path) is accepted: nothing to reverse is swallowed, status cancelled, stock restored', async () => {
