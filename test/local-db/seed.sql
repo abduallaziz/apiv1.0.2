@@ -12,6 +12,14 @@ VALUES ('9bcd3369-0000-4000-8000-000000000002', '9bcd3369-d664-47c8-b297-3bc9b42
         '9bcd3369-0000-4000-8000-000000000001', 'WH-TEST', 'Test Warehouse')
 ON CONFLICT (id) DO NOTHING;
 
+-- A storage location in the test warehouse: the pick-list specs pin the 'zone' strategy to the warehouse's first
+-- location (chk_pick_list_zone_requires_location). Without it they only passed when another spec happened to create one
+-- first (order-dependent), and failed alone or after a jest scheduling change.
+INSERT INTO warehouse_locations (id, tenant_id, warehouse_id, code, name, zone)
+VALUES ('9bcd3369-0000-4000-8000-000000000003', '9bcd3369-d664-47c8-b297-3bc9b429aacf',
+        '9bcd3369-0000-4000-8000-000000000002', 'LOC-TEST', 'Test Location', 'A')
+ON CONFLICT (id) DO NOTHING;
+
 -- Second tenant (several specs assert cross-tenant isolation against "any other tenant").
 INSERT INTO tenants (id, name, business_type, status)
 VALUES ('9bcd3369-1111-4000-8000-000000000000', 'Local Other Tenant', 'retail', 'active')
