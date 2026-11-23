@@ -58,7 +58,7 @@ describe('FIX 332: tax-inclusive partial return share (before / after / rollback
   }
 
   it('rollback body is byte-identical to the 328 body of fn_create_sales_return', async () => {
-    const m = /AS \$function\$([\s\S]*?)\$function\$/.exec(read('328_posting_date_policy_wiring_CANDIDATE.sql').slice(read('328_posting_date_policy_wiring_CANDIDATE.sql').indexOf('FUNCTION public.fn_create_sales_return')));
+    const m = /AS \$function\$([\s\S]*?)\$function\$/.exec(read('328_posting_date_policy_wiring.sql').slice(read('328_posting_date_policy_wiring.sql').indexOf('FUNCTION public.fn_create_sales_return')));
     const b328 = require('crypto').createHash('md5').update(m![1]).digest('hex');
     const fixedHash = await hash();
     await h.pg.query(read('rollback', '332_sales_return_tax_inclusive_share_ROLLBACK.sql'));

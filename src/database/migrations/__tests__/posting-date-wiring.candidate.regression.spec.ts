@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
 /**
- * End-to-end proof of the CANDIDATE wiring (migrations_pending/328_posting_date_policy_wiring_CANDIDATE.sql):
+ * End-to-end proof of the CANDIDATE wiring (migrations_pending/328_posting_date_policy_wiring.sql):
  * sale, cancel and return through the REAL database functions with NO date passed by the caller.
  *
  * LOCAL DISPOSABLE DATABASE ONLY (`npm run test:integration:local`, which runs specs one at a time).
@@ -68,10 +68,22 @@ describe('CANDIDATE 328 wiring — sale / cancel / return end to end (local only
     ]) {
       await pg.query(fs.readFileSync(path.join(PENDING, f), 'utf8'));
     }
+    // The integrated schema already has 328 (and the later 332/333 that build on it): normalise to the
+    // pre-328 function bodies first, so "before" is the real deployed state and the proof below is genuine.
+    await pg.query(
+      fs.readFileSync(
+        path.join(
+          PENDING,
+          'rollback',
+          '328_posting_date_policy_wiring_ROLLBACK.sql',
+        ),
+        'utf8',
+      ),
+    );
     before = await hashes();
     await pg.query(
       fs.readFileSync(
-        path.join(PENDING, '328_posting_date_policy_wiring_CANDIDATE.sql'),
+        path.join(PENDING, '328_posting_date_policy_wiring.sql'),
         'utf8',
       ),
     );
@@ -90,6 +102,14 @@ describe('CANDIDATE 328 wiring — sale / cancel / return end to end (local only
       ),
     );
     const after = await hashes();
+    // put the shared test database back into the integrated state (328 -> 332 -> 333, all idempotent)
+    for (const f of [
+      '328_posting_date_policy_wiring.sql',
+      '332_sales_return_tax_inclusive_share.sql',
+      '333_sale_stock_idempotency.sql',
+    ]) {
+      await pg.query(fs.readFileSync(path.join(PENDING, f), 'utf8'));
+    }
     await pg.end();
     expect(after).toEqual(before); // rollback restores byte-identical function bodies
   });

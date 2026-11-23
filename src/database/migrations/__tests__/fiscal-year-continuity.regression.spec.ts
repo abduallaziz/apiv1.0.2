@@ -585,7 +585,13 @@ describe('WP-B fiscal-year continuity and year-boundary sale integrity', () => {
           [at],
         )
       )[0].d;
-      expect(await entryDate(r.orderId)).toBe(expectedSession); // session-tz date (UTC in the docker DB)
+      // 328 (posting-date policy wiring) replaces the DB-session date with the tenant-local date. The integrated
+      // schema has it; the pre-328 schema (main + 325/326) still documents the exception.
+      const [w] = await q(
+        "SELECT prosrc LIKE '%fn_posting_date_for_event%' AS wired FROM pg_proc WHERE proname = 'fn_post_sales_order' AND pronamespace = 'public'::regnamespace",
+      );
+      if (!w.wired)
+        expect(await entryDate(r.orderId)).toBe(expectedSession); // session-tz date (UTC in the docker DB)
       const tenantLocal = (
         await q(
           "SELECT to_char(fn_tenant_posting_date($1,$2::timestamptz),'YYYY-MM-DD') AS d",
@@ -593,7 +599,8 @@ describe('WP-B fiscal-year continuity and year-boundary sale integrity', () => {
         )
       )[0].d;
       expect(tenantLocal).toBe('2027-01-01');
-      if (sess.TimeZone === 'UTC' || sess.TimeZone === 'Etc/UTC')
+      if (w.wired) expect(await entryDate(r.orderId)).toBe(tenantLocal);
+      else if (sess.TimeZone === 'UTC' || sess.TimeZone === 'Etc/UTC')
         expect(await entryDate(r.orderId)).not.toBe(tenantLocal);
     });
 

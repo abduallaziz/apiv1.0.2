@@ -1,5 +1,5 @@
--- CANDIDATE (NOT APPLIED ANYWHERE, NOT SCANNED by migrate.ts): wires the posting-date policy (327) into the
--- three posting functions. Requires 325 + 326 + 327. Needs separate owner approval (P1-D6) and the gates in
+-- Wires the posting-date policy (327) into the three posting functions. NOT APPLIED ANYWHERE yet, NOT SCANNED by migrate.ts (migrations_pending/).
+-- Requires 325 + 326 + 327; production adoption happens only at the owner final approval gate (see the integrated release master).
 -- POSTING_DATE_DECISION_REPORT.md. Generated from the live local definitions of 266/253/278 with minimal edits:
 --   fn_post_sales_order      : default date = policy('sale', orders.created_at)           (was created_at::date in the DB session zone)
 --   fn_reverse_sales_order   : NULL date => policy('cancel', now(), original entry date); an explicit date is still honoured
