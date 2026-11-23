@@ -30,7 +30,7 @@ export class TenantManagementRepository {
         .is('deleted_at', null),
       this.supabase
         .from('subscriptions')
-        .select('billing_cycle, plans(name, price_monthly, price_yearly)')
+        .select('billing_cycle, plans!subscriptions_plan_id_fkey(name, price_monthly, price_yearly)')
         .eq('tenant_id', tenant.id)
         .in('status', ['active', 'trial'])
         .order('created_at', { ascending: false })
@@ -186,7 +186,7 @@ export class TenantManagementRepository {
   async getSubscription(tenantId: string) {
     const { data, error } = await this.supabase
       .from('subscriptions')
-      .select('*, plans(*)')
+      .select('*, plans!subscriptions_plan_id_fkey(*)')
       .eq('tenant_id', tenantId)
       .in('status', ['active', 'trial'])
       .order('created_at', { ascending: false })

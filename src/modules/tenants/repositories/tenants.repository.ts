@@ -133,7 +133,7 @@ export class TenantsRepository {
         trial_ends_at,
         billing_cycle,
         current_period_start,
-        plans(max_users, max_branches, name, price_monthly, price_yearly)
+        plans!subscriptions_plan_id_fkey(max_users, max_branches, name, price_monthly, price_yearly)
       `,
       )
       .eq('tenant_id', tenantId)

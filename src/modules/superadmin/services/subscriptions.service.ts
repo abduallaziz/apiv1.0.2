@@ -15,7 +15,7 @@ export class SuperAdminSubscriptionsService {
   async findAll(filters: { status?: string; search?: string }) {
     let query = this.supabase
       .from('subscriptions')
-      .select('*, tenants(name), plans(name)')
+      .select('*, tenants(name), plans!subscriptions_plan_id_fkey(name)')
       .order('created_at', { ascending: false });
 
     if (filters.status) query = query.eq('status', filters.status);
