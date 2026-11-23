@@ -4,8 +4,8 @@ VALUES ('9bcd3369-d664-47c8-b297-3bc9b429aacf', 'Local Test Tenant', 'retail', '
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO branches (id, tenant_id, name)
-VALUES ('9bcd3369-0000-4000-8000-000000000001', '9bcd3369-d664-47c8-b297-3bc9b429aacf', 'Main')
-ON CONFLICT (id) DO NOTHING;
+VALUES ('9bcd3369-0000-4000-8000-000000000001', '9bcd3369-d664-47c8-b297-3bc9b429aacf', 'Main Branch')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
 
 INSERT INTO warehouses (id, tenant_id, branch_id, code, name)
 VALUES ('9bcd3369-0000-4000-8000-000000000002', '9bcd3369-d664-47c8-b297-3bc9b429aacf',
