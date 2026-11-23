@@ -15,12 +15,24 @@ const read = (...p: string[]) => fs.readFileSync(path.join(PENDING, ...p), 'utf8
 
 describe('D-11 financial monitors M-1..M-9 (329)', () => {
   const h = new Harness();
+  let had335 = false;
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL (local) required');
     await h.open();
     await h.ensurePending('329_financial_monitoring.sql');
+    // This spec asserts the exact 329 state (11 functions). 335 (WP-E) adds monitor M-10 on top of it, so step back to the
+    // 329 state for this spec and re-apply 335 afterwards (the 335 spec does the mirror image for itself).
+    const [{ has335 }] = await h.q("SELECT to_regprocedure('fn_fin_monitor_m10_open_exceptions(uuid,interval,interval)') IS NOT NULL AS has335");
+    had335 = has335;
+    if (has335) {
+      await h.q("UPDATE financial_exceptions SET status='resolved', resolved_at=now(), resolution_note='329 spec: test cleanup' WHERE status='open'");
+      await h.pg.query(read('rollback', '335_financial_exceptions_ROLLBACK.sql'));
+    }
   });
-  afterAll(async () => h.close());
+  afterAll(async () => {
+    if (had335) await h.pg.query(read('335_financial_exceptions.sql'));
+    await h.close();
+  });
 
   /** findings for one tenant, no grace; optionally one check */
   async function mon(f: { tenantId: string }, check?: string, grace = '0 seconds') {

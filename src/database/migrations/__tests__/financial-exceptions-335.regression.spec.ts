@@ -27,6 +27,8 @@ describe('WP-E 335: financial_exceptions (flag off == today, flag on == per-line
   afterAll(async () => {
     await h.pg.query(read('333_sale_stock_idempotency.sql'));
     await h.pg.query(read('335_financial_exceptions.sql'));
+    // leave no OPEN rows behind: later specs (329) roll 335 back, which refuses while open rows exist
+    await h.pg.query("UPDATE financial_exceptions SET status='resolved', resolved_at=now(), resolution_note='335 spec: test cleanup' WHERE status='open'");
     await h.close();
   });
 
