@@ -92,7 +92,7 @@ export class PlatformAnalyticsRepository {
   async getMRR(): Promise<number> {
     const { data } = await this.supabase
       .from('subscriptions')
-      .select('plan_id, plans!inner(price_monthly)')
+      .select('plan_id, plans!subscriptions_plan_id_fkey!inner(price_monthly)')
       .eq('status', 'active');
     if (!data) return 0;
     return (data as any[]).reduce(
@@ -114,7 +114,7 @@ export class PlatformAnalyticsRepository {
     const { data } = await this.supabase
       .from('subscriptions')
       .select(
-        'started_at, ends_at, cancelled_at, status, plan_id, plans!inner(price_monthly)',
+        'started_at, ends_at, cancelled_at, status, plan_id, plans!subscriptions_plan_id_fkey!inner(price_monthly)',
       )
       .in('status', ['active', 'cancelled', 'expired'])
       .gte('started_at', range.from.toISOString());
@@ -279,7 +279,7 @@ export class PlatformAnalyticsRepository {
           .in('status', ['trial', 'active', 'cancelled', 'expired']),
         this.supabase
           .from('subscriptions')
-          .select('tenant_id, started_at, plans!inner(price_monthly)')
+          .select('tenant_id, started_at, plans!subscriptions_plan_id_fkey!inner(price_monthly)')
           .in('tenant_id', tenantIds)
           .eq('status', 'active')
           .gt('plans.price_monthly', 0),
@@ -415,7 +415,7 @@ export class PlatformAnalyticsRepository {
   > {
     const { data } = await this.supabase
       .from('subscriptions')
-      .select('plan_id, plans!inner(name, price_monthly)')
+      .select('plan_id, plans!subscriptions_plan_id_fkey!inner(name, price_monthly)')
       .eq('status', 'active');
     if (!data) return [];
     const planMap = new Map<string, PlanEntry>();
