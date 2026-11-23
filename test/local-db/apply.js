@@ -1,5 +1,6 @@
 // Applies bootstrap + every migration to the LOCAL test database only.
-// Usage: node test/local-db/apply.js [--with-pending]
+// Usage: node test/local-db/apply.js [--with-pending] [--with-seed]
+//   --with-seed also loads test/local-db/seed.sql (idempotent test tenant/branch/warehouse/users the DB specs expect).
 // Refuses any host other than loopback.
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +13,7 @@ if (!['127.0.0.1', 'localhost', '::1', '[::1]'].includes(host)) {
   process.exit(2);
 }
 const withPending = process.argv.includes('--with-pending');
+const withSeed = process.argv.includes('--with-seed');
 const root = path.resolve(__dirname, '..', '..');
 const dirs = [path.join(root, 'src/database/migrations')];
 if (withPending) dirs.push(path.join(root, 'src/database/migrations_pending'));
@@ -38,6 +40,14 @@ if (withPending) dirs.push(path.join(root, 'src/database/migrations_pending'));
       await c.end();
       process.exit(1);
     }
+  }
+  if (withSeed) {
+    await c.query(fs.readFileSync(path.join(__dirname, 'seed.sql'), 'utf8'));
+    console.log('seed.sql loaded');
+    // the accounting specs need the test tenant's accounting configuration (owner/book/accounts/calendar);
+    // fn_backfill_accounting_bootstrap (migration 186) is idempotent and creates no journal entries.
+    await c.query("SELECT fn_backfill_accounting_bootstrap('9bcd3369-d664-47c8-b297-3bc9b429aacf'::uuid)");
+    console.log('accounting bootstrap done for the test tenant');
   }
   await c.query("NOTIFY pgrst, 'reload schema'");
   console.log(`applied ${n} migration(s); total recorded ${done.size + n}`);
