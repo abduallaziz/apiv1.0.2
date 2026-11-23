@@ -31,6 +31,12 @@ export const envValidationSchema = Joi.object({
   // Only meaningful with POOLED_INVOICE_WRITES_ENABLED=true. A stock failure
   // never fails the sale (SAVEPOINT), it only falls back to the old behaviour.
   POOLED_STOCK_IN_TX_ENABLED: Joi.boolean().default(false),
+  // WP-B fiscal-year continuity (migration 325). The daily job is OFF by default and, even when
+  // enabled, only REPORTS unless FISCAL_SCHEDULER_APPLY=true too: fiscal years are append-only.
+  FISCAL_SCHEDULER_ENABLED: Joi.boolean().default(false),
+  FISCAL_SCHEDULER_APPLY: Joi.boolean().default(false),
+  FISCAL_HORIZON_YEARS: Joi.number().integer().min(0).max(5).default(2),
+  FISCAL_ALERT_DAYS: Joi.number().integer().min(1).default(180),
   // ZATCA e-invoicing phase 2: issue a signed document inside every pooled sale of a branch that has
   // an onboarded device (docs/DESIGN_ZATCA_PHASE2.md). Off by default; nothing is sent to ZATCA here —
   // documents are prepared, signed, chained and stored until the connection is added.
@@ -62,8 +68,12 @@ export const envValidationSchema = Joi.object({
   // production it is refused unless explicitly opted into (and logged) —
   // otherwise a misconfigured deploy would hand out paid plans for free.
   PAYMENT_PROVIDER: Joi.string().valid('stripe', 'mock').default('mock'),
-  ALLOW_QA_EXEMPTION_IN_PRODUCTION: Joi.string().valid('true', 'false').optional(),
-  ALLOW_MOCK_PAYMENT_IN_PRODUCTION: Joi.string().valid('true', 'false').optional(),
+  ALLOW_QA_EXEMPTION_IN_PRODUCTION: Joi.string()
+    .valid('true', 'false')
+    .optional(),
+  ALLOW_MOCK_PAYMENT_IN_PRODUCTION: Joi.string()
+    .valid('true', 'false')
+    .optional(),
   STRIPE_SECRET_KEY: Joi.when('PAYMENT_PROVIDER', {
     is: 'stripe',
     then: Joi.string().pattern(/^sk_/).required(),

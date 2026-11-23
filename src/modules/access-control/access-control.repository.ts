@@ -87,11 +87,26 @@ export class AccessControlRepository {
         'id, name, description, tenant_id, is_system, created_at, updated_at',
       )
       .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
-      .neq('name', 'superadmin')
       .order('name', { ascending: true });
 
     if (error) throw error;
-    return data ?? [];
+    // Hide ONLY the global platform role. (This used to filter by NAME, which
+    // would also have hidden a tenant-created look-alike from its own tenant.)
+    return (data ?? []).filter(
+      (r: RoleRow) => !(r.tenant_id === null && r.name === 'superadmin'),
+    );
+  }
+
+  // Names of the global (system) roles — merged with the static reserved list
+  // by the service so a role added later is protected without a code change.
+  async listSystemRoleNames(): Promise<string[]> {
+    const { data, error } = await this.supabase
+      .from('roles')
+      .select('name')
+      .is('tenant_id', null);
+
+    if (error) throw error;
+    return (data ?? []).map((r: { name: string }) => r.name);
   }
 
   async getRoleById(roleId: string): Promise<RoleRow | null> {

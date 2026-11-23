@@ -458,9 +458,27 @@ describe('AccessControlService — S5 Stage C', () => {
     it('asks the repository to include superadmin-resource permissions for a superadmin', async () => {
       const { service, repo } = buildService();
 
-      await service.listPermissions(actor({ role: 'superadmin' }));
+      // R-01: platform identity = tenant-less + platform claim (not a role name).
+      await service.listPermissions(
+        actor({
+          role: 'superadmin',
+          roles: ['superadmin'],
+          platform_admin: true,
+          tenant_id: null,
+        }),
+      );
 
       expect(repo.listPermissionsCatalog).toHaveBeenCalledWith(true);
+    });
+
+    it('does NOT include superadmin-resource permissions for a tenant-bound token that merely names superadmin (R-01)', async () => {
+      const { service, repo } = buildService();
+
+      await service.listPermissions(
+        actor({ role: 'owner', roles: ['owner', 'superadmin'] }),
+      );
+
+      expect(repo.listPermissionsCatalog).toHaveBeenCalledWith(false);
     });
 
     it('repository excludes resource=superadmin rows when includeSuperadmin is false (integration-level check on the query builder)', async () => {

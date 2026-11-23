@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
+import { isReservedRoleName } from '../security/platform-identity';
 
 // D01-M5 — Effective Role resolution for the Pricing Override domain only.
 // Deliberately isolated from PermissionsService: this answers "which single
@@ -26,6 +27,7 @@ interface UserRoleRow {
   role: {
     id: string;
     name: string;
+    tenant_id: string | null;
     priority: number;
     is_hierarchy_participant: boolean;
   } | null;
@@ -45,7 +47,7 @@ export class EffectiveRoleResolver {
     const { data, error } = await this.supabase
       .from('user_roles')
       .select(
-        'is_primary, role:roles!user_roles_role_id_fkey(id, name, priority, is_hierarchy_participant)',
+        'is_primary, role:roles!user_roles_role_id_fkey(id, name, tenant_id, priority, is_hierarchy_participant)',
       )
       .eq('user_id', userId);
 
@@ -56,7 +58,10 @@ export class EffectiveRoleResolver {
       .filter(
         (row) =>
           row.role.is_hierarchy_participant &&
-          !D01_EXCLUDED_ROLE_NAMES.has(row.role.name),
+          !D01_EXCLUDED_ROLE_NAMES.has(row.role.name) &&
+          // R-01: a tenant-scoped role that merely carries a system/reserved
+          // name is a look-alike, never an effective role.
+          !(row.role.tenant_id !== null && isReservedRoleName(row.role.name)),
       );
 
     if (eligible.length === 0) return null;

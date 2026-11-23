@@ -5,6 +5,8 @@ import { AccountingConfigController } from './accounting-config.controller';
 import { AccountingService } from './accounting.service';
 import { AccountingRepository } from './repositories/accounting.repository';
 import { CoreAuthModule } from '../../core/auth/auth.module';
+import { FiscalCalendarService } from './fiscal-calendar.service';
+import { FiscalCalendarScheduler } from './fiscal-calendar.scheduler';
 
 @Module({
   imports: [CoreAuthModule],
@@ -13,7 +15,12 @@ import { CoreAuthModule } from '../../core/auth/auth.module';
     PriceOverrideAuditController,
     AccountingConfigController,
   ],
-  providers: [AccountingService, AccountingRepository],
-  exports: [AccountingService],
+  providers: [
+    AccountingService,
+    AccountingRepository,
+    FiscalCalendarService,
+    FiscalCalendarScheduler,
+  ],
+  exports: [AccountingService, FiscalCalendarService],
 })
 export class AccountingModule {}

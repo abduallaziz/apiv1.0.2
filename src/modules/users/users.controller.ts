@@ -49,7 +49,7 @@ export class UsersController {
     @GetTenant() tenant: TenantContext,
     @Request() req: any,
   ) {
-    return this.usersService.create(dto, tenant, req.user.sub);
+    return this.usersService.create(dto, tenant, req.user.sub, req.user);
   }
 
   @Patch(':id')
@@ -73,7 +73,13 @@ export class UsersController {
     @GetTenant() tenant: TenantContext,
     @Request() req: any,
   ) {
-    return this.usersService.changeRole(id, dto, tenant, req.user.sub);
+    return this.usersService.changeRole(
+      id,
+      dto,
+      tenant,
+      req.user.sub,
+      req.user,
+    );
   }
 
   @Get(':id/roles')
@@ -91,7 +97,13 @@ export class UsersController {
     @GetTenant() tenant: TenantContext,
     @Request() req: any,
   ) {
-    return this.usersService.addRole(id, dto.role_id, tenant, req.user.sub);
+    return this.usersService.addRole(
+      id,
+      dto.role_id,
+      tenant,
+      req.user.sub,
+      req.user,
+    );
   }
 
   @Delete(':id/roles/:roleId')

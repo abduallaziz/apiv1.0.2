@@ -8,3 +8,6 @@ export const BUSINESS_INVOICES_TOTAL = 'sefay_invoices_total';
 export const BUSINESS_SHIFTS_TOTAL = 'sefay_shifts_total';
 export const BUSINESS_EXPENSES_TOTAL = 'sefay_expenses_total';
 export const BUSINESS_ACTIVE_TENANTS = 'sefay_active_tenants_total';
+export const FISCAL_COVERAGE_DAYS_MIN = 'sefay_fiscal_coverage_days_min';
+export const FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD =
+  'sefay_fiscal_coverage_tenants_below_threshold';

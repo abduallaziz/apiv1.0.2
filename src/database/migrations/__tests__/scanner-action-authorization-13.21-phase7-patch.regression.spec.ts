@@ -145,7 +145,15 @@ describe('Action Framework authorization patch (Migration 13.21 Phase 7)', () =>
   it('superadmin behavior remains identical to existing Sefay rules: bypasses the check without a role_permissions lookup mattering', async () => {
     stubHandler.calls = 0;
     const result = await executor.execute(
-      baseRequest(makeUser({ role: 'superadmin', roles: ['superadmin'] })),
+      baseRequest(
+        // R-01: platform identity = tenant-less + platform claim.
+        makeUser({
+          role: 'superadmin',
+          roles: ['superadmin'],
+          platform_admin: true,
+          tenant_id: null,
+        }),
+      ),
     );
     expect(result.success).toBe(true);
     expect(stubHandler.calls).toBe(1);

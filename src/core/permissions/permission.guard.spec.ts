@@ -34,12 +34,33 @@ describe('PermissionGuard — Phase C shadow mode', () => {
       sub: 'u1',
       role: 'superadmin',
       roles: ['superadmin'],
-      tenant_id: TENANT_A,
+      platform_admin: true,
+      tenant_id: null,
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(permissionsService.hasPermission).not.toHaveBeenCalled();
     expect(permissionsService.hasPermissionForUser).not.toHaveBeenCalled();
+  });
+
+  it('R-01: a tenant-bound token that merely NAMES superadmin does not bypass — normal permission checks apply', async () => {
+    const permissionsService = {
+      hasPermission: jest.fn().mockResolvedValue(false),
+      hasPermissionForUser: jest.fn().mockResolvedValue(false),
+    };
+    const guard = new PermissionGuard(
+      buildReflector('expenses.view'),
+      permissionsService as any,
+    );
+    const context = buildContext({
+      sub: 'u-forged',
+      role: 'owner',
+      roles: ['owner', 'superadmin'],
+      tenant_id: TENANT_A,
+    });
+
+    await expect(guard.canActivate(context)).rejects.toThrow();
+    expect(permissionsService.hasPermission).toHaveBeenCalled();
   });
 
   it('owner is granted by both legacy and hybrid paths — no divergence, still enforced via legacy in shadow mode', async () => {
