@@ -1,4 +1,9 @@
 import * as Joi from 'joi';
+import {
+  describePooledSalesViolations,
+  evaluatePooledSalesState,
+  isPooledSalesRequired,
+} from '../../security/pooled-sales-guard';
 
 export const envValidationSchema = Joi.object({
   // ── App ──────────────────────────────────────────────
@@ -31,6 +36,11 @@ export const envValidationSchema = Joi.object({
   // Only meaningful with POOLED_INVOICE_WRITES_ENABLED=true. A stock failure
   // never fails the sale (SAVEPOINT), it only falls back to the old behaviour.
   POOLED_STOCK_IN_TX_ENABLED: Joi.boolean().default(false),
+  // R-UNPOOLED opt-in hard fail: with true, a production boot is refused when
+  // DATABASE_URL is missing, POOLED_INVOICE_WRITES_ENABLED is off, or pooled
+  // writes are on while POOLED_STOCK_IN_TX_ENABLED is off; the non-pooled
+  // sale path also refuses sales. Default false = log CRITICAL + metric only.
+  REQUIRE_POOLED_SALES: Joi.boolean().default(false),
   // WP-B fiscal-year continuity (migration 325). The daily job is OFF by default and, even when
   // enabled, only REPORTS unless FISCAL_SCHEDULER_APPLY=true too: fiscal years are append-only.
   FISCAL_SCHEDULER_ENABLED: Joi.boolean().default(false),
@@ -127,6 +137,15 @@ export const envValidationSchema = Joi.object({
       custom:
         'PAYMENT_PROVIDER must be "stripe" in production (set ALLOW_MOCK_PAYMENT_IN_PRODUCTION=true only to knowingly accept free plans)',
     });
+  }
+  // R-UNPOOLED opt-in fail-fast (shared logic with PooledSalesGuardService).
+  if (isPooledSalesRequired(value)) {
+    const v = evaluatePooledSalesState(value);
+    if (v.length > 0) {
+      return helpers.message({
+        custom: `REQUIRE_POOLED_SALES=true but: ${describePooledSalesViolations(v).join('; ')}`,
+      });
+    }
   }
   return value;
 });

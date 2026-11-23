@@ -16,6 +16,8 @@ import {
   BUSINESS_ACTIVE_TENANTS,
   FISCAL_COVERAGE_DAYS_MIN,
   FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD,
+  POOLED_SALES_GUARD_VIOLATION,
+  UNPOOLED_SALE_ATTEMPTS_TOTAL,
 } from './metrics.constants';
 
 @Injectable()
@@ -33,6 +35,9 @@ export class MetricsService implements OnModuleInit {
   // WP-B: aggregate only (no tenant labels — /metrics is not tenant-scoped).
   readonly fiscalCoverageDaysMin: Gauge<string>;
   readonly fiscalTenantsBelowThreshold: Gauge<string>;
+  // R-UNPOOLED: 1 per active violation reason (no tenant labels).
+  readonly pooledSalesGuardViolation: Gauge<string>;
+  readonly unpooledSaleAttempts: Counter<string>;
 
   constructor() {
     this.registry = new Registry();
@@ -97,6 +102,37 @@ export class MetricsService implements OnModuleInit {
       help: 'Number of tenants whose fiscal-year coverage is below the alert threshold',
       registers: [this.registry],
     });
+
+    this.pooledSalesGuardViolation = new Gauge({
+      name: POOLED_SALES_GUARD_VIOLATION,
+      help: 'R-UNPOOLED: 1 when the production environment is in a state where sales lack accounting/COGS, by reason',
+      labelNames: ['reason'],
+      registers: [this.registry],
+    });
+
+    this.unpooledSaleAttempts = new Counter({
+      name: UNPOOLED_SALE_ATTEMPTS_TOTAL,
+      help: 'Sales attempted on the non-pooled (no accounting entry) path in production',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+  }
+
+  setPooledSalesGuard(active: readonly string[]): void {
+    for (const reason of [
+      'database_url_missing',
+      'pooled_writes_off',
+      'stock_in_tx_off',
+    ]) {
+      this.pooledSalesGuardViolation.set(
+        { reason },
+        active.includes(reason) ? 1 : 0,
+      );
+    }
+  }
+
+  recordUnpooledSaleAttempt(outcome: 'refused' | 'flagged'): void {
+    this.unpooledSaleAttempts.inc({ outcome });
   }
 
   setFiscalCoverage(daysMin: number, tenantsBelow: number): void {

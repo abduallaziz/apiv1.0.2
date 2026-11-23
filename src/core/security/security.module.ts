@@ -4,6 +4,7 @@ import { BranchAuthorizationService } from './branch-authorization.service';
 import { BranchScopeInterceptor } from './branch-scope.interceptor';
 import { TenantIsolationService } from './tenant-isolation.service';
 import { EntitlementsService } from './entitlements.service';
+import { PooledSalesGuardService } from './pooled-sales-guard';
 import { SupabaseModule } from '../../shared/supabase/supabase.module';
 
 @Global()
@@ -15,6 +16,7 @@ import { SupabaseModule } from '../../shared/supabase/supabase.module';
     BranchScopeInterceptor,
     TenantIsolationService,
     EntitlementsService,
+    PooledSalesGuardService,
   ],
   exports: [
     BranchValidatorService,
