@@ -19,6 +19,7 @@ import {
   POOLED_SALES_GUARD_VIOLATION,
   UNPOOLED_SALE_ATTEMPTS_TOTAL,
   FINANCIAL_EXCEPTIONS_RECORDED_TOTAL,
+  FINANCIAL_EXCEPTION_RETRIES_TOTAL,
 } from './metrics.constants';
 
 @Injectable()
@@ -40,6 +41,7 @@ export class MetricsService implements OnModuleInit {
   readonly pooledSalesGuardViolation: Gauge<string>;
   readonly unpooledSaleAttempts: Counter<string>;
   readonly financialExceptionsRecorded: Counter<string>;
+  readonly financialExceptionRetries: Counter<string>;
 
   constructor() {
     this.registry = new Registry();
@@ -126,6 +128,17 @@ export class MetricsService implements OnModuleInit {
       labelNames: ['kind'],
       registers: [this.registry],
     });
+
+    this.financialExceptionRetries = new Counter({
+      name: FINANCIAL_EXCEPTION_RETRIES_TOTAL,
+      help: 'Financial exception retry outcomes (resolved, failed, refused_closed_period, already_resolved, error)',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+  }
+
+  recordFinancialExceptionRetry(outcome: string, count = 1): void {
+    this.financialExceptionRetries.inc({ outcome }, count);
   }
 
   recordFinancialException(

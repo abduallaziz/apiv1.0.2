@@ -1,3 +1,5 @@
+-- ROLLBACK ORDER (strict reverse of the apply order; never skip or reorder): 335, 333, 332, 330, 328, 327, 326, 325.
+-- (329 and 331 are read-only / scratch-only and independent; roll 329 back only after 335.) Rolling back an earlier step while a later one is applied is NOT supported.
 -- ROLLBACK of 329: drops exactly the read-only monitor functions that 329 created. Nothing else was touched by 329.
 DROP FUNCTION IF EXISTS fn_fin_monitor_summary(uuid, interval, interval);
 DROP FUNCTION IF EXISTS fn_fin_monitor_all(uuid, interval, interval);

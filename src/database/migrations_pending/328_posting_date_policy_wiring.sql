@@ -1,3 +1,6 @@
+-- ORDERING HAZARD: NEVER re-run 328 after 332. 328 overwrites fn_create_sales_return with its own body and would silently undo 332's
+-- fix. 332 and 335 refuse to apply unless 328 is applied. To re-apply 328, roll back 335, 333, 332 first (see the rollback headers),
+-- then apply 328, 332, 333, 335 in order.
 -- Wires the posting-date policy (327) into the three posting functions. NOT APPLIED ANYWHERE yet, NOT SCANNED by migrate.ts (migrations_pending/).
 -- Requires 325 + 326 + 327; production adoption happens only at the owner final approval gate (see the integrated release master).
 -- POSTING_DATE_DECISION_REPORT.md. Generated from the live local definitions of 266/253/278 with minimal edits:

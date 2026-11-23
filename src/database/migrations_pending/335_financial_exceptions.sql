@@ -23,6 +23,13 @@ BEGIN
   IF to_regprocedure('fn_posting_date_for_event(uuid,text,timestamp with time zone,date)') IS NULL THEN
     RAISE EXCEPTION '335 requires migrations 325-328 (fn_posting_date_for_event is missing)';
   END IF;
+  -- 328 must be APPLIED (not only 327): the cancel/catch-up reversal dates rely on its policy wiring (NULL date => policy).
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_reverse_sales_order' AND pronamespace = 'public'::regnamespace
+                  AND prosrc LIKE '%fn_posting_date_for_event%')
+     OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_create_sales_return' AND pronamespace = 'public'::regnamespace
+                     AND prosrc LIKE '%fn_posting_date_for_event%') THEN
+    RAISE EXCEPTION '335 requires migration 328 to be applied (posting-date policy wiring is not in fn_reverse_sales_order / fn_create_sales_return)';
+  END IF;
   IF to_regprocedure('fn_fin_monitor_all(uuid,interval,interval)') IS NULL OR to_regprocedure('fn_fin_monitor_m9_cancel_asymmetry(uuid,interval,interval)') IS NULL THEN
     RAISE EXCEPTION '335 requires migration 329 (financial monitors are missing)';
   END IF;
@@ -165,6 +172,8 @@ CREATE OR REPLACE FUNCTION public.fn_financial_exception_retry(p_exception_id uu
 AS $function$
 DECLARE
   v_ex             financial_exceptions%ROWTYPE;
+  v_src_order      UUID;
+  v_src_tenant     UUID;
   v_order          RECORD;
   v_sale_entry     RECORD;
   v_period_status  TEXT;
@@ -177,6 +186,15 @@ DECLARE
   v_line_result    TEXT;
   v_note           TEXT;
 BEGIN
+  -- LOCK ORDER (same as the pooled cancel, which UPDATEs the order first): 1. the order row, 2. the exception row.
+  -- Taking the order lock before the status check means a concurrent cancel either finished (we see 'cancelled' and do
+  -- nothing) or waits for us (and then restocks / reverses what we posted): no deducted stock or live COGS survives a race.
+  SELECT fe.source_entity_id, fe.tenant_id INTO v_src_order, v_src_tenant FROM financial_exceptions fe WHERE fe.id = p_exception_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found');
+  END IF;
+  SELECT * INTO v_order FROM orders WHERE id = v_src_order AND tenant_id = v_src_tenant FOR UPDATE;
+
   SELECT * INTO v_ex FROM financial_exceptions WHERE id = p_exception_id FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('status', 'not_found');
@@ -184,8 +202,6 @@ BEGIN
   IF v_ex.status = 'resolved' THEN
     RETURN jsonb_build_object('status', 'already_resolved', 'catchup_entry_id', v_ex.catchup_entry_id);
   END IF;
-
-  SELECT * INTO v_order FROM orders WHERE id = v_ex.source_entity_id AND tenant_id = v_ex.tenant_id;
 
   -- Closed-period guard BEFORE any write: the catch-up COGS goes to the sale's own posting date and period.
   IF v_ex.kind IN ('stock_deduction_failed', 'cogs_missing') THEN
@@ -296,7 +312,9 @@ END;
 $function$;
 
 -- ---------------------------------------------------------------------------------------------------------------
--- 4b. Batch: oldest open exceptions first, at most p_limit, rows locked by another worker are skipped.
+-- 4b. Batch: oldest open exceptions first, at most p_limit. No row locks are taken here (fn_financial_exception_retry takes
+--     order-then-exception locks itself, the same order as the cancel path; locking exception rows first would invert it).
+--     A second worker simply waits on the first and then sees 'already_resolved'.
 -- ---------------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_financial_exception_retry_batch(
   p_limit integer DEFAULT 50, p_tenant_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)
@@ -314,7 +332,6 @@ BEGIN
      WHERE fe.status = 'open' AND (p_tenant_id IS NULL OR fe.tenant_id = p_tenant_id)
      ORDER BY fe.created_at, fe.id
      LIMIT greatest(coalesce(p_limit, 50), 0)
-       FOR UPDATE SKIP LOCKED
   LOOP
     v := fn_financial_exception_retry(r.fid, p_actor_id);
     exception_id := r.fid;
@@ -329,6 +346,7 @@ $function$;
 -- 5. Cancel hygiene (called inside the pooled cancel transaction when recording is enabled): close the order's open
 --    stock/COGS exceptions (the sale is void) and reverse any catch-up COGS entry posted for it, so cancelling an order whose
 --    failed line was later caught up never leaves phantom COGS behind. Returns the number of entries reversed.
+--    p_posting_date NULL (what the API passes) = the 328 cancel policy; an explicit date is honoured.
 -- ---------------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_financial_exception_on_order_cancel(
   p_tenant_id uuid, p_order_id uuid, p_actor_id uuid, p_posting_date date)
@@ -341,14 +359,20 @@ DECLARE
   r RECORD;
   v_n INTEGER := 0;
 BEGIN
+  -- same lock order as the retry: order first (the cancel already holds it), then exception rows
+  PERFORM 1 FROM orders WHERE id = p_order_id AND tenant_id = p_tenant_id FOR UPDATE;
   FOR r IN
-    SELECT je.id AS jid FROM journal_entries je
+    SELECT je.id AS jid, je.posting_date AS orig_date FROM journal_entries je
      WHERE je.tenant_id = p_tenant_id AND je.source_module = 'sales' AND je.source_entity_type = 'order_cogs_catchup'
        AND je.reversal_of_id IS NULL AND je.status = 'posted'
        AND je.source_entity_id IN (SELECT fe.id FROM financial_exceptions fe WHERE fe.tenant_id = p_tenant_id AND fe.source_entity_id = p_order_id)
        AND NOT EXISTS (SELECT 1 FROM journal_entries rv WHERE rv.reversal_of_id = je.id AND rv.tenant_id = p_tenant_id)
   LOOP
-    PERFORM fn_reverse_journal_entry(p_tenant_id, r.jid, p_actor_id, p_posting_date, 'Order cancelled (catch-up COGS)');
+    -- NULL p_posting_date => the 328 cancel policy (tenant-local date of now, floored at the original entry's date), exactly as
+    -- fn_reverse_sales_order does for the sale entry, so the catch-up reversal lands in the same period as the sale reversal.
+    PERFORM fn_reverse_journal_entry(p_tenant_id, r.jid, p_actor_id,
+      coalesce(p_posting_date, fn_posting_date_for_event(p_tenant_id, 'cancel', now(), r.orig_date)),
+      'Order cancelled (catch-up COGS)');
     v_n := v_n + 1;
   END LOOP;
   UPDATE financial_exceptions

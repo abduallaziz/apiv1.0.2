@@ -1,3 +1,5 @@
+-- ROLLBACK ORDER (strict reverse of the apply order; never skip or reorder): 335, 333, 332, 330, 328, 327, 326, 325.
+-- (329 and 331 are read-only / scratch-only and independent; roll 329 back only after 335.) Rolling back an earlier step while a later one is applied is NOT supported.
 -- Restores the definitions in force before the 328 candidate (captured from the local DB at 266/253/278).
 CREATE OR REPLACE FUNCTION public.fn_post_sales_order(p_tenant_id uuid, p_order_id uuid, p_posted_by uuid, p_posting_date date DEFAULT NULL::date)
  RETURNS uuid

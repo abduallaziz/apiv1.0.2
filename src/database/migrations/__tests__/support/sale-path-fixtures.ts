@@ -59,7 +59,7 @@ export class Harness {
     const apply = async (f: string) => {
       await this.pg.query(fs.readFileSync(path.join(dir, f), 'utf8'));
     };
-    if (files.some((f) => f.startsWith('332'))) {
+    if (files.some((f) => f.startsWith('332') || f.startsWith('335'))) {
       const [{ ok }] = await this.q("SELECT (to_regprocedure('fn_posting_date_for_event(uuid,text,timestamp with time zone,date)') IS NOT NULL AND (SELECT prosrc ~ 'fn_posting_date_for_event' FROM pg_proc WHERE proname='fn_create_sales_return' AND pronamespace='public'::regnamespace)) AS ok");
       if (!ok) {
         for (const f of ['325_fiscal_year_continuity.sql', '326_fiscal_period_safety_net.sql', '327_posting_date_policy.sql', '328_posting_date_policy_wiring.sql']) await apply(f);

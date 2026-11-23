@@ -1,3 +1,5 @@
+-- ROLLBACK ORDER (strict reverse of the apply order; never skip or reorder): 335, 333, 332, 330, 328, 327, 326, 325.
+-- (329 and 331 are read-only / scratch-only and independent; roll 329 back only after 335.) Rolling back an earlier step while a later one is applied is NOT supported.
 -- ROLLBACK of 335: restores the exact 329 body of fn_fin_monitor_all and drops everything 335 created.
 -- REFUSES while OPEN financial exceptions exist (an unresolved record must never be destroyed silently): resolve them first
 -- (fn_financial_exception_retry_batch) or export them. Resolved rows are history and are dropped with the table.

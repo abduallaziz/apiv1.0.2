@@ -16,6 +16,12 @@ BEGIN
   IF to_regprocedure('fn_posting_date_for_event(uuid,text,timestamp with time zone,date)') IS NULL THEN
     RAISE EXCEPTION '332 requires migrations 325-328 (fn_posting_date_for_event is missing)';
   END IF;
+  -- 328 must be APPLIED, not just present as a function: this body is the 328 body with one change, so applying it over the
+  -- pre-328 function would wire the policy in half-way. Refuse unless the live fn_create_sales_return already calls the policy.
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_create_sales_return' AND pronamespace = 'public'::regnamespace
+                  AND prosrc LIKE '%fn_posting_date_for_event%') THEN
+    RAISE EXCEPTION '332 requires migration 328 to be applied (fn_create_sales_return does not call the posting-date policy)';
+  END IF;
 END
 $chk$;
 

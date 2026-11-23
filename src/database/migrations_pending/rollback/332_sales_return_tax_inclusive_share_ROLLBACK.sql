@@ -1,3 +1,5 @@
+-- ROLLBACK ORDER (strict reverse of the apply order; never skip or reorder): 335, 333, 332, 330, 328, 327, 326, 325.
+-- (329 and 331 are read-only / scratch-only and independent; roll 329 back only after 335.) Rolling back an earlier step while a later one is applied is NOT supported.
 -- ROLLBACK of 332: restores the exact 328 body of fn_create_sales_return.
 CREATE OR REPLACE FUNCTION public.fn_create_sales_return(p_tenant_id uuid, p_order_id uuid, p_actor_id uuid, p_shift_id uuid, p_reason text, p_items jsonb, p_dry_run boolean DEFAULT false)
  RETURNS jsonb
