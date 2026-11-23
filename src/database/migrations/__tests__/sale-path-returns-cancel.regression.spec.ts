@@ -18,7 +18,8 @@ describe('WP-D sale path proof (2/3): returns, tax, cancel', () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL (local) required');
     await h.open();
-  }, 60000);
+    await h.ensurePending('332_sales_return_tax_inclusive_share.sql');
+  }, 120000);
   afterAll(async () => h.close());
 
   const sumLines = (ls: any[], code: string, side: 'd' | 'c') =>

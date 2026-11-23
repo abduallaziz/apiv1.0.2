@@ -18,6 +18,7 @@ describe('D-11 financial monitors M-1..M-9 (329)', () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL (local) required');
     await h.open();
+    await h.ensurePending('329_financial_monitoring.sql');
   });
   afterAll(async () => h.close());
 

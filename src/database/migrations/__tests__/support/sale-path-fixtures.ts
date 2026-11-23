@@ -8,6 +8,8 @@
  * Only the service-level orchestration (flag selection, post-commit deduction, fire-and-forget restock on cancel)
  * is mirrored here (`runSale`, `runCancel`) from `InvoicesService.create/cancel` — labelled INFERRED in the report.
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { Pool, Client as PgClient } from 'pg';
 import { randomUUID } from 'crypto';
 import { InvoicesRepository } from '../../../../modules/invoices/repositories/invoices.repository';
@@ -45,6 +47,25 @@ export class Harness {
     await this.pg.connect();
     this.session = new TenantSessionService(this.pool);
     this.repo = new InvoicesRepository(this.rpcShim() as never, this.session);
+  }
+
+  /**
+   * Idempotently (re)applies pending migration files to the LOCAL database. Other specs (e.g. the 328 wiring spec) roll
+   * function bodies back to production state when they finish, so every spec that depends on a pending fix re-asserts it.
+   * 332 needs the 325-328 wiring; they are applied first only when that wiring is missing.
+   */
+  async ensurePending(...files: string[]) {
+    const dir = path.resolve(__dirname, '..', '..', '..', 'migrations_pending');
+    const apply = async (f: string) => {
+      await this.pg.query(fs.readFileSync(path.join(dir, f), 'utf8'));
+    };
+    if (files.some((f) => f.startsWith('332'))) {
+      const [{ ok }] = await this.q("SELECT (to_regprocedure('fn_posting_date_for_event(uuid,text,timestamp with time zone,date)') IS NOT NULL AND (SELECT prosrc ~ 'fn_posting_date_for_event' FROM pg_proc WHERE proname='fn_create_sales_return' AND pronamespace='public'::regnamespace)) AS ok");
+      if (!ok) {
+        for (const f of ['325_fiscal_year_continuity.sql', '326_fiscal_period_safety_net.sql', '327_posting_date_policy.sql', '328_posting_date_policy_wiring_CANDIDATE.sql']) await apply(f);
+      }
+    }
+    for (const f of files) await apply(f);
   }
 
   async close() {

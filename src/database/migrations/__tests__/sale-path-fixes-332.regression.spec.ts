@@ -23,7 +23,8 @@ describe('FIX 332: tax-inclusive partial return share (before / after / rollback
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL (local) required');
     await h.open();
-  });
+    await h.ensurePending('332_sales_return_tax_inclusive_share.sql');
+  }, 120000);
   afterAll(async () => {
     await h.pg.query(read('332_sales_return_tax_inclusive_share.sql')); // leave fixed
     await h.close();

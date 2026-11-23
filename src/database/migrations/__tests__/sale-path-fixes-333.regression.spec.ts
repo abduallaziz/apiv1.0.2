@@ -24,7 +24,8 @@ describe('FIX 333: idempotent stock deduction and restock (before / after / roll
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL (local) required');
     await h.open();
-  });
+    await h.ensurePending('333_sale_stock_idempotency.sql');
+  }, 120000);
   afterAll(async () => {
     await h.pg.query(read('333_sale_stock_idempotency.sql'));
     await h.close();
