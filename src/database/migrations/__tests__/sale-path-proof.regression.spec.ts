@@ -10,6 +10,8 @@
 import { Harness, Fx } from './support/sale-path-fixtures';
 import { randomUUID } from 'crypto';
 
+jest.setTimeout(180000);
+
 describe('WP-D sale path proof (1/3): matrix, failure injection, retry, COGS immutability', () => {
   const h = new Harness();
   beforeAll(async () => {

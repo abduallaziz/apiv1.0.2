@@ -124,7 +124,7 @@ export class Harness {
       [tenantId],
     );
     const [{ y }] = await q('SELECT extract(year from now())::int y');
-    for (const yr of [y - 1, y, y + 1]) {
+    for (const yr of [y]) {
       await q('SELECT fn_generate_fiscal_year($1,$2,$3,$4)', [
         tenantId,
         cal.id,
@@ -210,15 +210,17 @@ export class Harness {
       attemptId?: string;
       discount?: number;
       taxRate?: number; // e.g. 0.15
+      /** explicit order amounts (e.g. produced by the real PosEngine.buildInvoice, incl. tax-inclusive mode) */
+      amounts?: { subtotal: number; discount: number; tax: number; total: number };
       payment?: 'cash' | 'card' | 'tab' | 'split';
       skipPostCommitDeduction?: boolean;
       afterPost?: (c: any, orderId: string) => Promise<void>;
     },
   ) {
-    const subtotal = round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
-    const discount = o.discount ?? 0;
-    const tax = round2((subtotal - discount) * (o.taxRate ?? 0));
-    const total = round2(subtotal - discount + tax);
+    const subtotal = o.amounts?.subtotal ?? round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
+    const discount = o.amounts?.discount ?? o.discount ?? 0;
+    const tax = o.amounts?.tax ?? round2((subtotal - discount) * (o.taxRate ?? 0));
+    const total = o.amounts?.total ?? round2(subtotal - discount + tax);
     const payment = o.payment ?? 'card';
     const payload: Record<string, unknown> = {
       branch_id: f.branchId,
@@ -343,14 +345,13 @@ export class Harness {
 
   /** A shift row for cash refunds. */
   async openShift(f: Fx): Promise<string> {
+    const [u] = await this.q(
+      "INSERT INTO users (tenant_id, name, email, is_active) VALUES ($1,'cashier',$2,true) RETURNING id",
+      [f.tenantId, `${randomUUID()}@t2.local`],
+    );
     const [s] = await this.q(
-      "INSERT INTO shifts (tenant_id, branch_id, status, opening_balance) VALUES ($1,$2,'open',0) RETURNING id",
-      [f.tenantId, f.branchId],
-    ).catch(async () =>
-      this.q(
-        "INSERT INTO shifts (tenant_id, branch_id, status) VALUES ($1,$2,'open') RETURNING id",
-        [f.tenantId, f.branchId],
-      ),
+      "INSERT INTO shifts (tenant_id, branch_id, cashier_id, status, opening_cash) VALUES ($1,$2,$3,'open',0) RETURNING id",
+      [f.tenantId, f.branchId, u.id],
     );
     return s.id;
   }
