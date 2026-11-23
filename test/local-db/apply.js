@@ -22,7 +22,9 @@ if (withPending) dirs.push(path.join(root, 'src/database/migrations_pending'));
   await c.query(fs.readFileSync(path.join(__dirname, 'bootstrap.sql'), 'utf8'));
   await c.query('CREATE TABLE IF NOT EXISTS schema_migrations (id SERIAL PRIMARY KEY, filename TEXT UNIQUE NOT NULL, applied_at TIMESTAMPTZ DEFAULT now())');
   const done = new Set((await c.query('SELECT filename FROM schema_migrations')).rows.map((r) => r.filename));
-  const files = dirs.flatMap((d) => fs.readdirSync(d).filter((f) => f.endsWith('.sql')).map((f) => ({ f, p: path.join(d, f) })))
+  // *_CANDIDATE.sql migrations are not part of the deployed schema; their own proof specs apply and roll them
+  // back (posting-date-wiring.candidate), and fiscal-year-continuity asserts the pre-candidate behaviour.
+  const files = dirs.flatMap((d) => fs.readdirSync(d).filter((f) => f.endsWith('.sql') && !/CANDIDATE/i.test(f)).map((f) => ({ f, p: path.join(d, f) })))
     .sort((a, b) => a.f.localeCompare(b.f));
   let n = 0;
   for (const { f, p } of files) {
