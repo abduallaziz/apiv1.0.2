@@ -19,6 +19,7 @@ import { AuditService } from '../../core/audit/audit.service';
 import { BranchValidatorService } from '../../core/security/branch-validator.service';
 import {
   fetchBlockedTenantStatus,
+  isAuthRefusedFor,
   isRevokeSessionsOnPasswordChange,
   isTenantStatusEnforced,
   tenantBlockMessage,
@@ -414,7 +415,7 @@ export class AuthService {
         user.tenant_id,
         this.logger,
       );
-      if (blocked) {
+      if (isAuthRefusedFor(blocked)) {
         throw new ForbiddenException({
           statusCode: 403,
           code:
@@ -857,7 +858,7 @@ export class AuthService {
         user.tenant_id,
         this.logger,
       );
-      if (blocked) {
+      if (isAuthRefusedFor(blocked)) {
         throw new UnauthorizedException({
           statusCode: 401,
           code:

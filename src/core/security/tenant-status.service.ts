@@ -35,6 +35,22 @@ export function isTenantStatusExempt(path: string, method?: string): boolean {
   return (method ?? 'GET').toUpperCase() === 'GET' && PROFILE_READ.test(path);
 }
 
+/** AUTH_ALLOW_SUSPENDED_LOGIN (Joi boolean, default TRUE). Only meaningful while AUTH_ENFORCE_TENANT_STATUS=true. */
+export function isSuspendedLoginAllowed(): boolean {
+  return (
+    (process.env.AUTH_ALLOW_SUSPENDED_LOGIN ?? 'true').trim().toLowerCase() !==
+    'false'
+  );
+}
+
+/** Login/refresh refusal: cancelled always; suspended unless AUTH_ALLOW_SUSPENDED_LOGIN (the guard still confines it). */
+export function isAuthRefusedFor(
+  status: BlockedTenantStatus | null,
+): status is BlockedTenantStatus {
+  if (!status) return false;
+  return status === 'cancelled' || !isSuspendedLoginAllowed();
+}
+
 export function tenantBlockMessage(status: BlockedTenantStatus): string {
   return status === 'suspended'
     ? 'Your account (tenant) is suspended. Contact support or renew your subscription to regain access.'

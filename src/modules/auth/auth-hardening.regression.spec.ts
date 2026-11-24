@@ -28,6 +28,7 @@ const RUN = `authh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 const FLAGS = [
   'AUTH_ENFORCE_TENANT_STATUS',
   'AUTH_TENANT_STATUS_CACHE_TTL_SECONDS',
+  'AUTH_ALLOW_SUSPENDED_LOGIN',
   'AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE',
 ];
 
@@ -146,7 +147,7 @@ describe('auth hardening (flag-gated) - local database', () => {
     });
 
     it('ON: login is refused (403 TENANT_SUSPENDED / TENANT_CANCELLED) only after the password is right', async () => {
-      setFlags({ AUTH_ENFORCE_TENANT_STATUS: 'true' });
+      setFlags({ AUTH_ENFORCE_TENANT_STATUS: 'true', AUTH_ALLOW_SUSPENDED_LOGIN: 'false' });
       const ts = await makeTenant('suspended');
       const tc = await makeTenant('cancelled');
       await makeUser('lg-s', ts);
@@ -185,7 +186,7 @@ describe('auth hardening (flag-gated) - local database', () => {
       const t = await makeTenant('active');
       await makeUser('rf', t);
       const l = await login('rf');
-      setFlags({ AUTH_ENFORCE_TENANT_STATUS: 'true' });
+      setFlags({ AUTH_ENFORCE_TENANT_STATUS: 'true', AUTH_ALLOW_SUSPENDED_LOGIN: 'false' });
       await q("UPDATE tenants SET status = 'suspended' WHERE id = $1", [t]);
       await expect(refresh(l.refresh_token)).rejects.toMatchObject({
         status: 401,
@@ -271,6 +272,75 @@ describe('auth hardening (flag-gated) - local database', () => {
         from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: new Error('down') }) }) }) }),
       } as never);
       expect(await broken.getBlockedStatus('any')).toBeNull();
+    });
+  });
+
+  // ------------------------------------------------------------------ AUTH_ALLOW_SUSPENDED_LOGIN
+  describe('AUTH_ALLOW_SUSPENDED_LOGIN combinations', () => {
+    const user = (t: string) => ({ sub: 'x', tenant_id: t, roles: ['owner'] });
+
+    it('enforce OFF (allow flag irrelevant): suspended and cancelled behave exactly as today', async () => {
+      for (const allow of [undefined, 'true', 'false']) {
+        setFlags(allow ? { AUTH_ALLOW_SUSPENDED_LOGIN: allow } : {});
+        const ts = await makeTenant('suspended');
+        const tc = await makeTenant('cancelled');
+        const k = `off-${allow}`;
+        await makeUser(`${k}-s`, ts);
+        await makeUser(`${k}-c`, tc);
+        const l = await login(`${k}-s`);
+        await expect(refresh(l.refresh_token)).resolves.toBeDefined();
+        await expect(login(`${k}-c`)).resolves.toBeDefined();
+        await expect(guardRun(user(ts), '/invoices')).resolves.toBe(true);
+      }
+    });
+
+    it('enforce ON + allow TRUE (and default): suspended logs in/refreshes, reaches billing routes, 403 elsewhere; cancelled refused', async () => {
+      const variants: Record<string, string>[] = [
+        { AUTH_ENFORCE_TENANT_STATUS: 'true', AUTH_ALLOW_SUSPENDED_LOGIN: 'true' },
+        { AUTH_ENFORCE_TENANT_STATUS: 'true' },
+      ];
+      for (const [i, flags] of variants.entries()) {
+        setFlags(flags);
+        statusService.invalidate();
+        const ts = await makeTenant('suspended');
+        const tc = await makeTenant('cancelled');
+        const k = `on-t-${i}`;
+        await makeUser(`${k}-s`, ts);
+        await makeUser(`${k}-c`, tc);
+        const l = await login(`${k}-s`);
+        const r = await refresh(l.refresh_token);
+        expect(r.access_token).toBeDefined();
+        await expect(guardRun(user(ts), '/tenant/subscription')).resolves.toBe(true);
+        await expect(guardRun(user(ts), '/payments/invoices')).resolves.toBe(true);
+        await expect(guardRun(user(ts), '/subscriptions/current')).resolves.toBe(true);
+        await expect(guardRun(user(ts), '/invoices')).rejects.toMatchObject({
+          status: 403,
+          response: { code: 'TENANT_SUSPENDED' },
+        });
+        await expect(login(`${k}-c`)).rejects.toMatchObject({ status: 403, response: { code: 'TENANT_CANCELLED' } });
+        const ta = await makeTenant('active');
+        await makeUser(`${k}-x`, ta);
+        const lx = await login(`${k}-x`);
+        await q("UPDATE tenants SET status = 'cancelled' WHERE id = $1", [ta]);
+        await expect(refresh(lx.refresh_token)).rejects.toMatchObject({
+          status: 401,
+          response: { code: 'TENANT_CANCELLED' },
+        });
+      }
+    });
+
+    it('enforce ON + allow FALSE: suspended and cancelled both refused at login and refresh (as first built)', async () => {
+      setFlags({ AUTH_ENFORCE_TENANT_STATUS: 'true', AUTH_ALLOW_SUSPENDED_LOGIN: 'false' });
+      const ts = await makeTenant('suspended');
+      const ta = await makeTenant('active');
+      await makeUser('f-s', ts);
+      await makeUser('f-a', ta);
+      await expect(login('f-s')).rejects.toMatchObject({ status: 403, response: { code: 'TENANT_SUSPENDED' } });
+      const l = await login('f-a');
+      await q("UPDATE tenants SET status = 'suspended' WHERE id = $1", [ta]);
+      await expect(refresh(l.refresh_token)).rejects.toMatchObject({ status: 401, response: { code: 'TENANT_SUSPENDED' } });
+      await expect(guardRun(user(ts), '/invoices')).rejects.toMatchObject({ status: 403 });
+      await expect(guardRun(user(ts), '/tenant/subscription')).resolves.toBe(true);
     });
   });
 
