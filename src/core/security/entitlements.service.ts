@@ -31,7 +31,7 @@ const DAY_MS = 86_400_000;
 const COUNTDOWN_DAYS = 30;
 
 /** Routes that stay reachable while the subscription is locked (renewal, purchase, sign-out, health). */
-const LOCK_EXEMPT =
+export const LOCK_EXEMPT =
   /(^|\/)(subscriptions|billing|plans|entitlements|auth|health|webhooks?)(\/|\?|$)/;
 
 type SubRow = {

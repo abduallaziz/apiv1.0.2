@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SKIP_TENANT_KEY } from './skip-tenant.decorator';
@@ -10,6 +11,12 @@ import { TenantContext } from './tenant-context';
 import { BranchValidatorService } from '../security/branch-validator.service';
 import { TenantIsolationService } from '../security/tenant-isolation.service';
 import { EntitlementsService } from '../security/entitlements.service';
+import {
+  TenantStatusService,
+  isTenantStatusEnforced,
+  isTenantStatusExempt,
+  tenantBlockMessage,
+} from '../security/tenant-status.service';
 import { isPlatformAdmin } from '../security/platform-identity';
 
 interface GuardUser {
@@ -23,6 +30,7 @@ interface GuardRequest {
   user?: GuardUser;
   headers: Record<string, string | undefined>;
   originalUrl?: string;
+  method?: string;
   url?: string;
   tenantContext?: TenantContext;
 }
@@ -34,6 +42,7 @@ export class TenantGuard implements CanActivate {
     private readonly branchValidator: BranchValidatorService,
     private readonly isolation: TenantIsolationService,
     private readonly entitlements: EntitlementsService,
+    @Optional() private readonly tenantStatus?: TenantStatusService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -61,6 +70,22 @@ export class TenantGuard implements CanActivate {
 
     if (!tenantId) {
       throw new ForbiddenException('Tenant context missing');
+    }
+
+    // AUTH_ENFORCE_TENANT_STATUS (off by default): an already-issued access token of a suspended/cancelled
+    // tenant is refused (cached lookup, see TenantStatusService). Subscription/billing/auth routes stay reachable.
+    if (isTenantStatusEnforced() && this.tenantStatus) {
+      const path = request.originalUrl ?? request.url ?? '';
+      if (!isTenantStatusExempt(path, request.method)) {
+        const blocked = await this.tenantStatus.getBlockedStatus(tenantId);
+        if (blocked) {
+          throw new ForbiddenException({
+            statusCode: 403,
+            code: blocked === 'suspended' ? 'TENANT_SUSPENDED' : 'TENANT_CANCELLED',
+            message: tenantBlockMessage(blocked),
+          });
+        }
+      }
     }
 
     const headerBranchId: string | null =

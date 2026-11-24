@@ -73,6 +73,17 @@ export const envValidationSchema = Joi.object({
   DOCUMENTS_BUILDER_ENABLED: Joi.boolean().default(false),
 
   // ── Auth ─────────────────────────────────────────────
+  // T9 auth hardening, all OFF by default (false = behaviour exactly as before).
+  // true: login/refresh refused for a suspended/cancelled tenant (platform admins unaffected) and the TenantGuard
+  // refuses already-issued tokens of such tenants (subscription/billing/auth routes stay reachable).
+  AUTH_ENFORCE_TENANT_STATUS: Joi.boolean().default(false),
+  // Cache TTL of the per-request tenant status check = the residual window after a suspension.
+  AUTH_TENANT_STATUS_CACHE_TTL_SECONDS: Joi.number().integer().min(0).default(60),
+  // Only with AUTH_ENFORCE_TENANT_STATUS=true: true (default) lets a SUSPENDED tenant log in/refresh so it can reach the
+  // billing routes (TenantGuard still 403s everything else); cancelled tenants are always refused. false = both refused.
+  AUTH_ALLOW_SUSPENDED_LOGIN: Joi.boolean().default(true),
+  // true: a password change/reset revokes the user's other device sessions and refresh tokens.
+  AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE: Joi.boolean().default(false),
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRY: Joi.string().default('7d'),
