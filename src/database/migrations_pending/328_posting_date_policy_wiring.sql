@@ -8,6 +8,7 @@
 --   fn_reverse_sales_order   : NULL date => policy('cancel', now(), original entry date); an explicit date is still honoured
 --   fn_create_sales_return   : policy('return', now(), original sale entry date)           (was COALESCE(tz,'UTC') now())
 -- Rollback: migrations_pending/rollback/328_posting_date_policy_wiring_ROLLBACK.sql (verbatim previous definitions).
+-- lint:allow replaces an EXISTING function: CREATE OR REPLACE keeps its privileges (anon/authenticated already refused; checked by the security audit script)
 CREATE OR REPLACE FUNCTION public.fn_post_sales_order(p_tenant_id uuid, p_order_id uuid, p_posted_by uuid, p_posting_date date DEFAULT NULL::date)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -227,6 +228,7 @@ BEGIN
 END;
 $function$;
 
+-- lint:allow replaces an EXISTING function: CREATE OR REPLACE keeps its privileges (anon/authenticated already refused; checked by the security audit script)
 CREATE OR REPLACE FUNCTION public.fn_reverse_sales_order(p_tenant_id uuid, p_order_id uuid, p_reversed_by uuid, p_posting_date date, p_reason text)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -261,6 +263,7 @@ BEGIN
 END;
 $function$;
 
+-- lint:allow replaces an EXISTING function: CREATE OR REPLACE keeps its privileges (anon/authenticated already refused; checked by the security audit script)
 CREATE OR REPLACE FUNCTION public.fn_create_sales_return(p_tenant_id uuid, p_order_id uuid, p_actor_id uuid, p_shift_id uuid, p_reason text, p_items jsonb, p_dry_run boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql

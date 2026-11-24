@@ -11,6 +11,7 @@
 -- is unchanged. Grants are preserved by CREATE OR REPLACE.
 -- Requires: 325 applied first.
 
+-- lint:allow replaces an EXISTING function: CREATE OR REPLACE keeps its privileges (anon/authenticated already refused; checked by the security audit script)
 CREATE OR REPLACE FUNCTION fn_post_journal_entry(
   p_tenant_id UUID,
   p_entry_id UUID,

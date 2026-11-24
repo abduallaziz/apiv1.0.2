@@ -4,7 +4,7 @@
 //   DROP_TABLE / DROP_COLUMN / DROP_SCHEMA, TRUNCATE, DELETE without WHERE, UPDATE without WHERE,
 //   NON_IDEMPOTENT_CREATE (CREATE TABLE/INDEX/SEQUENCE/SCHEMA/EXTENSION/TYPE without IF NOT EXISTS,
 //   ADD COLUMN without IF NOT EXISTS, CREATE TRIGGER/POLICY and ADD CONSTRAINT without a preceding
-//   DROP ... IF EXISTS of the same name).
+//   DROP ... IF EXISTS of the same name), DEFINER_WITHOUT_REVOKE (a SECURITY DEFINER function without a REVOKE naming it).
 // A statement is allowed only with an annotation WITH A REASON, either in the comment block right
 // before it or inside it:   -- lint:allow <reason>
 //
@@ -219,12 +219,46 @@ function lintSql(sql, file = '<sql>') {
     }
   }
 
-  for (const s of splitStatements(sql)) {
+  const stmts = splitStatements(sql);
+  for (const s of stmts) {
     const stmtLine = lineOf(sql, s.start);
     // nested statements inherit the DO statement's line and its annotation (lead/raw of the DO block)
     const nestedOwner = s;
     check(s, stmtLine, false);
     void nestedOwner;
+  }
+
+  // DEFINER_WITHOUT_REVOKE (R-FN): a SECURITY DEFINER function runs with its owner's rights, and PostgreSQL grants
+  // EXECUTE to PUBLIC by default, so a function that trusts its arguments (tenant ids...) is callable by the public
+  // anon key unless the migration revokes it. Require a REVOKE that names the function in the same file.
+  const isWordChar = (ch) => ch !== undefined && /[A-Za-z0-9_]/.test(ch);
+  const mentions = (text, word) => {
+    const t = text.toLowerCase();
+    let from = 0;
+    for (;;) {
+      const at = t.indexOf(word, from);
+      if (at === -1) return false;
+      if (!isWordChar(t[at - 1]) && !isWordChar(t[at + word.length])) return true;
+      from = at + 1;
+    }
+  };
+  const revokeStmts = stmts.filter((x) => x.raw.toUpperCase().includes('REVOKE'));
+  for (const x of stmts) {
+    const c = x.code.split(/[ \t\r\n]+/).join(' ').trim();
+    const m = /^CREATE (?:OR REPLACE )?FUNCTION ([A-Za-z0-9_."$]+)/i.exec(c);
+    if (!m || !c.toUpperCase().includes('SECURITY DEFINER')) continue;
+    const name = norm(m[1]).split('.').pop();
+    if (revokeStmts.some((r) => mentions(r.raw, name))) continue;
+    const a = hasAllow(x.lead + '\n' + x.raw);
+    if (a.present && a.reason) continue;
+    violations.push({
+      file,
+      line: lineOf(sql, x.start),
+      rule: 'DEFINER_WITHOUT_REVOKE',
+      message:
+        'SECURITY DEFINER function ' + m[1] + ' has no REVOKE ... FROM PUBLIC/anon/authenticated in this file (it would be callable with the public API key)' +
+        (a.present ? ' ("-- lint:allow" needs a reason)' : ''),
+    });
   }
   return violations;
 }

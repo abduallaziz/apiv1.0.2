@@ -25,6 +25,7 @@ BEGIN
 END
 $chk$;
 
+-- lint:allow replaces an EXISTING function: CREATE OR REPLACE keeps its privileges (anon/authenticated already refused; checked by the security audit script)
 CREATE OR REPLACE FUNCTION public.fn_create_sales_return(p_tenant_id uuid, p_order_id uuid, p_actor_id uuid, p_shift_id uuid, p_reason text, p_items jsonb, p_dry_run boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql
