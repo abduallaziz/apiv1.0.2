@@ -19,6 +19,12 @@ import { BillingService } from '../../core/billing/billing.service';
 import { AuthService } from '../auth/auth.service';
 import { PermissionsService } from '../../core/permissions/permissions.service';
 import { BranchValidatorService } from '../../core/security/branch-validator.service';
+import { JwtPayload } from '../../shared/types/jwt-payload.type';
+import {
+  isOwnerOrPlatformAdmin,
+  isReservedRoleName,
+  normalizeRoleName,
+} from '../../core/security/platform-identity';
 import {
   isUniqueViolation,
   isForeignKeyViolation,
@@ -322,7 +328,48 @@ export class UsersService {
     return data;
   }
 
-  async create(dto: CreateUserDto, tenant: TenantContext, actorId: string) {
+  /**
+   * R-01 / P1-D2 — who may grant which role through the tenant-facing API.
+   *  - The platform role (superadmin) is never grantable here, whatever the
+   *    caller holds: platform identity is not a tenant concept.
+   *  - A tenant-scoped role whose name is reserved/system (a look-alike left
+   *    over from before this fix) can no longer be handed out.
+   *  - The system 'owner' role may be granted only by a tenant owner or a
+   *    platform administrator — a users.manage holder cannot promote anyone
+   *    (including themselves) to owner. Fails closed when the actor is unknown.
+   */
+  private assertMayGrantRole(
+    role: { name: string; tenant_id: string | null },
+    actor: JwtPayload | undefined,
+  ): void {
+    const n = normalizeRoleName(role.name);
+    if (n === 'superadmin') {
+      throw new ForbiddenException(
+        'Platform roles cannot be granted to tenant users',
+      );
+    }
+    if (role.tenant_id !== null && isReservedRoleName(role.name)) {
+      throw new ForbiddenException(
+        'This role uses a reserved name and cannot be assigned',
+      );
+    }
+    if (
+      role.tenant_id === null &&
+      n === 'owner' &&
+      !isOwnerOrPlatformAdmin(actor)
+    ) {
+      throw new ForbiddenException(
+        'Only the tenant owner can grant the owner role',
+      );
+    }
+  }
+
+  async create(
+    dto: CreateUserDto,
+    tenant: TenantContext,
+    actorId: string,
+    actor?: JwtPayload,
+  ) {
     await this.billingService.checkUserLimit(tenant.tenantId);
 
     const { data: existing } = await this.usersRepository.findByEmail(
@@ -337,6 +384,7 @@ export class UsersService {
         'Cannot create superadmin via this endpoint',
       );
     }
+    this.assertMayGrantRole({ name: dto.role, tenant_id: null }, actor);
 
     await this.validateBranchAssignment(dto.branch_id, tenant.tenantId);
     const branchId = resolveNewStaffBranch(tenant, dto.role, dto.branch_id);
@@ -457,6 +505,7 @@ export class UsersService {
     dto: UpdateUserDto,
     tenant: TenantContext,
     actorId: string,
+    actorSessionId?: string,
   ) {
     const existing = await this.findOne(id, tenant);
 
@@ -506,6 +555,15 @@ export class UsersService {
       updates,
     );
     if (error) throw new BadRequestException(error.message);
+
+    // AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE (no-op when off): a password change ends the user's other
+    // sessions; when the actor changed their OWN password their current session survives.
+    if (dto.password) {
+      await this.authService.revokeSessionsOnPasswordChange(
+        id,
+        actorId === id ? actorSessionId : undefined,
+      );
+    }
 
     // Being disabled (active → inactive) must immediately revoke attendance access
     // and kill live sessions — re-enabling does NOT restore the old link/device on
@@ -558,6 +616,7 @@ export class UsersService {
     dto: ChangeRoleDto,
     tenant: TenantContext,
     actorId: string,
+    actor?: JwtPayload,
   ) {
     const existing = await this.findOne(id, tenant);
 
@@ -566,6 +625,11 @@ export class UsersService {
     }
     if (dto.role === UserRole.SUPERADMIN) {
       throw new ForbiddenException('Cannot assign superadmin role');
+    }
+    this.assertMayGrantRole({ name: dto.role, tenant_id: null }, actor);
+    // Demoting an owner is as sensitive as promoting one.
+    if (existing.role === UserRole.OWNER && dto.role !== UserRole.OWNER) {
+      this.assertMayGrantRole({ name: 'owner', tenant_id: null }, actor);
     }
 
     const roleId = await this.usersRepository.findSystemRoleId(dto.role);
@@ -629,6 +693,7 @@ export class UsersService {
     roleId: string,
     tenant: TenantContext,
     actorId: string,
+    actor?: JwtPayload,
   ) {
     await this.findOne(id, tenant);
 
@@ -637,6 +702,7 @@ export class UsersService {
       tenant.tenantId,
     );
     if (!role) throw new NotFoundException('Role not found');
+    this.assertMayGrantRole(role, actor);
 
     const currentCount = await this.usersRepository.countUserRoles(id);
 

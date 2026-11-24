@@ -1,0 +1,74 @@
+name: Migrations Release (manual, production)
+
+# The ONLY workflow allowed to hold the migration token. It never runs on push or pull_request:
+# it starts only from the Actions tab (workflow_dispatch) and then waits for the required
+# reviewer(s) configured on the `production` environment.
+#
+# Dry run is the default. Nothing is applied unless dry_run is switched off explicitly.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: list what would be applied and apply nothing'
+        type: boolean
+        default: true
+      transaction_mode:
+        description: 'off = one request per file (today); auto = wrap each safe file + its record in BEGIN/COMMIT'
+        type: choice
+        options: [off, auto]
+        default: off
+
+# one release at a time, never cancel a run that is applying SQL
+concurrency:
+  group: migrations-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: ${{ inputs.dry_run && 'Dry run' || 'APPLY' }} migrations to production
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      # Target + allow-list live in the `production` environment variables. When unset the runner
+      # falls back to its built-in default target.
+      MIGRATION_TARGET_REF: ${{ vars.MIGRATION_TARGET_REF }}
+      MIGRATION_ALLOWED_REFS: ${{ vars.MIGRATION_ALLOWED_REFS }}
+      # applied migration files are immutable once recorded
+      MIGRATION_CHECKSUM_MODE: enforce
+      MIGRATION_TRANSACTION_MODE: ${{ inputs.transaction_mode }}
+      MIGRATION_APPLIED_BY: ${{ github.actor }}
+      MIGRATION_APPLIED_FROM: github-actions:${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Show what is being released
+        run: |
+          echo "ref=$GITHUB_REF sha=$GITHUB_SHA actor=$GITHUB_ACTOR dry_run=${{ inputs.dry_run }}"
+          ls src/database/migrations/*.sql | wc -l
+
+      - name: Dry run (always executes first; reads schema_migrations, writes nothing)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: npm run migrate:dry-run
+
+      - name: Apply (only when dry_run is false)
+        if: ${{ inputs.dry_run == false }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: npm run migrate:release -- --no-seed

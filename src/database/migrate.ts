@@ -1,137 +1,39 @@
 import 'dotenv/config';
-import * as fs from 'fs';
 import * as path from 'path';
-import { seedPermissions } from './seeds/permissions.seed';
+import {
+  EXIT,
+  RunnerError,
+  createApi,
+  loadConfig,
+  runMigrations,
+  shouldSkipOnBoot,
+} from './migration-runner';
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
-const PROJECT_REF = 'uugxagglmkxcjmncxgja';
 
-async function runSQL(sql: string): Promise<void> {
-  const token = process.env.SUPABASE_ACCESS_TOKEN;
-  if (!token) throw new Error('Missing SUPABASE_ACCESS_TOKEN in .env');
+async function main(): Promise<void> {
+  const cfg = loadConfig(process.env, process.argv.slice(2));
 
-  const response = await fetch(
-    `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ query: sql }),
-    },
-  );
-
-  const data = (await response.json()) as { error?: string; message?: string };
-
-  if (!response.ok) {
-    throw new Error(data.error || data.message || `HTTP ${response.status}`);
-  }
-}
-
-async function querySQL<T>(sql: string): Promise<T[]> {
-  const token = process.env.SUPABASE_ACCESS_TOKEN;
-  if (!token) throw new Error('Missing SUPABASE_ACCESS_TOKEN in .env');
-
-  const response = await fetch(
-    `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ query: sql }),
-    },
-  );
-
-  const data = (await response.json()) as
-    | T[]
-    | { error?: string; message?: string };
-
-  if (!response.ok) {
-    const err = data as { error?: string; message?: string };
-    throw new Error(err.error || err.message || `HTTP ${response.status}`);
-  }
-
-  return data as T[];
-}
-
-async function ensureMigrationsTable(): Promise<void> {
-  await runSQL(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      id          SERIAL PRIMARY KEY,
-      filename    TEXT NOT NULL UNIQUE,
-      applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  if (shouldSkipOnBoot(cfg)) {
+    console.log(
+      'MIGRATIONS_ON_BOOT=false: skipping migrations at boot (they run only from the release job).',
     );
-  `);
-}
-
-async function getAppliedMigrations(): Promise<Set<string>> {
-  const rows = await querySQL<{ filename: string }>(
-    'SELECT filename FROM schema_migrations ORDER BY id ASC',
-  );
-  return new Set(rows.map((r) => r.filename));
-}
-
-async function getPendingMigrations(applied: Set<string>): Promise<string[]> {
-  const files = fs
-    .readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-  return files.filter((f) => !applied.has(f));
-}
-
-async function applyMigration(filename: string): Promise<void> {
-  const filepath = path.join(MIGRATIONS_DIR, filename);
-  const sql = fs.readFileSync(filepath, 'utf-8');
-
-  console.log(`  → Applying: ${filename}`);
-
-  await runSQL(sql);
-
-  // استخدام escape آمن بدل string interpolation مباشر
-  const safeFilename = filename.replace(/'/g, "''");
-  await runSQL(
-    // ON CONFLICT: two deployments can run this runner at the same time (e.g. two quick pushes); the
-    // loser must not fail the deploy just because the winner already recorded the same file (the
-    // migrations are idempotent, so applying one twice is harmless).
-    `INSERT INTO schema_migrations (filename) VALUES ('${safeFilename}') ON CONFLICT (filename) DO NOTHING`,
-  );
-
-  console.log(`  ✅ Applied: ${filename}`);
-}
-
-async function runMigrations(): Promise<void> {
-  console.log('\n🚀 Sefay Migration Runner — Starting\n');
-
-  await ensureMigrationsTable();
-
-  const applied = await getAppliedMigrations();
-  const pending = await getPendingMigrations(applied);
-
-  if (pending.length === 0) {
-    console.log('✅ Database is up to date. No migrations to apply.\n');
     return;
   }
 
-  console.log(`📋 ${pending.length} migration(s) to apply:\n`);
+  const api = createApi(cfg, process.env.SUPABASE_ACCESS_TOKEN, fetch as never);
+  await runMigrations(cfg, { api, dir: MIGRATIONS_DIR });
 
-  for (const filename of pending) {
-    await applyMigration(filename);
-  }
+  // a dry run never writes anything, seeds included; the release job seeds nothing (no DB-client secrets there)
+  if (cfg.dryRun || process.argv.includes('--no-seed')) return;
 
-  console.log(
-    `\n✅ Done. ${pending.length} migration(s) applied successfully.\n`,
-  );
-}
-
-async function main(): Promise<void> {
-  await runMigrations();
+  // Imported lazily: the seed module creates a Supabase client at import time and a dry run /
+  // release job without those variables must not crash before it gets here.
+  const { seedPermissions } = await import('./seeds/permissions.seed');
   await seedPermissions();
 }
 
 main().catch((err) => {
-  console.error('\n❌ Migration failed:\n', err.message);
-  process.exit(1);
+  console.error('\n❌ Migration failed:\n', err?.message ?? err);
+  process.exit(err instanceof RunnerError ? err.exitCode : EXIT.FAILURE);
 });

@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # labeled/unlabeled so the migration-approval check re-evaluates when the owner adds the label
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   build:
@@ -63,3 +65,137 @@ jobs:
 
       - name: Unit tests
         run: npm test -- --ci
+
+  migration-lint:
+    name: Migration lint (changed files)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history for the diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Blocks DROP TABLE/COLUMN, TRUNCATE, DELETE/UPDATE without WHERE and non-idempotent DDL in
+      # migration files added/changed by this PR unless annotated `-- lint:allow <reason>`.
+      - name: Lint migration files changed in this PR
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/lint-migrations.js --changed "origin/$BASE_REF"
+
+  migrations-approval:
+    name: No migration change without owner approval
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history for the diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if src/database/migrations/ changed without the approval label
+        env:
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'migration-approved') }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          changed="$(git diff --name-status "origin/${BASE_REF}...HEAD" -- src/database/migrations/ | grep -E '\.sql$' || true)"
+          if [ -z "$changed" ]; then
+            echo "No change under src/database/migrations/."
+            exit 0
+          fi
+          echo "Files changed under src/database/migrations/:"
+          echo "$changed"
+          if [ "$HAS_LABEL" = "true" ]; then
+            echo "Label 'migration-approved' present: allowed."
+            exit 0
+          fi
+          echo "::error title=Migration needs owner approval::This PR adds, changes or removes files under src/database/migrations/. Those files are applied by the migration runner (a merge to main can deploy them). New migrations belong in src/database/migrations_pending/ until an approved production window. If this change is intentional and the owner approved it, add the label migration-approved to the PR."
+          exit 1
+
+  integration-tests:
+    name: Integration tests (local DB)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      # Same dev-only credentials as test/local-db/docker-compose.yml (throw-away containers, not secrets).
+      # No production variable exists in this job; the harness refuses non-loopback hosts.
+      SUPABASE_URL: ''
+      SUPABASE_SERVICE_ROLE_KEY: ''
+      DATABASE_URL: ''
+      LOCAL_DB_PORT: '54332'
+      LOCAL_REST_PORT: '54331'
+    services:
+      db:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sefay_test
+        ports:
+          - 127.0.0.1:54332:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sefay_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build schema (migrations + pending) and load the test seed on the local DB
+        run: node test/local-db/apply.js --with-pending --with-seed
+
+      # PostgREST needs the roles created by bootstrap.sql, so it is started after the schema exists
+      # (a service container would start before them and exit). Same image and settings as docker-compose.yml.
+      - name: Start PostgREST (same image/env as test/local-db/docker-compose.yml)
+        run: |
+          docker run -d --name postgrest --network host \
+            -e PGRST_DB_URI=postgres://authenticator:authpass@127.0.0.1:54332/sefay_test \
+            -e PGRST_DB_SCHEMAS=public \
+            -e PGRST_DB_ANON_ROLE=anon \
+            -e PGRST_JWT_SECRET=local-test-only-jwt-secret-0123456789abcdef \
+            -e PGRST_DB_MAX_ROWS=100000 \
+            -e PGRST_SERVER_PORT=54331 \
+            postgrest/postgrest:v12.2.3
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null "http://127.0.0.1:54331/"; then echo "PostgREST is up"; exit 0; fi
+            sleep 2
+          done
+          docker logs postgrest || true
+          echo "PostgREST did not become ready" >&2
+          exit 1
+
+      # REPORT-ONLY for now: a clean local run on 2026-11-23 had 7 of 67 spec files failing for reasons that
+      # exist with and without any WP-C change (missing fixtures: purchasing suppliers, permission seed,
+      # warehouse/branch setup - see the WP-C report). Remove `continue-on-error` and add this job to the
+      # required checks once those are triaged. The failing list is visible in the job log.
+      - name: Run DB-backed specs against the local DB
+        continue-on-error: true
+        run: node test/local-db/run-integration.js
+
+      - name: PostgREST logs on failure
+        if: failure()
+        run: docker logs postgrest || true

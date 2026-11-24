@@ -18,7 +18,7 @@
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:integration": "jest --config jest.integration.config.js",
-    "test-db:up": "docker compose -f test/local-db/docker-compose.yml up -d db && node test/local-db/apply.js --with-pending && docker compose -f test/local-db/docker-compose.yml up -d",
+    "test-db:up": "docker compose -f test/local-db/docker-compose.yml up -d db && node test/local-db/apply.js --with-pending && docker compose -f test/local-db/docker-compose.yml up -d && node test/local-db/seed.js",
     "test-db:down": "docker compose -f test/local-db/docker-compose.yml down",
     "test:integration:local": "node test/local-db/run-integration.js",
     "test:watch": "jest --watch",
@@ -28,7 +28,11 @@
     "seed:permissions": "ts-node -r tsconfig-paths/register src/database/seeds/permissions.seed.ts",
     "seed:full": "ts-node -r tsconfig-paths/register src/seeds/full-setup.seed.ts",
     "gen:tokens": "ts-node -r tsconfig-paths/register src/database/seeds/generate-token.ts",
-    "migrate": "ts-node -r tsconfig-paths/register src/database/migrate.ts"
+    "migrate": "ts-node -r tsconfig-paths/register src/database/migrate.ts",
+    "migrate:dry-run": "ts-node -r tsconfig-paths/register src/database/migrate.ts --dry-run",
+    "migrate:release": "ts-node -r tsconfig-paths/register src/database/migrate.ts --release",
+    "migrations:lint": "node scripts/lint-migrations.js",
+    "schema:drift": "node scripts/schema-drift.js"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",

@@ -91,7 +91,9 @@ function setup({ answers = [] }: Setup = {}) {
         },
       ],
     ],
-    ['FROM roles', [{ id: ROLE }]],
+    // R-DOC-01: the issuer's roles come from user_roles (identity), not from names
+    ['FROM user_roles', [{ id: ROLE, name: 'manager', tenant_id: null }]],
+    ['FROM roles', [{ id: ROLE }]], // legacy fallback (no user_roles row)
     ['FROM document_asset_permissions', []],
   ];
   const all = [...answers, ...defaults];

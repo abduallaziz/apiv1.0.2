@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../../shared/supabase/supabase.module';
 import { RedisCacheService } from '../cache/redis-cache.service';
+import { HARDCODED_PLATFORM_ONLY_KEYS } from '../../modules/access-control/platform-only-permissions.const';
 
 // S5 Stage B — tenant-aware permission resolution.
 // Base grants still come from the global, permanent role_permissions table
@@ -17,6 +18,13 @@ import { RedisCacheService } from '../cache/redis-cache.service';
 // or any caller that genuinely has none), behavior and the cache key format
 // are byte-identical to pre-Stage-B code — tenant_role_permissions is never
 // queried in that case.
+interface UserRoleIdentity {
+  id: string;
+  name: string;
+  /** NULL = system (global) role; otherwise the owning tenant. */
+  tenant_id: string | null;
+}
+
 const PERMISSIONS_TTL = 600;
 const cacheKey = (role: string, tenantId?: string | null) =>
   tenantId
@@ -97,12 +105,16 @@ export class PermissionsService {
     permissionKey: string,
     tenantId?: string | null,
   ): Promise<boolean> {
-    const roles = await this.fetchUserRoleNames(userId);
+    const roles = await this.fetchUserRoles(userId);
 
     // Same force-true rule hasPermission() applies to 'owner' — if any role
-    // held by this user is 'owner', every permission resolves true,
-    // regardless of what the other held roles grant or deny.
-    if (roles.includes('owner')) return true;
+    // held by this user is the GLOBAL 'owner' role, every permission
+    // resolves true, regardless of what the other held roles grant or deny.
+    // R-01: a TENANT-scoped role that merely has the name 'owner' is not the
+    // owner role and never triggers this bypass.
+    if (roles.some((r) => r.tenant_id === null && r.name === 'owner')) {
+      return true;
+    }
 
     const granted = await this.getGrantedSetForUser(userId, roles, tenantId);
     return granted.has(permissionKey);
@@ -118,7 +130,7 @@ export class PermissionsService {
   // forget about.
   private async getGrantedSetForUser(
     userId: string,
-    roles: string[],
+    roles: UserRoleIdentity[],
     tenantId?: string | null,
   ): Promise<Set<string>> {
     const key = userCacheKey(userId, tenantId);
@@ -128,7 +140,7 @@ export class PermissionsService {
 
     const merged = new Set<string>();
     for (const role of roles) {
-      const keys = await this.resolveGrantedKeys(role, tenantId);
+      const keys = await this.resolveGrantedKeysForRole(role, tenantId);
       for (const k of keys) merged.add(k);
     }
 
@@ -249,16 +261,44 @@ export class PermissionsService {
     await this.invalidateUserPermissions(userId, tenantId);
   }
 
-  private async fetchUserRoleNames(userId: string): Promise<string[]> {
+  // R-01: roles are resolved by IDENTITY (id + owning tenant), not by name —
+  // a tenant role called 'manager' is not the system 'manager' role.
+  private async fetchUserRoles(userId: string): Promise<UserRoleIdentity[]> {
     const { data, error } = await this.supabase
       .from('user_roles')
-      .select('role:roles!user_roles_role_id_fkey(name)')
+      .select('role:roles!user_roles_role_id_fkey(id, name, tenant_id)')
       .eq('user_id', userId);
 
     if (error || !data) return [];
     return data
-      .map((row: any) => row.role?.name as string | undefined)
-      .filter((name): name is string => !!name);
+      .map((row: any) => row.role as UserRoleIdentity | null | undefined)
+      .filter((r): r is UserRoleIdentity => !!r && !!r.name);
+  }
+
+  // System role (tenant_id NULL): existing name-keyed resolution (global
+  // grants + this tenant's overrides). Tenant-scoped role: ONLY the grants
+  // explicitly stored for that role id in tenant_role_permissions — never the
+  // global grants of a system role that happens to share its name — and never
+  // platform-only permissions, whatever an old row may say. A role that
+  // belongs to another tenant grants nothing.
+  private async resolveGrantedKeysForRole(
+    role: UserRoleIdentity,
+    tenantId?: string | null,
+  ): Promise<string[]> {
+    if (role.tenant_id === null) {
+      return this.resolveGrantedKeys(role.name, tenantId);
+    }
+    if (!tenantId || role.tenant_id !== tenantId) return [];
+
+    const rows = await this.fetchTenantOverrides(tenantId, role.id);
+    return rows
+      .filter((r) => r.is_granted)
+      .map((r) => r.permission_key)
+      .filter(
+        (key) =>
+          !HARDCODED_PLATFORM_ONLY_KEYS.has(key) &&
+          !key.startsWith('superadmin.'),
+      );
   }
 
   // S5 Stage C — shared resolution detail for the access-control admin API.

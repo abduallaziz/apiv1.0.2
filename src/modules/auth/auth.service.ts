@@ -17,11 +17,22 @@ import { AccountingBootstrapService } from './accounting-bootstrap.service';
 import { ensureBranchWarehouse } from '../branches/branch-warehouse.util';
 import { AuditService } from '../../core/audit/audit.service';
 import { BranchValidatorService } from '../../core/security/branch-validator.service';
+import {
+  fetchBlockedTenantStatus,
+  isAuthRefusedFor,
+  isRevokeSessionsOnPasswordChange,
+  isTenantStatusEnforced,
+  tenantBlockMessage,
+} from '../../core/security/tenant-status.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/types/jwt-payload.type';
+import {
+  buildRoleClaims,
+  RoleClaims,
+} from '../../core/security/platform-identity';
 
 // Narrow row shapes for the two `users` selects below — passed as the
 // postgrest-js select() generic so `data`/`error` come back properly typed
@@ -55,7 +66,7 @@ interface MeUserRow {
 // MeUserRow above, kept minimal and query-local rather than one shared "User"
 // type, since each query selects different columns.
 interface RoleNameRow {
-  role: { name: string } | null;
+  role: { name: string; tenant_id: string | null } | null;
 }
 
 interface TenantBusinessTypeRow {
@@ -101,6 +112,7 @@ interface RefreshUserRow {
   role: string;
   tenant_id: string | null;
   branch_id: string | null;
+  is_active: boolean;
 }
 
 interface DeviceSessionWithJoinsRow {
@@ -243,22 +255,35 @@ export class AuthService {
     }
   }
 
-  // Phase 2 of the multi-role migration — reads the full role set from
-  // user_roles (joined to roles.name, not the FK's UUID, since every Guard
-  // matches against string literals like 'superadmin'/'owner'). Falls back
-  // to [] on any error so a lookup failure degrades to "no extra roles"
-  // rather than breaking login; callers always OR this with the existing
-  // primary `role` before trusting the result.
-  private async getUserRoleNames(userId: string): Promise<string[]> {
+  // R-01: reads the user's roles from user_roles (joined to roles.name and
+  // roles.tenant_id) and turns them into token claims through buildRoleClaims().
+  // Names of tenant-scoped roles that collide with a reserved/system name are
+  // dropped and `platform_admin` is derived only from (no tenant + GLOBAL
+  // superadmin role) — never from a name a tenant could have chosen.
+  // A lookup failure degrades to the legacy single role (never to extra
+  // privilege).
+  private async resolveRoleClaims(user: {
+    id: string;
+    role: string;
+    tenant_id: string | null;
+  }): Promise<RoleClaims> {
     const { data, error } = await this.supabase
       .from('user_roles')
-      .select<string, RoleNameRow>('role:roles!user_roles_role_id_fkey(name)')
-      .eq('user_id', userId);
+      .select<
+        string,
+        RoleNameRow
+      >('role:roles!user_roles_role_id_fkey(name, tenant_id)')
+      .eq('user_id', user.id);
 
-    if (error || !data) return [];
-    return data
-      .map((row) => row.role?.name)
-      .filter((name): name is string => !!name);
+    const rows =
+      error || !data
+        ? []
+        : data.flatMap((row) =>
+            row.role?.name
+              ? [{ name: row.role.name, tenant_id: row.role.tenant_id }]
+              : [],
+          );
+    return buildRoleClaims(rows, user);
   }
 
   private async getUserPermissions(role: string): Promise<string[]> {
@@ -381,6 +406,25 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // AUTH_ENFORCE_TENANT_STATUS (off by default): no session for a suspended/cancelled tenant. Checked after the
+    // password so the status is never disclosed to someone who does not know the credentials. Platform admins
+    // (tenant_id null) are never affected.
+    if (isTenantStatusEnforced() && user.tenant_id) {
+      const blocked = await fetchBlockedTenantStatus(
+        this.supabase,
+        user.tenant_id,
+        this.logger,
+      );
+      if (isAuthRefusedFor(blocked)) {
+        throw new ForbiddenException({
+          statusCode: 403,
+          code:
+            blocked === 'suspended' ? 'TENANT_SUSPENDED' : 'TENANT_CANCELLED',
+          message: tenantBlockMessage(blocked),
+        });
+      }
+    }
+
     const { data: session } = await this.supabase
       .from('device_sessions')
       .insert({
@@ -403,13 +447,14 @@ export class AuthService {
     const { business_type, activity } = await this.getTenantBusinessType(
       user.tenant_id,
     );
-    const roleNames = await this.getUserRoleNames(user.id);
+    const roleClaims = await this.resolveRoleClaims(user);
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
-      roles: roleNames.length > 0 ? roleNames : [user.role],
+      roles: roleClaims.roles,
+      platform_admin: roleClaims.platform_admin,
       tenant_id: user.tenant_id,
       session_id: session.id,
       business_type,
@@ -656,13 +701,14 @@ export class AuthService {
         throw new ServiceUnavailableException('Failed to create session');
       }
 
-      const roleNames = await this.getUserRoleNames(user.id);
+      const roleClaims = await this.resolveRoleClaims(user);
 
       const payload: JwtPayload = {
         sub: user.id,
         email: user.email,
         role: user.role,
-        roles: roleNames.length > 0 ? roleNames : [user.role],
+        roles: roleClaims.roles,
+        platform_admin: roleClaims.platform_admin,
         tenant_id: user.tenant_id,
         session_id: session.id,
         business_type: businessType,
@@ -786,7 +832,10 @@ export class AuthService {
 
     const { data: user } = await this.supabase
       .from('users')
-      .select<string, RefreshUserRow>('id, email, role, tenant_id, branch_id')
+      .select<
+        string,
+        RefreshUserRow
+      >('id, email, role, tenant_id, branch_id, is_active')
       .eq('id', tokenRecord.user_id)
       .is('deleted_at', null)
       .single();
@@ -795,21 +844,63 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    await this.supabase
+    // A deactivated account must not keep minting access tokens from a
+    // session opened before it was disabled (login already refuses it).
+    if (user.is_active === false) {
+      throw new UnauthorizedException('Account is inactive');
+    }
+
+    // AUTH_ENFORCE_TENANT_STATUS (off by default). Before the token is claimed, so a refresh refused here does
+    // not burn the refresh token: it works again once the tenant is reactivated.
+    if (isTenantStatusEnforced() && user.tenant_id) {
+      const blocked = await fetchBlockedTenantStatus(
+        this.supabase,
+        user.tenant_id,
+        this.logger,
+      );
+      if (isAuthRefusedFor(blocked)) {
+        throw new UnauthorizedException({
+          statusCode: 401,
+          code:
+            blocked === 'suspended' ? 'TENANT_SUSPENDED' : 'TENANT_CANCELLED',
+          message: tenantBlockMessage(blocked),
+        });
+      }
+    }
+
+    // Single-use consumption must be ATOMIC: a plain "read is_used, then set
+    // it" lets parallel requests holding the same refresh token all succeed.
+    // The conditional update claims the token for exactly one caller.
+    // - A token that was ALREADY used when we read it is a real replay (handled
+    //   above: session revoked).
+    // - The loser of a race (two tabs / a client retry refreshing at the same
+    //   instant) gets a plain 401 and must NOT revoke the session: the winner
+    //   holds a valid new token and the user must stay signed in.
+    // - A database error on the claim is not evidence of reuse: no revocation.
+    const { data: claimed, error: claimError } = await this.supabase
       .from('refresh_tokens')
       .update({ is_used: true })
-      .eq('id', tokenRecord.id);
+      .eq('id', tokenRecord.id)
+      .eq('is_used', false)
+      .select<string, IdRow>('id');
+    if (claimError) {
+      throw new UnauthorizedException('Could not refresh the session');
+    }
+    if (!claimed || claimed.length !== 1) {
+      throw new UnauthorizedException('Refresh already in progress');
+    }
 
     const { business_type, activity } = await this.getTenantBusinessType(
       user.tenant_id,
     );
-    const roleNames = await this.getUserRoleNames(user.id);
+    const roleClaims = await this.resolveRoleClaims(user);
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
-      roles: roleNames.length > 0 ? roleNames : [user.role],
+      roles: roleClaims.roles,
+      platform_admin: roleClaims.platform_admin,
       tenant_id: user.tenant_id,
       session_id: session.id,
       business_type,
@@ -993,6 +1084,35 @@ export class AuthService {
       .from('refresh_tokens')
       .update({ is_used: true })
       .in('session_id', sessionIds);
+  }
+
+  /**
+   * AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE (off by default: no-op). After a password change/reset, ends every
+   * device session and refresh token of the user except keepSessionId (the caller's own session, when the user
+   * changed their own password). Issued access tokens still run to their expiry (JWT_EXPIRES_IN).
+   */
+  async revokeSessionsOnPasswordChange(
+    userId: string,
+    keepSessionId?: string | null,
+  ): Promise<void> {
+    if (!isRevokeSessionsOnPasswordChange()) return;
+    const { data: sessions } = await this.supabase
+      .from('device_sessions')
+      .select<string, IdRow>('id')
+      .eq('user_id', userId)
+      .eq('is_revoked', false);
+    const ids = (sessions ?? [])
+      .map((s) => s.id)
+      .filter((id) => id !== keepSessionId);
+    if (ids.length === 0) return;
+    await this.supabase
+      .from('device_sessions')
+      .update({ is_revoked: true })
+      .in('id', ids);
+    await this.supabase
+      .from('refresh_tokens')
+      .update({ is_used: true })
+      .in('session_id', ids);
   }
 
   async getSessions(userId: string) {

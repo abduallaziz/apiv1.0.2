@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { isOwnerOrPlatformAdmin } from '../../../core/security/platform-identity';
 
 /**
  * Restricts a route to the tenant owner (or a platform superadmin).
@@ -18,13 +19,8 @@ export class TenantOwnerGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const user = context.switchToHttp().getRequest().user;
 
-    const roles: string[] = Array.isArray(user?.roles)
-      ? user.roles
-      : user?.role
-        ? [user.role]
-        : [];
-
-    if (!user || !(roles.includes('owner') || roles.includes('superadmin'))) {
+    // R-01: owner (sanitised role claim) or platform administrator identity.
+    if (!user || !isOwnerOrPlatformAdmin(user)) {
       throw new ForbiddenException(
         'Only the tenant owner can manage the subscription',
       );

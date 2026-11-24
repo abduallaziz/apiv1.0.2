@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { isPlatformAdmin } from '../../../core/security/platform-identity';
 
 @Injectable()
 export class SuperAdminGuard implements CanActivate {
@@ -11,15 +12,8 @@ export class SuperAdminGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // Phase 2 of the multi-role migration — user.roles may be absent on a
-    // JWT signed before this field existed, so fall back to [user.role].
-    const roles: string[] = Array.isArray(user?.roles)
-      ? user.roles
-      : user?.role
-        ? [user.role]
-        : [];
-
-    if (!user || !roles.includes('superadmin')) {
+    // R-01: platform identity, not a role name (see core/security/platform-identity).
+    if (!user || !isPlatformAdmin(user)) {
       throw new ForbiddenException('SuperAdmin access required');
     }
 

@@ -178,6 +178,11 @@ export class AccountingBootstrapService {
       throw new ServiceUnavailableException('Failed to generate fiscal year');
     }
 
+    // WP-B: new tenants start with coverage beyond the current year (FISCAL_HORIZON_YEARS, default 2).
+    // Best effort on purpose: if migration 325 is not applied yet (or generation is refused) the
+    // registration must still succeed — the daily job / the posting safety net cover the rest.
+    await this.extendFiscalHorizon(tenantId);
+
     const { data: accounts, error: accountsError } = await this.supabase
       .from('accounts')
       .insert(
@@ -218,6 +223,37 @@ export class AccountingBootstrapService {
 
     if (roleAssignmentError) {
       throw new ServiceUnavailableException('Failed to assign account roles');
+    }
+  }
+
+  private async extendFiscalHorizon(tenantId: string): Promise<void> {
+    try {
+      const years = Number(process.env.FISCAL_HORIZON_YEARS ?? 2);
+      if (!Number.isFinite(years) || years <= 0) return;
+      const now = new Date();
+      const through = new Date(
+        Date.UTC(
+          now.getUTCFullYear() + Math.min(Math.trunc(years), 5),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+        ),
+      )
+        .toISOString()
+        .slice(0, 10);
+      const { error } = await this.supabase.rpc('fn_ensure_fiscal_years', {
+        p_tenant_id: tenantId,
+        p_through_date: through,
+        p_dry_run: false,
+      });
+      if (error) {
+        console.warn(
+          `[accounting-bootstrap] fiscal horizon not extended for tenant ${tenantId}: ${error.message}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[accounting-bootstrap] fiscal horizon not extended for tenant ${tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

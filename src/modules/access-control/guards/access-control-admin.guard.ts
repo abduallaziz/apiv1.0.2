@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { isOwnerOrPlatformAdmin } from '../../../core/security/platform-identity';
 
 // Mirrors the existing SuperAdminGuard pattern (modules/superadmin/guards/
 // superadmin.guard.ts) exactly — a hardcoded role check, not a customizable
@@ -16,15 +17,9 @@ export class AccessControlAdminGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // Phase 2 of the multi-role migration — user.roles may be absent on a
-    // JWT signed before this field existed, so fall back to [user.role].
-    const roles: string[] = Array.isArray(user?.roles)
-      ? user.roles
-      : user?.role
-        ? [user.role]
-        : [];
-
-    if (!user || (!roles.includes('owner') && !roles.includes('superadmin'))) {
+    // R-01: tenant owner (global owner role, sanitised in the token) or a
+    // platform administrator — never a tenant-chosen role name.
+    if (!user || !isOwnerOrPlatformAdmin(user)) {
       throw new ForbiddenException('Owner or superadmin access required');
     }
 

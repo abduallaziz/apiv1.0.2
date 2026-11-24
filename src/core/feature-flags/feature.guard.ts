@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { REQUIRE_FEATURE_KEY } from './require-feature.decorator';
 import { EntitlementsService } from '../security/entitlements.service';
+import { isPlatformAdmin } from '../security/platform-identity';
 
 /**
  * Blocks a route whose @RequireFeature('key') is NOT part of the tenant's entitlements
@@ -34,8 +35,9 @@ export class FeatureGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // Superadmin bypasses feature flags
-    if (user?.role === 'superadmin') return true;
+    // Platform administrators bypass feature flags (R-01: platform identity,
+    // not the legacy users.role value).
+    if (isPlatformAdmin(user)) return true;
 
     const tenantId: string | undefined = request.tenantContext?.tenantId;
 

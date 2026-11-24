@@ -1,4 +1,9 @@
 import * as Joi from 'joi';
+import {
+  describePooledSalesViolations,
+  evaluatePooledSalesState,
+  isPooledSalesRequired,
+} from '../../security/pooled-sales-guard';
 
 export const envValidationSchema = Joi.object({
   // ── App ──────────────────────────────────────────────
@@ -31,6 +36,24 @@ export const envValidationSchema = Joi.object({
   // Only meaningful with POOLED_INVOICE_WRITES_ENABLED=true. A stock failure
   // never fails the sale (SAVEPOINT), it only falls back to the old behaviour.
   POOLED_STOCK_IN_TX_ENABLED: Joi.boolean().default(false),
+  // WP-E (migration 335): record swallowed stock failures durably (financial_exceptions) instead of dropping them, deduct
+  // per line so healthy lines keep their movements, and restock inside the pooled cancel. OFF by default: with false the sale
+  // and cancel paths are exactly as before. Needs migration 335 applied; if it is missing the code falls back to the old path.
+  SALE_EXCEPTION_RECORDING_ENABLED: Joi.boolean().default(false),
+  // Bounds for the retry scheduler that runs only while SALE_EXCEPTION_RECORDING_ENABLED=true (every 5 minutes).
+  SALE_EXCEPTION_RETRY_BATCH_SIZE: Joi.number().integer().min(1).max(500).default(50),
+  SALE_EXCEPTION_RETRY_MAX_TENANTS: Joi.number().integer().min(1).max(200).default(25),
+  // R-UNPOOLED opt-in hard fail: with true, a production boot is refused when
+  // DATABASE_URL is missing, POOLED_INVOICE_WRITES_ENABLED is off, or pooled
+  // writes are on while POOLED_STOCK_IN_TX_ENABLED is off; the non-pooled
+  // sale path also refuses sales. Default false = log CRITICAL + metric only.
+  REQUIRE_POOLED_SALES: Joi.boolean().default(false),
+  // WP-B fiscal-year continuity (migration 325). The daily job is OFF by default and, even when
+  // enabled, only REPORTS unless FISCAL_SCHEDULER_APPLY=true too: fiscal years are append-only.
+  FISCAL_SCHEDULER_ENABLED: Joi.boolean().default(false),
+  FISCAL_SCHEDULER_APPLY: Joi.boolean().default(false),
+  FISCAL_HORIZON_YEARS: Joi.number().integer().min(0).max(5).default(2),
+  FISCAL_ALERT_DAYS: Joi.number().integer().min(1).default(180),
   // ZATCA e-invoicing phase 2: issue a signed document inside every pooled sale of a branch that has
   // an onboarded device (docs/DESIGN_ZATCA_PHASE2.md). Off by default; nothing is sent to ZATCA here —
   // documents are prepared, signed, chained and stored until the connection is added.
@@ -50,6 +73,17 @@ export const envValidationSchema = Joi.object({
   DOCUMENTS_BUILDER_ENABLED: Joi.boolean().default(false),
 
   // ── Auth ─────────────────────────────────────────────
+  // T9 auth hardening, all OFF by default (false = behaviour exactly as before).
+  // true: login/refresh refused for a suspended/cancelled tenant (platform admins unaffected) and the TenantGuard
+  // refuses already-issued tokens of such tenants (subscription/billing/auth routes stay reachable).
+  AUTH_ENFORCE_TENANT_STATUS: Joi.boolean().default(false),
+  // Cache TTL of the per-request tenant status check = the residual window after a suspension.
+  AUTH_TENANT_STATUS_CACHE_TTL_SECONDS: Joi.number().integer().min(0).default(60),
+  // Only with AUTH_ENFORCE_TENANT_STATUS=true: true (default) lets a SUSPENDED tenant log in/refresh so it can reach the
+  // billing routes (TenantGuard still 403s everything else); cancelled tenants are always refused. false = both refused.
+  AUTH_ALLOW_SUSPENDED_LOGIN: Joi.boolean().default(true),
+  // true: a password change/reset revokes the user's other device sessions and refresh tokens.
+  AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE: Joi.boolean().default(false),
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRY: Joi.string().default('7d'),
@@ -62,8 +96,12 @@ export const envValidationSchema = Joi.object({
   // production it is refused unless explicitly opted into (and logged) —
   // otherwise a misconfigured deploy would hand out paid plans for free.
   PAYMENT_PROVIDER: Joi.string().valid('stripe', 'mock').default('mock'),
-  ALLOW_QA_EXEMPTION_IN_PRODUCTION: Joi.string().valid('true', 'false').optional(),
-  ALLOW_MOCK_PAYMENT_IN_PRODUCTION: Joi.string().valid('true', 'false').optional(),
+  ALLOW_QA_EXEMPTION_IN_PRODUCTION: Joi.string()
+    .valid('true', 'false')
+    .optional(),
+  ALLOW_MOCK_PAYMENT_IN_PRODUCTION: Joi.string()
+    .valid('true', 'false')
+    .optional(),
   STRIPE_SECRET_KEY: Joi.when('PAYMENT_PROVIDER', {
     is: 'stripe',
     then: Joi.string().pattern(/^sk_/).required(),
@@ -117,6 +155,15 @@ export const envValidationSchema = Joi.object({
       custom:
         'PAYMENT_PROVIDER must be "stripe" in production (set ALLOW_MOCK_PAYMENT_IN_PRODUCTION=true only to knowingly accept free plans)',
     });
+  }
+  // R-UNPOOLED opt-in fail-fast (shared logic with PooledSalesGuardService).
+  if (isPooledSalesRequired(value)) {
+    const v = evaluatePooledSalesState(value);
+    if (v.length > 0) {
+      return helpers.message({
+        custom: `REQUIRE_POOLED_SALES=true but: ${describePooledSalesViolations(v).join('; ')}`,
+      });
+    }
   }
   return value;
 });

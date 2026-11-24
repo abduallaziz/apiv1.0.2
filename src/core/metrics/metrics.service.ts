@@ -14,6 +14,12 @@ import {
   BUSINESS_SHIFTS_TOTAL,
   BUSINESS_EXPENSES_TOTAL,
   BUSINESS_ACTIVE_TENANTS,
+  FISCAL_COVERAGE_DAYS_MIN,
+  FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD,
+  POOLED_SALES_GUARD_VIOLATION,
+  UNPOOLED_SALE_ATTEMPTS_TOTAL,
+  FINANCIAL_EXCEPTIONS_RECORDED_TOTAL,
+  FINANCIAL_EXCEPTION_RETRIES_TOTAL,
 } from './metrics.constants';
 
 @Injectable()
@@ -28,6 +34,14 @@ export class MetricsService implements OnModuleInit {
   readonly shiftsTotal: Counter<string>;
   readonly expensesTotal: Counter<string>;
   readonly activeTenantsGauge: Gauge<string>;
+  // WP-B: aggregate only (no tenant labels — /metrics is not tenant-scoped).
+  readonly fiscalCoverageDaysMin: Gauge<string>;
+  readonly fiscalTenantsBelowThreshold: Gauge<string>;
+  // R-UNPOOLED: 1 per active violation reason (no tenant labels).
+  readonly pooledSalesGuardViolation: Gauge<string>;
+  readonly unpooledSaleAttempts: Counter<string>;
+  readonly financialExceptionsRecorded: Counter<string>;
+  readonly financialExceptionRetries: Counter<string>;
 
   constructor() {
     this.registry = new Registry();
@@ -80,6 +94,80 @@ export class MetricsService implements OnModuleInit {
       help: 'Number of active tenants',
       registers: [this.registry],
     });
+
+    this.fiscalCoverageDaysMin = new Gauge({
+      name: FISCAL_COVERAGE_DAYS_MIN,
+      help: 'Smallest number of days of fiscal-year coverage left among tenants below the alert threshold',
+      registers: [this.registry],
+    });
+
+    this.fiscalTenantsBelowThreshold = new Gauge({
+      name: FISCAL_COVERAGE_TENANTS_BELOW_THRESHOLD,
+      help: 'Number of tenants whose fiscal-year coverage is below the alert threshold',
+      registers: [this.registry],
+    });
+
+    this.pooledSalesGuardViolation = new Gauge({
+      name: POOLED_SALES_GUARD_VIOLATION,
+      help: 'R-UNPOOLED: 1 when the production environment is in a state where sales lack accounting/COGS, by reason',
+      labelNames: ['reason'],
+      registers: [this.registry],
+    });
+
+    this.unpooledSaleAttempts = new Counter({
+      name: UNPOOLED_SALE_ATTEMPTS_TOTAL,
+      help: 'Sales attempted on the non-pooled (no accounting entry) path in production',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+
+    // WP-E: durable financial exceptions recorded in the sale path. Label = the exception kind only (no tenant, no ids).
+    this.financialExceptionsRecorded = new Counter({
+      name: FINANCIAL_EXCEPTIONS_RECORDED_TOTAL,
+      help: 'Financial exceptions durably recorded (swallowed stock/COGS/restock failures), by kind',
+      labelNames: ['kind'],
+      registers: [this.registry],
+    });
+
+    this.financialExceptionRetries = new Counter({
+      name: FINANCIAL_EXCEPTION_RETRIES_TOTAL,
+      help: 'Financial exception retry outcomes (resolved, failed, refused_closed_period, already_resolved, error)',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+  }
+
+  recordFinancialExceptionRetry(outcome: string, count = 1): void {
+    this.financialExceptionRetries.inc({ outcome }, count);
+  }
+
+  recordFinancialException(
+    kind: 'stock_deduction_failed' | 'cogs_missing' | 'restock_failed',
+    count = 1,
+  ): void {
+    this.financialExceptionsRecorded.inc({ kind }, count);
+  }
+
+  setPooledSalesGuard(active: readonly string[]): void {
+    for (const reason of [
+      'database_url_missing',
+      'pooled_writes_off',
+      'stock_in_tx_off',
+    ]) {
+      this.pooledSalesGuardViolation.set(
+        { reason },
+        active.includes(reason) ? 1 : 0,
+      );
+    }
+  }
+
+  recordUnpooledSaleAttempt(outcome: 'refused' | 'flagged'): void {
+    this.unpooledSaleAttempts.inc({ outcome });
+  }
+
+  setFiscalCoverage(daysMin: number, tenantsBelow: number): void {
+    this.fiscalCoverageDaysMin.set(daysMin);
+    this.fiscalTenantsBelowThreshold.set(tenantsBelow);
   }
 
   onModuleInit(): void {

@@ -3,6 +3,8 @@ import { EffectiveRoleResolver } from './effective-role.resolver';
 interface RoleFixture {
   id: string;
   name: string;
+  // NULL = system (global) role, as PostgREST returns it; otherwise the owning tenant.
+  tenant_id: string | null;
   priority: number;
   is_hierarchy_participant: boolean;
 }
@@ -44,6 +46,7 @@ function role(
   overrides: Partial<RoleFixture> & { id: string; name: string },
 ): RoleFixture {
   return {
+    tenant_id: null,
     priority: 0,
     is_hierarchy_participant: true,
     ...overrides,
@@ -65,11 +68,13 @@ const ROLES = {
   customParticipant: role({
     id: 'r-custom-80',
     name: 'custom_80',
+    tenant_id: 'tenant-a',
     priority: 80,
   }),
   customNonParticipant: role({
     id: 'r-custom-np',
     name: 'custom_np',
+    tenant_id: 'tenant-a',
     priority: 0,
     is_hierarchy_participant: false,
   }),
@@ -274,6 +279,42 @@ describe('EffectiveRoleResolver.resolveEffectiveRole', () => {
 
   it('no eligible roles at all -> null', async () => {
     const resolver = makeResolver({ u1: [] });
+    expect(await resolver.resolveEffectiveRole('u1')).toBeNull();
+  });
+});
+
+describe('EffectiveRoleResolver — R-01 look-alike tenant roles', () => {
+  it('a tenant-scoped role that merely carries a system name is never an effective role', async () => {
+    const lookalike = role({
+      id: 'r-fake-owner',
+      name: 'owner',
+      tenant_id: 'tenant-a',
+      priority: 85,
+    });
+    const resolver = makeResolver({
+      u1: [
+        { is_primary: false, role: lookalike },
+        { is_primary: true, role: ROLES.cashier },
+      ],
+    });
+    const effective = await resolver.resolveEffectiveRole('u1');
+    expect(effective?.roleId).toBe('r-cashier');
+  });
+
+  it('returns null when the only role is a look-alike (fail closed)', async () => {
+    const resolver = makeResolver({
+      u1: [
+        {
+          is_primary: true,
+          role: role({
+            id: 'r-fake',
+            name: 'Manager',
+            tenant_id: 'tenant-a',
+            priority: 60,
+          }),
+        },
+      ],
+    });
     expect(await resolver.resolveEffectiveRole('u1')).toBeNull();
   });
 });
