@@ -505,6 +505,7 @@ export class UsersService {
     dto: UpdateUserDto,
     tenant: TenantContext,
     actorId: string,
+    actorSessionId?: string,
   ) {
     const existing = await this.findOne(id, tenant);
 
@@ -554,6 +555,15 @@ export class UsersService {
       updates,
     );
     if (error) throw new BadRequestException(error.message);
+
+    // AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE (no-op when off): a password change ends the user's other
+    // sessions; when the actor changed their OWN password their current session survives.
+    if (dto.password) {
+      await this.authService.revokeSessionsOnPasswordChange(
+        id,
+        actorId === id ? actorSessionId : undefined,
+      );
+    }
 
     // Being disabled (active → inactive) must immediately revoke attendance access
     // and kill live sessions — re-enabling does NOT restore the old link/device on

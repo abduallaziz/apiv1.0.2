@@ -61,7 +61,13 @@ export class UsersController {
     @GetTenant() tenant: TenantContext,
     @Request() req: any,
   ) {
-    return this.usersService.update(id, dto, tenant, req.user.sub);
+    return this.usersService.update(
+      id,
+      dto,
+      tenant,
+      req.user.sub,
+      req.user.session_id,
+    );
   }
 
   @Patch(':id/role')

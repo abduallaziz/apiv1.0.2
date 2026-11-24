@@ -1,6 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import * as bcrypt from 'bcryptjs';
+import { isRevokeSessionsOnPasswordChange } from '../../../core/security/tenant-status.service';
 import { SUPABASE_CLIENT } from '../../../shared/supabase/supabase.module';
 
 @Injectable()
@@ -43,6 +44,11 @@ export class AuthControlService {
       .eq('id', userId);
     if (error) throw new Error(error.message);
     if (!count) throw new NotFoundException('User not found');
+    // AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE (off by default): a platform reset ends all of the user's sessions
+    // (the reset is not made from one of the user's own sessions, so none is kept).
+    if (isRevokeSessionsOnPasswordChange()) {
+      await this.revokeAllUserSessions(userId);
+    }
     return { success: true };
   }
 

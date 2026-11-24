@@ -17,6 +17,12 @@ import { AccountingBootstrapService } from './accounting-bootstrap.service';
 import { ensureBranchWarehouse } from '../branches/branch-warehouse.util';
 import { AuditService } from '../../core/audit/audit.service';
 import { BranchValidatorService } from '../../core/security/branch-validator.service';
+import {
+  fetchBlockedTenantStatus,
+  isRevokeSessionsOnPasswordChange,
+  isTenantStatusEnforced,
+  tenantBlockMessage,
+} from '../../core/security/tenant-status.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RevokeSessionDto } from './dto/revoke-session.dto';
@@ -397,6 +403,25 @@ export class AuthService {
         device: userAgent,
       });
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // AUTH_ENFORCE_TENANT_STATUS (off by default): no session for a suspended/cancelled tenant. Checked after the
+    // password so the status is never disclosed to someone who does not know the credentials. Platform admins
+    // (tenant_id null) are never affected.
+    if (isTenantStatusEnforced() && user.tenant_id) {
+      const blocked = await fetchBlockedTenantStatus(
+        this.supabase,
+        user.tenant_id,
+        this.logger,
+      );
+      if (blocked) {
+        throw new ForbiddenException({
+          statusCode: 403,
+          code:
+            blocked === 'suspended' ? 'TENANT_SUSPENDED' : 'TENANT_CANCELLED',
+          message: tenantBlockMessage(blocked),
+        });
+      }
     }
 
     const { data: session } = await this.supabase
@@ -824,6 +849,24 @@ export class AuthService {
       throw new UnauthorizedException('Account is inactive');
     }
 
+    // AUTH_ENFORCE_TENANT_STATUS (off by default). Before the token is claimed, so a refresh refused here does
+    // not burn the refresh token: it works again once the tenant is reactivated.
+    if (isTenantStatusEnforced() && user.tenant_id) {
+      const blocked = await fetchBlockedTenantStatus(
+        this.supabase,
+        user.tenant_id,
+        this.logger,
+      );
+      if (blocked) {
+        throw new UnauthorizedException({
+          statusCode: 401,
+          code:
+            blocked === 'suspended' ? 'TENANT_SUSPENDED' : 'TENANT_CANCELLED',
+          message: tenantBlockMessage(blocked),
+        });
+      }
+    }
+
     // Single-use consumption must be ATOMIC: a plain "read is_used, then set
     // it" lets parallel requests holding the same refresh token all succeed.
     // The conditional update claims the token for exactly one caller.
@@ -1040,6 +1083,35 @@ export class AuthService {
       .from('refresh_tokens')
       .update({ is_used: true })
       .in('session_id', sessionIds);
+  }
+
+  /**
+   * AUTH_REVOKE_SESSIONS_ON_PASSWORD_CHANGE (off by default: no-op). After a password change/reset, ends every
+   * device session and refresh token of the user except keepSessionId (the caller's own session, when the user
+   * changed their own password). Issued access tokens still run to their expiry (JWT_EXPIRES_IN).
+   */
+  async revokeSessionsOnPasswordChange(
+    userId: string,
+    keepSessionId?: string | null,
+  ): Promise<void> {
+    if (!isRevokeSessionsOnPasswordChange()) return;
+    const { data: sessions } = await this.supabase
+      .from('device_sessions')
+      .select<string, IdRow>('id')
+      .eq('user_id', userId)
+      .eq('is_revoked', false);
+    const ids = (sessions ?? [])
+      .map((s) => s.id)
+      .filter((id) => id !== keepSessionId);
+    if (ids.length === 0) return;
+    await this.supabase
+      .from('device_sessions')
+      .update({ is_revoked: true })
+      .in('id', ids);
+    await this.supabase
+      .from('refresh_tokens')
+      .update({ is_used: true })
+      .in('session_id', ids);
   }
 
   async getSessions(userId: string) {
